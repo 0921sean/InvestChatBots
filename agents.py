@@ -6,6 +6,7 @@ from prompts import AGENT_PROFILES
 
 _anthropic_client = None
 _openai_client = None
+_gemini_configured = False
 
 def _get_anthropic():
     global _anthropic_client
@@ -20,7 +21,10 @@ def _get_openai():
     return _openai_client
 
 def _get_gemini():
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    global _gemini_configured
+    if not _gemini_configured:
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        _gemini_configured = True
     return genai
 
 def call_agent(agent_name, system_prompt, user_prompt):
