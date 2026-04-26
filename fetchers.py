@@ -1,3 +1,4 @@
+import math
 import yfinance as yf
 import feedparser
 
@@ -21,7 +22,9 @@ def fetch_market_data():
             t = yf.Ticker(symbol)
             price = t.fast_info.last_price
             prev = t.fast_info.previous_close
-            change_pct = ((price - prev) / prev * 100) if prev else 0.0
+            if price is None or prev is None or math.isnan(price) or math.isnan(prev) or prev == 0:
+                raise ValueError("incomplete price data")
+            change_pct = (price - prev) / prev * 100
             result[name] = {"symbol": symbol, "price": round(price, 2), "change_pct": round(change_pct, 2)}
         except Exception:
             result[name] = {"symbol": symbol, "price": None, "change_pct": None}
@@ -53,7 +56,7 @@ def fetch_news(max_items=10):
 def build_market_summary(market_data, news):
     lines = ["=== Today's Market ==="]
     for name, d in market_data.items():
-        if d["price"]:
+        if d["price"] is not None and d["change_pct"] is not None:
             arrow = "▲" if d["change_pct"] >= 0 else "▼"
             lines.append(f"{name}: {d['price']:,.2f} {arrow}{abs(d['change_pct']):.1f}%")
     lines.append("\n=== Top News ===")
