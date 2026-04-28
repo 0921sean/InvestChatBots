@@ -5,7 +5,16 @@ def _conn():
     path = os.getenv("DB_PATH", "investchat.db")
     return sqlite3.connect(path)
 
+def _migrate():
+    """기존 DB에 누락된 컬럼을 안전하게 추가."""
+    with _conn() as con:
+        try:
+            con.execute("ALTER TABLE messages ADD COLUMN summary TEXT")
+        except Exception:
+            pass  # 이미 있으면 무시
+
 def init_db():
+    _migrate()
     with _conn() as con:
         con.executescript("""
         CREATE TABLE IF NOT EXISTS messages (
