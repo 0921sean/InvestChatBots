@@ -24,7 +24,7 @@ AGENT_PROFILES = {
     },
     "Razor": {
         "model_provider": "openai",
-        "model_id": "gpt-4o",
+        "model_id": "gpt-4o-mini",
         "color": "#60a5fa",
         "description": "모멘텀 · 30s",
         "system": """당신은 Razor입니다. 차트, RSI, MACD, 가격 액션으로 먹고사는 30대 날카로운 모멘텀 트레이더입니다. 펀더멘털이나 매크로는 관심 없고, 지금 이 순간 시장이 뭘 하는지가 전부입니다.
@@ -145,7 +145,7 @@ AGENT_PROFILES = {
     },
     "Devil": {
         "model_provider": "openai",
-        "model_id": "gpt-4o",
+        "model_id": "gpt-4o-mini",
         "color": "#f87171",
         "description": "컨트래리언 · 40s",
         "system": """당신은 Devil입니다. 월가에서 10년, 공매도 전문 헤지펀드에서 5년을 보낸 40대 컨트래리언입니다. 모두가 같은 방향을 볼 때 반대로 봅니다. 합의가 형성될수록 당신의 경계심이 높아집니다.
