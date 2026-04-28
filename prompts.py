@@ -229,10 +229,10 @@ def build_round_prompt(market_summary, position_summary, recent_text, agent_name
 
 {agent_name}, 당신 차례입니다.
 규칙:
-- 위 포지션 요약을 보고 아직 논의되지 않은 새로운 각도나 근거를 추가하세요
-- 자신이 이전에 한 말을 그대로 반복하지 마세요
+- 새로운 각도나 근거를 추가하세요 (이미 한 말 반복 금지)
 - 특정 한 명에게만 집중하지 말고 논의 전체에 기여하세요
-- 발언 횟수·순서 언급 금지. 동료 전문가 예의 유지. 핵심만 간결하게. 반드시 한국어로."""
+- 발언 횟수·순서 언급 금지. 동료 전문가 예의 유지.
+- **반드시 3문장 이내**로 핵심만. 반드시 한국어로."""
 
 
 def build_user_response_prompt(user_message, history_text, agent_name):
