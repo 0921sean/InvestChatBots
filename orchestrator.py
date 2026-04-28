@@ -1,4 +1,5 @@
 import json
+import time
 from db import (
     create_round, complete_round, save_message, get_recent_messages,
     get_agent_state, save_agent_state, save_market_snapshot
@@ -40,6 +41,7 @@ def run_round(market_summary=None):
         save_message(round_id, agent_name, None, response)
         history = get_recent_messages(30)
         history_text = format_history(history)
+        time.sleep(1)
 
     complete_round(round_id)
     _maybe_update_evolution(round_id)
@@ -73,6 +75,7 @@ def handle_user_message(user_text):
         save_message(round_id=0, agent_name=agent_name, model=None, content=response)
         history = get_recent_messages(30)
         history_text = format_history(history)
+        time.sleep(1)
 
 def _maybe_update_evolution(round_id):
     for agent_name in AGENT_ORDER:
