@@ -1,5 +1,6 @@
 import json
 import time
+import random
 from datetime import datetime, timezone
 from db import (
     create_round, complete_round, save_message, get_recent_messages,
@@ -15,42 +16,71 @@ from prompts import (
 from fetchers import fetch_market_data, fetch_news, build_market_summary
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
-MARKET_REFRESH_HOURS = 2   # 시황 갱신 주기
-CONSENSUS_EVERY_N_ROUNDS = 5  # N라운드마다 합의 체크
+MARKET_REFRESH_HOURS = 2
+CONSENSUS_EVERY_N_ROUNDS = 5
 _round_counter = 0
+_recent_speakers: list[str] = []   # 최근 발언자 추적 (공평성 보장)
 
 def _get_summary_agent(index):
     return SUMMARY_ROTATION[index % len(SUMMARY_ROTATION)]
 
 def _get_or_refresh_market_summary():
-    """마지막 시황이 2시간 이내면 재사용, 아니면 새로 fetch."""
+    """2시간 이내 시황은 재사용. 갱신 여부도 반환."""
     snap = get_latest_market_snapshot()
     if snap:
         created = datetime.fromisoformat(snap["created_at"].replace(" ", "T"))
-        # SQLite는 UTC naive로 저장되므로 naive 비교
         age_hours = (datetime.utcnow() - created).total_seconds() / 3600
         if age_hours < MARKET_REFRESH_HOURS:
             d = json.loads(snap["data"])
-            return build_market_summary(d.get("data", {}), d.get("news", []))
+            return build_market_summary(d.get("data", {}), d.get("news", [])), False  # False = 캐시 사용
 
-    # 2시간 초과 or 첫 실행 → 새로 fetch
     data = fetch_market_data()
     news = fetch_news()
     save_market_snapshot(json.dumps({"data": data, "news": news}))
-    return build_market_summary(data, news)
+    return build_market_summary(data, news), True  # True = 새로 가져옴
+
+def _pick_speakers() -> list[str]:
+    """
+    2~4명을 자연스럽게 선택.
+    - 최근에 적게 말한 에이전트 우선
+    - 5라운드 누적 기준 모두 한 번씩은 나오도록 보장
+    """
+    global _recent_speakers
+    # 최근 발언 횟수 카운트
+    counts = {a: _recent_speakers.count(a) for a in AGENT_ORDER}
+    # 적게 말한 순 가중치
+    sorted_agents = sorted(AGENT_ORDER, key=lambda a: counts[a])
+    # 앞 3명은 반드시 후보, 뒤 2명은 50% 확률
+    must = sorted_agents[:2]
+    optional = sorted_agents[2:]
+    chosen = list(must) + [a for a in optional if random.random() > 0.4]
+    # 최소 2명, 최대 4명
+    chosen = chosen[:4]
+    if len(chosen) < 2:
+        chosen = sorted_agents[:2]
+    # 발언 순서 섞기 (매번 같은 순서 방지)
+    random.shuffle(chosen)
+    # 최근 발언자 업데이트 (최근 15개만 유지)
+    _recent_speakers.extend(chosen)
+    _recent_speakers = _recent_speakers[-15:]
+    return chosen
 
 def run_round(market_summary=None):
     global _round_counter
+    market_refreshed = False
     if market_summary is None:
-        market_summary = _get_or_refresh_market_summary()
+        market_summary, market_refreshed = _get_or_refresh_market_summary()
 
     round_id = create_round(market_summary[:200])
-    save_message(round_id, "System", None, f"📊 {market_summary}")
+    # 시황이 갱신됐을 때만 System 메시지 표시
+    if market_refreshed:
+        save_message(round_id, "System", None, f"📊 {market_summary}")
 
     history = get_recent_messages(30)
     history_text = format_history(history)
+    speakers = _pick_speakers()
 
-    for agent_name in AGENT_ORDER:
+    for agent_name in speakers:
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
         prompt = build_round_prompt(market_summary, history_text, agent_name)
@@ -61,7 +91,7 @@ def run_round(market_summary=None):
         save_message(round_id, agent_name, None, response)
         history = get_recent_messages(30)
         history_text = format_history(history)
-        time.sleep(1)
+        time.sleep(random.uniform(1.0, 3.0))  # 1~3초 랜덤 간격
 
     complete_round(round_id)
     _round_counter += 1
