@@ -18,7 +18,7 @@ from notifier import notify, is_credit_error
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
-CONSENSUS_EVERY_N_ROUNDS = 5
+CONSENSUS_EVERY_N_ROUNDS = 3
 _round_counter = 0
 _recent_speakers: list[str] = []   # 최근 발언자 추적 (공평성 보장)
 _devil_silence = 0                 # Devil이 마지막 발언한 이후 라운드 수
@@ -113,7 +113,7 @@ def run_round(market_summary=None):
         save_message(round_id, agent_name, None, response)
         history = get_recent_messages(30)
         history_text = format_history(history)
-        time.sleep(random.uniform(1.0, 3.0))  # 1~3초 랜덤 간격
+        time.sleep(random.uniform(0.2, 0.6))  # 1~3초 랜덤 간격
 
     complete_round(round_id)
     _round_counter += 1

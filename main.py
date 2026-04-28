@@ -31,7 +31,7 @@ def _conversation_loop():
         except Exception:
             pass
         # 라운드 사이 5초 대기 (폴링이 메시지 받을 시간 확보)
-        for _ in range(5):
+        for _ in range(2):
             with _loop_lock:
                 if not _loop_running:
                     return
