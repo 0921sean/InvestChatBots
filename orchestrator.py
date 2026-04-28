@@ -13,9 +13,9 @@ from db import (
 from agents import call_agent
 from prompts import (
     AGENT_ORDER, build_system_prompt, format_history,
-    build_round_prompt, build_user_response_prompt,
+    format_history_compact, build_round_prompt, build_user_response_prompt,
     build_summary_prompt, build_evolution_prompt,
-    build_position_summary
+    build_position_summary, build_summarize_prompt
 )
 from fetchers import fetch_market_data, fetch_news, build_market_summary
 from notifier import notify, is_credit_error, is_rate_limit
@@ -31,6 +31,30 @@ DEVIL_MAX_SILENCE = 8              # 8라운드 침묵하면 강제 등장
 
 def _get_summary_agent(index):
     return SUMMARY_ROTATION[index % len(SUMMARY_ROTATION)]
+
+def _do_summarize(msg_id: int, agent_name: str, content: str):
+    """백그라운드: Haiku로 요약 생성 후 DB 업데이트."""
+    try:
+        summary = call_agent(
+            "Sigma",
+            "투자 발언을 1-2문장으로 요약하는 전문가입니다. 종목/섹터, 투자 방향, 핵심 근거만 포함하세요.",
+            build_summarize_prompt(agent_name, content),
+        )
+        with __import__("db")._conn() as con:
+            con.execute("UPDATE messages SET summary=? WHERE id=?", (summary, msg_id))
+    except Exception:
+        pass
+
+def _save_with_summary(round_id, agent_name, content):
+    """메시지 저장 후 백그라운드에서 요약 생성."""
+    from db import save_message as _save
+    import threading
+    msg_id = _save(round_id, agent_name, None, content)
+    if content and not content.startswith("["):
+        threading.Thread(
+            target=_do_summarize, args=(msg_id, agent_name, content), daemon=True
+        ).start()
+    return msg_id
 
 def _get_or_refresh_market_summary():
     """2시간 이내 시황은 재사용. 갱신 여부도 반환."""
@@ -105,10 +129,10 @@ def run_round(market_summary=None):
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 {market_summary}")
 
-    all_history = get_recent_messages(20)    # 포지션 요약용 (더 많이)
-    recent_history = all_history[-5:]        # 실제 대화 컨텍스트 (마지막 5개만)
+    all_history = get_recent_messages(20)
+    recent_history = all_history[-5:]
     position_summary = build_position_summary(all_history)
-    recent_text = format_history(recent_history)
+    recent_text = format_history_compact(recent_history)
     speakers = _pick_speakers()
 
     for agent_name in speakers:
@@ -131,12 +155,12 @@ def run_round(market_summary=None):
                     priority="default",
                 )
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
-        save_message(round_id, agent_name, None, response)
-        # 발언 후 포지션 요약 갱신
+        _save_with_summary(round_id, agent_name, response)
+        # 발언 후 포지션 요약 갱신 (compact 버전 사용)
         all_history = get_recent_messages(20)
         recent_history = all_history[-5:]
         position_summary = build_position_summary(all_history)
-        recent_text = format_history(recent_history)
+        recent_text = format_history_compact(recent_history)
         time.sleep(random.uniform(0.2, 0.6))
 
     complete_round(round_id)
@@ -171,9 +195,9 @@ def handle_user_message(user_text):
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
-        save_message(round_id=0, agent_name=agent_name, model=None, content=response)
+        _save_with_summary(0, agent_name, response)
         all_history = get_recent_messages(20)
-        history_text = format_history(all_history[-5:])
+        history_text = format_history_compact(all_history[-5:])
         time.sleep(1)
 
 def _detect_consensus(round_id):

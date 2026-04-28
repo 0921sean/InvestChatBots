@@ -181,19 +181,36 @@ def format_history(messages):
     return "\n".join(lines)
 
 
+def format_history_compact(messages) -> str:
+    """요약본 우선, 없으면 원문 앞 80자 사용 — 컨텍스트 토큰 절약."""
+    lines = []
+    for m in messages:
+        text = m.get("summary") or m["content"][:80].replace("\n", " ")
+        lines.append(f"{m['agent_name']}: {text}")
+    return "\n".join(lines)
+
+
 def build_position_summary(messages) -> str:
-    """각 에이전트의 가장 최근 발언 한 줄씩 요약 — 반복 루프 방지용."""
+    """각 에이전트의 가장 최근 요약(or 앞 60자) — 반복 루프 방지용."""
     last = {}
     for m in messages:
         name = m["agent_name"]
         if name not in ("System", "User"):
-            last[name] = m["content"][:80].replace("\n", " ")
+            text = m.get("summary") or m["content"][:60].replace("\n", " ")
+            last[name] = text
     if not last:
         return ""
-    lines = ["[현재 각자의 포지션 요약]"]
+    lines = ["[현재 각자 포지션]"]
     for name, snippet in last.items():
-        lines.append(f"- {name}: {snippet}…")
+        lines.append(f"- {name}: {snippet}")
     return "\n".join(lines)
+
+
+def build_summarize_prompt(agent_name: str, content: str) -> str:
+    return f"""{agent_name}의 발언을 1-2문장으로 요약하세요.
+종목/섹터, 투자 방향(긍정/부정/중립), 핵심 근거만 포함. 한국어로.
+
+발언: {content}"""
 
 
 def build_system_prompt(agent_name, evolution_notes):

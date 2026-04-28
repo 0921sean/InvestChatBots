@@ -14,6 +14,7 @@ def init_db():
             agent_name TEXT NOT NULL,
             model TEXT,
             content TEXT NOT NULL,
+            summary TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS rounds (
@@ -41,11 +42,11 @@ def init_db():
         );
         """)
 
-def save_message(round_id, agent_name, model, content):
+def save_message(round_id, agent_name, model, content, summary=None):
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO messages (round_id, agent_name, model, content) VALUES (?,?,?,?)",
-            (round_id, agent_name, model, content)
+            "INSERT INTO messages (round_id, agent_name, model, content, summary) VALUES (?,?,?,?,?)",
+            (round_id, agent_name, model, content, summary)
         )
         return cur.lastrowid
 
