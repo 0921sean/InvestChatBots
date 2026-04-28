@@ -1,6 +1,9 @@
 import os
 import threading
 import time
+import logging
+
+logger = logging.getLogger("investchat")
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -28,8 +31,8 @@ def _conversation_loop():
                 break
         try:
             run_round()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"[loop] run_round 오류: {type(e).__name__}: {e}")
         # 라운드 사이 5초 대기 (폴링이 메시지 받을 시간 확보)
         for _ in range(2):
             with _loop_lock:

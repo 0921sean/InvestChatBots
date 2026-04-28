@@ -39,6 +39,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
             max_tokens=900,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
+            timeout=30.0,
         )
         return msg.content[0].text
 
@@ -51,6 +52,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            timeout=30,
         )
         return resp.choices[0].message.content
 
@@ -60,7 +62,10 @@ def call_agent(agent_name, system_prompt, user_prompt):
             model_name=model_id,
             system_instruction=system_prompt,
         )
-        resp = model.generate_content(user_prompt)
+        resp = model.generate_content(
+            user_prompt,
+            request_options={"timeout": 30},
+        )
         return resp.text
 
     raise ValueError(f"Unknown provider: {provider}")
