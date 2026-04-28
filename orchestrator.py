@@ -14,6 +14,7 @@ from prompts import (
     build_summary_prompt, build_evolution_prompt
 )
 from fetchers import fetch_market_data, fetch_news, build_market_summary
+from notifier import notify, is_credit_error
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
@@ -101,6 +102,13 @@ def run_round(market_summary=None):
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
+            if is_credit_error(e):
+                notify(
+                    f"⚠️ {agent_name} 크레딧 소진",
+                    f"{agent_name}이 API 크레딧 부족으로 발언하지 못했습니다.\n"
+                    f"({type(e).__name__})\n\n충전 후 계속됩니다.",
+                    priority="high",
+                )
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id, agent_name, None, response)
         history = get_recent_messages(30)
@@ -174,7 +182,13 @@ def _detect_consensus(round_id):
             prompt
         )
         if result and "합의 없음" not in result and "📌" in result:
-            save_consensus(round_id, result.strip())
+            content = result.strip()
+            save_consensus(round_id, content)
+            notify(
+                "📌 InvestChat 합의 메모",
+                content,
+                priority="default",
+            )
     except Exception:
         pass
 
