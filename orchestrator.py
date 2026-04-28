@@ -1,7 +1,10 @@
 import json
+import logging
 import time
 import random
 from datetime import datetime, timezone
+
+logger = logging.getLogger("investchat")
 from db import (
     create_round, complete_round, save_message, get_recent_messages,
     get_agent_state, save_agent_state, save_market_snapshot,
@@ -101,7 +104,7 @@ def run_round(market_summary=None):
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 {market_summary}")
 
-    history = get_recent_messages(30)
+    history = get_recent_messages(15)
     history_text = format_history(history)
     speakers = _pick_speakers()
 
@@ -121,7 +124,7 @@ def run_round(market_summary=None):
                 )
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id, agent_name, None, response)
-        history = get_recent_messages(30)
+        history = get_recent_messages(15)
         history_text = format_history(history)
         time.sleep(random.uniform(0.2, 0.6))  # 1~3초 랜덤 간격
 
@@ -134,7 +137,7 @@ def run_round(market_summary=None):
 def handle_user_message(user_text):
     save_message(round_id=0, agent_name="User", model=None, content=user_text)
 
-    history = get_recent_messages(30)
+    history = get_recent_messages(15)
     history_text = format_history(history)
 
     summary_agent = _get_summary_agent(len(history))
@@ -146,7 +149,7 @@ def handle_user_message(user_text):
         summary = f"[요약 오류: {type(e).__name__}]"
     save_message(round_id=0, agent_name=summary_agent, model=None, content=summary)
 
-    history = get_recent_messages(30)
+    history = get_recent_messages(15)
     history_text = format_history(history)
 
     for agent_name in AGENT_ORDER:
@@ -158,7 +161,7 @@ def handle_user_message(user_text):
         except Exception as e:
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id=0, agent_name=agent_name, model=None, content=response)
-        history = get_recent_messages(30)
+        history = get_recent_messages(15)
         history_text = format_history(history)
         time.sleep(1)
 
@@ -207,13 +210,17 @@ def _maybe_update_evolution(round_id):
         state = get_agent_state(agent_name)
         new_count = state["round_count"] + 1
         if new_count % 10 == 0:
-            history = get_recent_messages(100)
-            history_text = format_history(history)
-            system = build_system_prompt(agent_name, state["evolution_notes"])
-            new_notes = call_agent(
-                agent_name, system,
-                build_evolution_prompt(agent_name, history_text, state["evolution_notes"])
-            )
-            save_agent_state(agent_name, new_notes, new_count)
+            try:
+                history = get_recent_messages(15)  # evolution도 30개로 제한
+                history_text = format_history(history)
+                system = build_system_prompt(agent_name, state["evolution_notes"])
+                new_notes = call_agent(
+                    agent_name, system,
+                    build_evolution_prompt(agent_name, history_text, state["evolution_notes"])
+                )
+                save_agent_state(agent_name, new_notes, new_count)
+            except Exception as e:
+                logger.error(f"[evolution] {agent_name} 오류: {type(e).__name__}: {e}")
+                save_agent_state(agent_name, state["evolution_notes"], new_count)
         else:
             save_agent_state(agent_name, state["evolution_notes"], new_count)

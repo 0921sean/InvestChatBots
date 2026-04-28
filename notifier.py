@@ -10,7 +10,8 @@ NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 CREDIT_KEYWORDS = ("credit", "quota", "billing", "insufficient", "exhausted",
-                   "exceeded", "ResourceExhausted", "BadRequestError")
+                   "exceeded", "ResourceExhausted", "BadRequestError",
+                   "rate_limit", "RateLimitError", "too large", "tokens per")
 
 def is_credit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
