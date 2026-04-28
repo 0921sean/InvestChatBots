@@ -131,24 +131,31 @@ def run_round(market_summary=None):
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 {market_summary}")
 
-    # 합의 후 주제 전환 신호
+    # 합의 후 주제 전환 — 이 라운드에서만 topic_shift=True
+    this_round_is_shift = False
     if _pending_topic_shift:
         _pending_topic_shift = False
-        shift_msg = f"📌 앞서 합의된 내용을 정리했습니다. 이제 다른 섹터나 주제로 시선을 돌려보겠습니다."
-        save_message(round_id, "System", None, shift_msg)
+        this_round_is_shift = True
+        save_message(round_id, "System", None,
+                     "📌 합의 완료. 이제 다른 섹터·종목·테마로 논의를 전환합니다.")
 
     all_history = get_recent_messages(20)
-    recent_history = all_history[-5:]
-    position_summary = build_position_summary(all_history)
-    recent_text = format_history_compact(recent_history)
+    # 주제 전환 직후엔 이전 대화 컨텍스트를 지워서 현대차 등 이전 주제에 묶이지 않게
+    if this_round_is_shift:
+        recent_history = []
+        position_summary = ""
+        recent_text = ""
+    else:
+        recent_history = all_history[-5:]
+        position_summary = build_position_summary(all_history)
+        recent_text = format_history_compact(recent_history)
     speakers = _pick_speakers()
-    is_first_after_shift = _pending_topic_shift is False and _last_consensus != ""
 
     for i, agent_name in enumerate(speakers):
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
         prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name,
-                                    topic_shift=(i == 0 and is_first_after_shift))
+                                    topic_shift=(i == 0 and this_round_is_shift))
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
