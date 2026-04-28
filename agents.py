@@ -7,6 +7,20 @@ from prompts import AGENT_PROFILES
 
 RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_WAIT = 15  # 초
+MAX_RESPONSE_CHARS = 350  # 이 글자 수 이후 첫 문장 끝에서 자르기
+
+
+def trim_at_sentence(text: str) -> str:
+    """MAX_RESPONSE_CHARS 이후 최초 문장 종결부호에서 자름. 짧으면 그대로."""
+    if len(text) <= MAX_RESPONSE_CHARS:
+        return text
+    # 350자 이후 첫 번째 문장 끝(. ! ? …) 위치 탐색
+    import re
+    for m in re.finditer(r'[.!?…]\s*', text[MAX_RESPONSE_CHARS:]):
+        cut = MAX_RESPONSE_CHARS + m.end()
+        return text[:cut].strip()
+    # 종결부호 없으면 원문 그대로
+    return text
 
 _anthropic_client = None
 _openai_client = None
@@ -42,25 +56,25 @@ def call_agent(agent_name, system_prompt, user_prompt):
                 client = _get_anthropic()
                 msg = client.messages.create(
                     model=model_id,
-                    max_tokens=400,
+                    max_tokens=600,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                     timeout=30.0,
                 )
-                return msg.content[0].text
+                return trim_at_sentence(msg.content[0].text)
 
             elif provider == "openai":
                 client = _get_openai()
                 resp = client.chat.completions.create(
                     model=model_id,
-                    max_tokens=400,
+                    max_tokens=600,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                     timeout=30,
                 )
-                return resp.choices[0].message.content
+                return trim_at_sentence(resp.choices[0].message.content)
 
             elif provider == "gemini":
                 g = _get_gemini()
@@ -72,7 +86,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
                     user_prompt,
                     request_options={"timeout": 30},
                 )
-                return resp.text
+                return trim_at_sentence(resp.text)
 
             raise ValueError(f"Unknown provider: {provider}")
 

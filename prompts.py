@@ -232,7 +232,7 @@ def build_round_prompt(market_summary, position_summary, recent_text, agent_name
 - 새로운 각도나 근거를 추가하세요 (이미 한 말 반복 금지)
 - 특정 한 명에게만 집중하지 말고 논의 전체에 기여하세요
 - 발언 횟수·순서 언급 금지. 동료 전문가 예의 유지.
-- **반드시 3문장 이내**로 핵심만. 반드시 한국어로."""
+- 핵심 주장을 첫 문장에 담고, 그 다음 근거를 이어서 쓰세요. 반드시 한국어로."""
 
 
 def build_user_response_prompt(user_message, history_text, agent_name):
