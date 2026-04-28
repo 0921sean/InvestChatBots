@@ -41,9 +41,13 @@ def _conversation_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _loop_running, _loop_thread
     scheduler = start_scheduler()
+    # 서버 시작 시 대화 루프 자동 시작
+    _loop_running = True
+    _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
+    _loop_thread.start()
     yield
-    global _loop_running
     with _loop_lock:
         _loop_running = False
     scheduler.shutdown()
