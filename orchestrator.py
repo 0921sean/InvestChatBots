@@ -45,29 +45,39 @@ def _get_or_refresh_market_summary():
 
 def _pick_speakers() -> list[str]:
     """
-    2~4명을 자연스럽게 선택.
-    - Devil은 별도 로직: 최소 4라운드 침묵, 8라운드 초과 시 강제 등장
-    - 나머지는 최근 발언 적은 순 우선
+    3~4명 선택. 가중치 기반 랜덤 — 최근에 많이 말할수록 확률 감소.
+    Devil은 별도 침묵 규칙.
     """
     global _recent_speakers, _devil_silence
 
-    # Devil 제외하고 나머지 에이전트 선택
     non_devil = [a for a in AGENT_ORDER if a != "Devil"]
+
+    # 최근 발언 횟수 기반 역가중치 (적게 말한 에이전트 우선)
     counts = {a: _recent_speakers.count(a) for a in non_devil}
-    sorted_others = sorted(non_devil, key=lambda a: counts[a])
-    must = sorted_others[:2]
-    optional = sorted_others[2:]
-    chosen = list(must) + [a for a in optional if random.random() > 0.45]
-    chosen = chosen[:4]
-    if len(chosen) < 2:
-        chosen = sorted_others[:2]
+    max_count = max(counts.values()) if counts else 0
+    weights = {a: (max_count - counts[a] + 1) for a in non_devil}
+
+    # 가중치 비례 샘플링 (중복 없이 3~4명)
+    pool = non_devil[:]
+    chosen = []
+    n = random.choice([3, 3, 4])  # 3명이 더 자주 (자연스러운 소규모 대화)
+    for _ in range(min(n, len(pool))):
+        total = sum(weights[a] for a in pool)
+        r = random.uniform(0, total)
+        cumul = 0
+        for a in pool:
+            cumul += weights[a]
+            if r <= cumul:
+                chosen.append(a)
+                pool.remove(a)
+                break
 
     # Devil 등장 판단
     devil_appears = False
     if _devil_silence >= DEVIL_MAX_SILENCE:
-        devil_appears = True                          # 8라운드 침묵 → 강제 등장
+        devil_appears = True
     elif _devil_silence >= DEVIL_MIN_SILENCE:
-        devil_appears = random.random() < 0.25       # 4~7라운드 → 25% 확률
+        devil_appears = random.random() < 0.25
 
     if devil_appears:
         chosen.append("Devil")
@@ -77,7 +87,7 @@ def _pick_speakers() -> list[str]:
 
     random.shuffle(chosen)
     _recent_speakers.extend(chosen)
-    _recent_speakers = _recent_speakers[-20:]
+    _recent_speakers = _recent_speakers[-30:]
     return chosen
 
 def run_round(market_summary=None):
