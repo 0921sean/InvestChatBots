@@ -62,8 +62,8 @@
   #profile-box .p-section { font-size:12px; color:#cbd5e1; line-height:1.8; }
   #profile-box .p-label { font-size:10px; font-weight:600; letter-spacing:.8px; color:#6366f1; text-transform:uppercase; margin-top:12px; margin-bottom:4px; }
   #profile-close { position:absolute; top:12px; right:14px; background:none; border:none; color:#9d9d9d; font-size:18px; cursor:pointer; }
-  .member-clickable { cursor:pointer; border-radius:4px; padding:2px 4px; margin:-2px -4px; transition:background .15s; }
-  .member-clickable:hover { background:rgba(255,255,255,0.07); }
+  .member-row { cursor:pointer; border-radius:4px; transition:background .15s; }
+  .member-row:hover { background:rgba(255,255,255,0.07); }
 
   /* 오른쪽 합의 메모 패널 */
   #memo-panel { width: 260px; background: #1a1d21; border-left: 1px solid #2a2d31; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -239,14 +239,37 @@ async function loadAgents() {
     el.innerHTML = '';
     list.forEach(a => {
       agents[a.name] = a;
-      el.innerHTML += `
-        <div class="member member-clickable" onclick="openProfile('${a.name}')">
-          <span class="dot" style="background:${a.color}"></span>
-          <span class="member-name" style="color:${a.color}">${esc(a.name)}</span>
-        </div>
-        <div class="member-sub">${esc(a.description)} · ${esc(a.model_provider)}</div>`;
+
+      const row = document.createElement('div');
+      row.className = 'member member-row';
+      row.style.cssText = 'padding:5px 12px;';
+      row.onclick = () => openProfile(a.name);
+
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = a.color;
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'member-name';
+      nameEl.style.color = a.color;
+      nameEl.textContent = a.name;
+
+      row.appendChild(dot);
+      row.appendChild(nameEl);
+
+      const sub = document.createElement('div');
+      sub.className = 'member-sub';
+      sub.textContent = `${a.description} · ${a.model_provider}`;
+
+      el.appendChild(row);
+      el.appendChild(sub);
     });
-    el.innerHTML += `<div class="member" style="margin-top:6px"><span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">You</span></div>`;
+
+    const youRow = document.createElement('div');
+    youRow.className = 'member';
+    youRow.style.marginTop = '6px';
+    youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">You</span>`;
+    el.appendChild(youRow);
   } catch(e) {}
 }
 
