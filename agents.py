@@ -36,7 +36,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
         client = _get_anthropic()
         msg = client.messages.create(
             model=model_id,
-            max_tokens=500,
+            max_tokens=900,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -46,7 +46,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
         client = _get_openai()
         resp = client.chat.completions.create(
             model=model_id,
-            max_tokens=500,
+            max_tokens=900,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
