@@ -13,7 +13,7 @@ from prompts import (
     build_round_prompt, build_user_response_prompt,
     build_summary_prompt, build_evolution_prompt
 )
-from fetchers import fetch_market_data, fetch_news, build_market_summary
+from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary
 from notifier import notify, is_credit_error
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
@@ -36,12 +36,13 @@ def _get_or_refresh_market_summary():
         age_hours = (datetime.utcnow() - created).total_seconds() / 3600
         if age_hours < MARKET_REFRESH_HOURS:
             d = json.loads(snap["data"])
-            return build_market_summary(d.get("data", {}), d.get("news", [])), False  # False = 캐시 사용
+            return build_market_summary(d.get("data", {}), d.get("news", []), d.get("ta")), False  # False = 캐시 사용
 
     data = fetch_market_data()
     news = fetch_news()
-    save_market_snapshot(json.dumps({"data": data, "news": news}))
-    return build_market_summary(data, news), True  # True = 새로 가져옴
+    ta_data = fetch_technical_analysis()
+    save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta_data}))
+    return build_market_summary(data, news, ta_data), True
 
 def _pick_speakers() -> list[str]:
     """

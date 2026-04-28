@@ -1,6 +1,7 @@
 import math
 import yfinance as yf
 import feedparser
+from tradingview_ta import TA_Handler, Interval
 
 TICKERS = {
     "NASDAQ": "^IXIC",
@@ -14,6 +15,32 @@ NEWS_FEEDS = [
     "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&rss=true",
     "https://www.yonhapnewstv.co.kr/category/news/economy/feed/",
 ]
+
+TV_SYMBOLS = {
+    "NVDA":  ("NVDA",    "america", "NASDAQ"),
+    "TSMC":  ("TSM",     "america", "NYSE"),
+    "KOSPI": ("KOSPI",   "korea",   "KRX"),
+    "BTC":   ("BTCUSDT", "crypto",  "BINANCE"),
+}
+
+def fetch_technical_analysis():
+    result = {}
+    for name, (symbol, screener, exchange) in TV_SYMBOLS.items():
+        try:
+            h = TA_Handler(symbol=symbol, screener=screener, exchange=exchange, interval=Interval.INTERVAL_1_DAY)
+            a = h.get_analysis()
+            result[name] = {
+                "recommendation": a.summary.get("RECOMMENDATION", ""),
+                "buy": a.summary.get("BUY", 0),
+                "sell": a.summary.get("SELL", 0),
+                "rsi": round(a.indicators.get("RSI", 0), 1),
+                "macd": round(a.indicators.get("MACD.macd", 0), 2),
+                "ema20": round(a.indicators.get("EMA20", 0), 1),
+                "ema50": round(a.indicators.get("EMA50", 0), 1),
+            }
+        except Exception:
+            result[name] = None
+    return result
 
 def fetch_market_data():
     result = {}
@@ -53,13 +80,21 @@ def fetch_news(max_items=10):
             continue
     return items
 
-def build_market_summary(market_data, news):
-    lines = ["=== Today's Market ==="]
+def build_market_summary(market_data, news, ta_data=None):
+    lines = ["=== 오늘의 시황 ==="]
     for name, d in market_data.items():
         if d["price"] is not None and d["change_pct"] is not None:
             arrow = "▲" if d["change_pct"] >= 0 else "▼"
             lines.append(f"{name}: {d['price']:,.2f} {arrow}{abs(d['change_pct']):.1f}%")
-    lines.append("\n=== Top News ===")
+
+    if ta_data:
+        lines.append("\n=== 기술적 지표 (TradingView 일봉) ===")
+        for name, ta in ta_data.items():
+            if ta:
+                rec = ta["recommendation"].replace("STRONG_", "강한 ").replace("BUY", "매수").replace("SELL", "매도").replace("NEUTRAL", "중립")
+                lines.append(f"{name}: {rec} | RSI {ta['rsi']} | MACD {ta['macd']} | EMA20 {ta['ema20']}")
+
+    lines.append("\n=== 주요 뉴스 ===")
     for item in news[:5]:
         lines.append(f"• {item['title']}")
     return "\n".join(lines)
