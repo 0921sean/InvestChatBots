@@ -33,7 +33,10 @@ def run_round(market_summary=None):
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
         prompt = build_round_prompt(market_summary, history_text, agent_name)
-        response = call_agent(agent_name, system, prompt)
+        try:
+            response = call_agent(agent_name, system, prompt)
+        except Exception as e:
+            response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id, agent_name, None, response)
         history = get_recent_messages(30)
         history_text = format_history(history)
@@ -50,7 +53,10 @@ def handle_user_message(user_text):
     summary_agent = _get_summary_agent(len(history))
     state = get_agent_state(summary_agent)
     system = build_system_prompt(summary_agent, state["evolution_notes"])
-    summary = call_agent(summary_agent, system, build_summary_prompt(history_text, user_text))
+    try:
+        summary = call_agent(summary_agent, system, build_summary_prompt(history_text, user_text))
+    except Exception as e:
+        summary = f"[요약 오류: {type(e).__name__}]"
     save_message(round_id=0, agent_name=summary_agent, model=None, content=summary)
 
     history = get_recent_messages(30)
@@ -60,7 +66,10 @@ def handle_user_message(user_text):
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
         prompt = build_user_response_prompt(user_text, history_text, agent_name)
-        response = call_agent(agent_name, system, prompt)
+        try:
+            response = call_agent(agent_name, system, prompt)
+        except Exception as e:
+            response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id=0, agent_name=agent_name, model=None, content=response)
         history = get_recent_messages(30)
         history_text = format_history(history)
