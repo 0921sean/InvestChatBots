@@ -89,8 +89,8 @@
       <span class="sub" id="round-label"></span>
     </div>
     <div class="btn-group">
-      <button class="btn btn-ghost" id="btn-round" onclick="startRound()">▶ New Round</button>
-      <button class="btn btn-play" id="btn-play" onclick="togglePlay()">▶ Play</button>
+      <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ Resume</button>
+      <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ Pause</button>
       <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
     </div>
   </div>
@@ -228,52 +228,26 @@ async function sendMessage() {
   input.focus();
 }
 
-async function startRound() {
-  const btn = document.getElementById('btn-round');
-  btn.disabled = true;
-  btn.textContent = '⏳ Running...';
-  document.getElementById('typing').style.display = 'flex';
-  document.getElementById('typing-text').textContent = 'Starting new round...';
-  try {
-    await fetch('/api/rounds/start', {method: 'POST'});
-  } catch(e) {}
-  btn.disabled = false;
-  btn.textContent = '▶ New Round';
-  document.getElementById('typing').style.display = 'none';
-  document.getElementById('typing-text').textContent = 'Agents are responding...';
-}
-
 let isPlaying = false;
 
 async function togglePlay() {
-  const btn = document.getElementById('btn-play');
-  if (!isPlaying) {
-    isPlaying = true;
-    btn.textContent = '⏸ Pause';
-    btn.classList.add('playing');
-    document.getElementById('typing').style.display = 'flex';
-    document.getElementById('typing-text').textContent = 'Auto-conversation running...';
-    await fetch('/api/conversation/start', {method: 'POST'});
-  } else {
-    isPlaying = false;
-    btn.textContent = '▶ Play';
-    btn.classList.remove('playing');
-    document.getElementById('typing').style.display = 'none';
+  if (isPlaying) {
     await fetch('/api/conversation/stop', {method: 'POST'});
+  } else {
+    await fetch('/api/conversation/start', {method: 'POST'});
   }
+  await syncPlayStatus();
 }
 
 async function syncPlayStatus() {
   try {
     const res = await fetch('/api/conversation/status');
     const {running} = await res.json();
-    const btn = document.getElementById('btn-play');
-    if (running !== isPlaying) {
-      isPlaying = running;
-      btn.textContent = running ? '⏸ Pause' : '▶ Play';
-      btn.classList.toggle('playing', running);
-      document.getElementById('typing').style.display = running ? 'flex' : 'none';
-    }
+    if (running === isPlaying) return;
+    isPlaying = running;
+    document.getElementById('btn-play').style.display  = running ? 'none'  : 'inline-block';
+    document.getElementById('btn-pause').style.display = running ? 'inline-block' : 'none';
+    document.getElementById('typing').style.display = running ? 'flex' : 'none';
   } catch(e) {}
 }
 
