@@ -29,7 +29,8 @@ def test_get_agents():
     res = client.get("/api/agents")
     assert res.status_code == 200
     names = [a["name"] for a in res.json()]
-    assert names == ["Compounder", "Razor", "Moonshot", "Tortoise"]
+    # 7명: 기존 4명 + Sigma, Macro, Devil
+    assert set(names) == {"Compounder", "Razor", "Sigma", "Moonshot", "Tortoise", "Macro", "Devil"}
 
 
 def test_get_messages_empty():
