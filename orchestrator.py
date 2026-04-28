@@ -20,6 +20,9 @@ MARKET_REFRESH_HOURS = 2
 CONSENSUS_EVERY_N_ROUNDS = 5
 _round_counter = 0
 _recent_speakers: list[str] = []   # 최근 발언자 추적 (공평성 보장)
+_devil_silence = 0                 # Devil이 마지막 발언한 이후 라운드 수
+DEVIL_MIN_SILENCE = 4              # 최소 4라운드는 조용히
+DEVIL_MAX_SILENCE = 8              # 8라운드 침묵하면 강제 등장
 
 def _get_summary_agent(index):
     return SUMMARY_ROTATION[index % len(SUMMARY_ROTATION)]
@@ -42,27 +45,38 @@ def _get_or_refresh_market_summary():
 def _pick_speakers() -> list[str]:
     """
     2~4명을 자연스럽게 선택.
-    - 최근에 적게 말한 에이전트 우선
-    - 5라운드 누적 기준 모두 한 번씩은 나오도록 보장
+    - Devil은 별도 로직: 최소 4라운드 침묵, 8라운드 초과 시 강제 등장
+    - 나머지는 최근 발언 적은 순 우선
     """
-    global _recent_speakers
-    # 최근 발언 횟수 카운트
-    counts = {a: _recent_speakers.count(a) for a in AGENT_ORDER}
-    # 적게 말한 순 가중치
-    sorted_agents = sorted(AGENT_ORDER, key=lambda a: counts[a])
-    # 앞 3명은 반드시 후보, 뒤 2명은 50% 확률
-    must = sorted_agents[:2]
-    optional = sorted_agents[2:]
-    chosen = list(must) + [a for a in optional if random.random() > 0.4]
-    # 최소 2명, 최대 4명
+    global _recent_speakers, _devil_silence
+
+    # Devil 제외하고 나머지 에이전트 선택
+    non_devil = [a for a in AGENT_ORDER if a != "Devil"]
+    counts = {a: _recent_speakers.count(a) for a in non_devil}
+    sorted_others = sorted(non_devil, key=lambda a: counts[a])
+    must = sorted_others[:2]
+    optional = sorted_others[2:]
+    chosen = list(must) + [a for a in optional if random.random() > 0.45]
     chosen = chosen[:4]
     if len(chosen) < 2:
-        chosen = sorted_agents[:2]
-    # 발언 순서 섞기 (매번 같은 순서 방지)
+        chosen = sorted_others[:2]
+
+    # Devil 등장 판단
+    devil_appears = False
+    if _devil_silence >= DEVIL_MAX_SILENCE:
+        devil_appears = True                          # 8라운드 침묵 → 강제 등장
+    elif _devil_silence >= DEVIL_MIN_SILENCE:
+        devil_appears = random.random() < 0.25       # 4~7라운드 → 25% 확률
+
+    if devil_appears:
+        chosen.append("Devil")
+        _devil_silence = 0
+    else:
+        _devil_silence += 1
+
     random.shuffle(chosen)
-    # 최근 발언자 업데이트 (최근 15개만 유지)
     _recent_speakers.extend(chosen)
-    _recent_speakers = _recent_speakers[-15:]
+    _recent_speakers = _recent_speakers[-20:]
     return chosen
 
 def run_round(market_summary=None):
