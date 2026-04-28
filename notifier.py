@@ -10,13 +10,25 @@ NTFY_TOPIC = os.getenv("NTFY_TOPIC", "investchat-sean-alerts")
 NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
-CREDIT_KEYWORDS = ("credit", "quota", "billing", "insufficient", "exhausted",
-                   "exceeded", "ResourceExhausted", "BadRequestError",
-                   "rate_limit", "RateLimitError", "too large", "tokens per")
+# 진짜 크레딧/결제 문제만 잡음 (TPM/RPM 한도 초과는 제외)
+CREDIT_KEYWORDS = ("credit balance", "billing", "insufficient_quota",
+                   "payment", "your account", "upgrade your plan",
+                   "ResourceExhausted")
+
+# 속도 제한 (크레딧과 무관 — 별도 메시지)
+RATE_LIMIT_KEYWORDS = ("rate_limit_exceeded", "tokens per min", "too large for",
+                       "requests per min", "quota exceeded")
 
 def is_credit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
+    # rate limit이면 크레딧 문제로 보지 않음
+    if any(k.lower() in msg for k in RATE_LIMIT_KEYWORDS):
+        return False
     return any(k.lower() in msg for k in CREDIT_KEYWORDS)
+
+def is_rate_limit(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(k.lower() in msg for k in RATE_LIMIT_KEYWORDS)
 
 def notify(title: str, body: str, priority: str = "default"):
     """ntfy.sh 푸시 + Gmail 이메일(설정된 경우) 동시 발송."""

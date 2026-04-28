@@ -18,7 +18,7 @@ from prompts import (
     build_position_summary
 )
 from fetchers import fetch_market_data, fetch_news, build_market_summary
-from notifier import notify, is_credit_error
+from notifier import notify, is_credit_error, is_rate_limit
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
@@ -121,9 +121,14 @@ def run_round(market_summary=None):
             if is_credit_error(e):
                 notify(
                     f"⚠️ {agent_name} 크레딧 소진",
-                    f"{agent_name}이 API 크레딧 부족으로 발언하지 못했습니다.\n"
-                    f"({type(e).__name__})\n\n충전 후 계속됩니다.",
+                    f"{agent_name} API 크레딧 부족.\n충전 후 계속됩니다.",
                     priority="high",
+                )
+            elif is_rate_limit(e):
+                notify(
+                    f"🔄 {agent_name} API 한도 초과",
+                    f"크레딧 문제 아님 — 분당 요청/토큰 한도 초과.\n잠시 후 자동 재개됩니다.",
+                    priority="default",
                 )
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id, agent_name, None, response)
