@@ -12,8 +12,13 @@ TICKERS = {
 }
 
 NEWS_FEEDS = [
+    # 한국
     "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&rss=true",
     "https://www.yonhapnewstv.co.kr/category/news/economy/feed/",
+    # 글로벌 (영문)
+    "https://feeds.reuters.com/reuters/businessNews",
+    "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "https://www.cnbc.com/id/100727362/device/rss/rss.html",
 ]
 
 TV_SYMBOLS = {
