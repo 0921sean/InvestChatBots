@@ -53,6 +53,18 @@
   #input-area input:focus { border-color: #6366f1; }
   #input-area button { background: #4a154b; border: none; color: #e8e8e8; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 
+  /* 에이전트 프로필 모달 */
+  #profile-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center; }
+  #profile-modal.open { display:flex; }
+  #profile-box { background:#1e2229; border:1px solid #3a3d41; border-radius:12px; padding:24px; max-width:420px; width:90%; position:relative; }
+  #profile-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; }
+  #profile-box .p-desc { font-size:11px; color:#9d9d9d; margin-bottom:14px; }
+  #profile-box .p-section { font-size:12px; color:#cbd5e1; line-height:1.8; }
+  #profile-box .p-label { font-size:10px; font-weight:600; letter-spacing:.8px; color:#6366f1; text-transform:uppercase; margin-top:12px; margin-bottom:4px; }
+  #profile-close { position:absolute; top:12px; right:14px; background:none; border:none; color:#9d9d9d; font-size:18px; cursor:pointer; }
+  .member-clickable { cursor:pointer; border-radius:4px; padding:2px 4px; margin:-2px -4px; transition:background .15s; }
+  .member-clickable:hover { background:rgba(255,255,255,0.07); }
+
   /* 오른쪽 합의 메모 패널 */
   #memo-panel { width: 260px; background: #1a1d21; border-left: 1px solid #2a2d31; display: flex; flex-direction: column; flex-shrink: 0; }
   #memo-header { padding: 14px 14px 10px; border-bottom: 1px solid #2a2d31; }
@@ -101,6 +113,20 @@
   <div id="input-area">
     <input id="msg-input" placeholder="Message #war-room..." onkeydown="if(event.key==='Enter')sendMessage()" />
     <button onclick="sendMessage()">Send</button>
+  </div>
+</div>
+
+<div id="profile-modal" onclick="if(event.target===this)closeProfile()">
+  <div id="profile-box">
+    <button id="profile-close" onclick="closeProfile()">✕</button>
+    <h3 id="p-name"></h3>
+    <div class="p-desc" id="p-desc"></div>
+    <div class="p-label">투자 철학</div>
+    <div class="p-section" id="p-beliefs"></div>
+    <div class="p-label">모델</div>
+    <div class="p-section" id="p-model"></div>
+    <div class="p-label">관점 변화</div>
+    <div class="p-section" id="p-evolution"></div>
   </div>
 </div>
 
@@ -177,6 +203,33 @@ async function poll() {
   } catch(e) {}
 }
 
+const BELIEFS = {
+  Compounder: ['복리와 장기 가치투자 신봉', '밸류에이션 > 모멘텀', '구조적 트렌드가 진짜 수익을 만든다'],
+  Razor:      ['가격이 진실, 나머지는 노이즈', '손실 빠르게 끊고 수익 길게', '어느 방향이든 빠른 대응이 답'],
+  Sigma:      ['알파는 팩터 익스포저에서 나온다', '백테스트 검증 없인 투자 아님', '변동성은 정량화할 수 있는 기회'],
+  Moonshot:   ['가장 큰 리스크는 리스크를 안 지는 것', '시장은 혁신 속도를 늘 과소평가', '집중투자 > 분산투자 (확신 있을 때)'],
+  Tortoise:   ['자본 보존이 먼저, 증식은 그 다음', '분산과 리밸런싱은 생존 전략', '위험 조정 수익률이 절대 수익률보다 중요'],
+  Macro:      ['중앙은행과 싸우지 마라', '금리·환율 사이클이 모든 것을 결정', '지정학 리스크는 항상 가격보다 빠르다'],
+  Devil:      ['시장 합의는 곧 반전의 씨앗', '아무도 안 묻는 리스크가 진짜 리스크', '강세장 논리가 가장 그럴듯할 때가 가장 위험'],
+};
+
+function openProfile(name) {
+  const a = agents[name];
+  if (!a) return;
+  const color = COLORS[name] || '#9d9d9d';
+  document.getElementById('p-name').textContent = name;
+  document.getElementById('p-name').style.color = color;
+  document.getElementById('p-desc').textContent = a.description + ' · ' + a.model_provider;
+  const beliefs = BELIEFS[name] || [];
+  document.getElementById('p-beliefs').innerHTML = beliefs.map(b => `• ${b}`).join('<br>');
+  document.getElementById('p-model').textContent = a.model_provider + ' — ' + (a.description || '');
+  document.getElementById('p-evolution').textContent = a.evolution_notes || '아직 관점 변화 없음.';
+  document.getElementById('profile-modal').classList.add('open');
+}
+function closeProfile() {
+  document.getElementById('profile-modal').classList.remove('open');
+}
+
 async function loadAgents() {
   try {
     const res = await fetch('/api/agents');
@@ -185,7 +238,12 @@ async function loadAgents() {
     el.innerHTML = '';
     list.forEach(a => {
       agents[a.name] = a;
-      el.innerHTML += `<div class="member"><span class="dot" style="background:${a.color}"></span><span class="member-name" style="color:${a.color}">${esc(a.name)}</span></div><div class="member-sub">${esc(a.description)} · ${esc(a.model_provider)}</div>`;
+      el.innerHTML += `
+        <div class="member member-clickable" onclick="openProfile('${a.name}')">
+          <span class="dot" style="background:${a.color}"></span>
+          <span class="member-name" style="color:${a.color}">${esc(a.name)}</span>
+        </div>
+        <div class="member-sub">${esc(a.description)} · ${esc(a.model_provider)}</div>`;
     });
     el.innerHTML += `<div class="member" style="margin-top:6px"><span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">You</span></div>`;
   } catch(e) {}
