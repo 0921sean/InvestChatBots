@@ -14,7 +14,8 @@ from agents import call_agent
 from prompts import (
     AGENT_ORDER, build_system_prompt, format_history,
     build_round_prompt, build_user_response_prompt,
-    build_summary_prompt, build_evolution_prompt
+    build_summary_prompt, build_evolution_prompt,
+    build_position_summary
 )
 from fetchers import fetch_market_data, fetch_news, build_market_summary
 from notifier import notify, is_credit_error
@@ -104,14 +105,16 @@ def run_round(market_summary=None):
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 {market_summary}")
 
-    history = get_recent_messages(15)
-    history_text = format_history(history)
+    all_history = get_recent_messages(20)    # 포지션 요약용 (더 많이)
+    recent_history = all_history[-5:]        # 실제 대화 컨텍스트 (마지막 5개만)
+    position_summary = build_position_summary(all_history)
+    recent_text = format_history(recent_history)
     speakers = _pick_speakers()
 
     for agent_name in speakers:
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
-        prompt = build_round_prompt(market_summary, history_text, agent_name)
+        prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name)
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
@@ -124,9 +127,12 @@ def run_round(market_summary=None):
                 )
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id, agent_name, None, response)
-        history = get_recent_messages(15)
-        history_text = format_history(history)
-        time.sleep(random.uniform(0.2, 0.6))  # 1~3초 랜덤 간격
+        # 발언 후 포지션 요약 갱신
+        all_history = get_recent_messages(20)
+        recent_history = all_history[-5:]
+        position_summary = build_position_summary(all_history)
+        recent_text = format_history(recent_history)
+        time.sleep(random.uniform(0.2, 0.6))
 
     complete_round(round_id)
     _round_counter += 1
@@ -137,10 +143,10 @@ def run_round(market_summary=None):
 def handle_user_message(user_text):
     save_message(round_id=0, agent_name="User", model=None, content=user_text)
 
-    history = get_recent_messages(15)
-    history_text = format_history(history)
+    all_history = get_recent_messages(20)
+    history_text = format_history(all_history[-5:])
 
-    summary_agent = _get_summary_agent(len(history))
+    summary_agent = _get_summary_agent(len(all_history))
     state = get_agent_state(summary_agent)
     system = build_system_prompt(summary_agent, state["evolution_notes"])
     try:
@@ -149,8 +155,8 @@ def handle_user_message(user_text):
         summary = f"[요약 오류: {type(e).__name__}]"
     save_message(round_id=0, agent_name=summary_agent, model=None, content=summary)
 
-    history = get_recent_messages(15)
-    history_text = format_history(history)
+    all_history = get_recent_messages(20)
+    history_text = format_history(all_history[-5:])
 
     for agent_name in AGENT_ORDER:
         state = get_agent_state(agent_name)
@@ -161,8 +167,8 @@ def handle_user_message(user_text):
         except Exception as e:
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         save_message(round_id=0, agent_name=agent_name, model=None, content=response)
-        history = get_recent_messages(15)
-        history_text = format_history(history)
+        all_history = get_recent_messages(20)
+        history_text = format_history(all_history[-5:])
         time.sleep(1)
 
 def _detect_consensus(round_id):

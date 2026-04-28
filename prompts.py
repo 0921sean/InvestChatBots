@@ -181,25 +181,41 @@ def format_history(messages):
     return "\n".join(lines)
 
 
+def build_position_summary(messages) -> str:
+    """각 에이전트의 가장 최근 발언 한 줄씩 요약 — 반복 루프 방지용."""
+    last = {}
+    for m in messages:
+        name = m["agent_name"]
+        if name not in ("System", "User"):
+            last[name] = m["content"][:80].replace("\n", " ")
+    if not last:
+        return ""
+    lines = ["[현재 각자의 포지션 요약]"]
+    for name, snippet in last.items():
+        lines.append(f"- {name}: {snippet}…")
+    return "\n".join(lines)
+
+
 def build_system_prompt(agent_name, evolution_notes):
     profile = AGENT_PROFILES[agent_name]
     return profile["system"].format(evolution_notes=evolution_notes or "아직 큰 변화 없음.")
 
 
-def build_round_prompt(market_summary, history_text, agent_name):
+def build_round_prompt(market_summary, position_summary, recent_text, agent_name):
     return f"""오늘의 시황:
 {market_summary}
 
-지금까지 대화:
-{history_text}
+{position_summary}
+
+최근 대화 (마지막 5개):
+{recent_text}
 
 {agent_name}, 당신 차례입니다.
 규칙:
-- 지금 논의 중인 핵심 주제에 당신만의 관점·근거를 추가하세요
-- 특정 한 명에게만 계속 답변하지 말고, 논의 전체에 기여하세요
-- 이미 여러 번 한 말을 반복하지 마세요 — 새로운 근거나 각도를 제시하세요
-- 라운드 번호·발언 횟수 언급 금지 ("N번째" 같은 표현 쓰지 말 것)
-- 의견 차이는 있되 동료 전문가로서 예의 있게. 핵심만 간결하게. 반드시 한국어로."""
+- 위 포지션 요약을 보고 아직 논의되지 않은 새로운 각도나 근거를 추가하세요
+- 자신이 이전에 한 말을 그대로 반복하지 마세요
+- 특정 한 명에게만 집중하지 말고 논의 전체에 기여하세요
+- 발언 횟수·순서 언급 금지. 동료 전문가 예의 유지. 핵심만 간결하게. 반드시 한국어로."""
 
 
 def build_user_response_prompt(user_message, history_text, agent_name):
