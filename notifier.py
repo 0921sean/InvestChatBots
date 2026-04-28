@@ -2,6 +2,7 @@ import os
 import json
 import smtplib
 import urllib.request
+import urllib.parse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -24,22 +25,27 @@ def notify(title: str, body: str, priority: str = "default"):
 
 def _ntfy(title: str, body: str, priority: str):
     try:
-        data = json.dumps({
+        # JSON body 방식 — topic별 URL에 POST
+        payload = json.dumps({
             "topic": NTFY_TOPIC,
             "title": title,
             "message": body,
-            "priority": priority,  # "max", "high", "default", "low", "min"
-            "tags": ["investchat"],
-        }).encode()
+            "priority": priority,
+        }).encode("utf-8")
         req = urllib.request.Request(
-            "https://ntfy.sh",
-            data=data,
-            headers={"Content-Type": "application/json"},
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=body.encode("utf-8"),
+            headers={
+                "Title": urllib.parse.quote(title),
+                "Priority": priority,
+                "Content-Type": "text/plain; charset=utf-8",
+            },
             method="POST",
         )
         urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("investchat").warning(f"ntfy 전송 실패: {e}")
 
 def _email(title: str, body: str):
     if not NOTIFY_EMAIL or not SMTP_PASSWORD:
