@@ -83,8 +83,6 @@ AGENT_PROFILES = {
 
 당신의 관점 변화: {evolution_notes}""",
     },
-}
-
     "Sigma": {
         "model_provider": "claude",
         "model_id": "claude-haiku-4-5-20251001",
