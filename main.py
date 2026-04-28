@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -13,11 +15,37 @@ from scheduler import start_scheduler
 load_dotenv()
 init_db()
 
+# ── 대화 루프 상태 ──────────────────────────────────────
+_loop_running = False
+_loop_thread: threading.Thread | None = None
+_loop_lock = threading.Lock()
+
+def _conversation_loop():
+    global _loop_running
+    while True:
+        with _loop_lock:
+            if not _loop_running:
+                break
+        try:
+            run_round()
+        except Exception:
+            pass
+        # 라운드 사이 5초 대기 (폴링이 메시지 받을 시간 확보)
+        for _ in range(5):
+            with _loop_lock:
+                if not _loop_running:
+                    return
+            time.sleep(1)
+# ──────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = start_scheduler()
     yield
+    global _loop_running
+    with _loop_lock:
+        _loop_running = False
     scheduler.shutdown()
 
 
@@ -56,6 +84,31 @@ def api_agents():
             "round_count": state["round_count"],
         })
     return result
+
+
+@app.get("/api/conversation/status")
+def api_conversation_status():
+    return {"running": _loop_running}
+
+
+@app.post("/api/conversation/start")
+def api_conversation_start():
+    global _loop_running, _loop_thread
+    with _loop_lock:
+        if _loop_running:
+            return {"ok": True, "running": True}
+        _loop_running = True
+    _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
+    _loop_thread.start()
+    return {"ok": True, "running": True}
+
+
+@app.post("/api/conversation/stop")
+def api_conversation_stop():
+    global _loop_running
+    with _loop_lock:
+        _loop_running = False
+    return {"ok": True, "running": False}
 
 
 class UserMessage(BaseModel):

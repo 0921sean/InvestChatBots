@@ -28,6 +28,8 @@
   .btn { border: none; border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
   .btn-ghost { background: #2a2d31; color: #9d9d9d; }
   .btn-primary { background: #4a154b; color: #e8e8e8; }
+  .btn-play { background: #166534; color: #86efac; transition: background .2s; }
+  .btn-play.playing { background: #7f1d1d; color: #fca5a5; }
   .btn-group { display: flex; gap: 8px; }
 
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -76,6 +78,7 @@
     </div>
     <div class="btn-group">
       <button class="btn btn-ghost" id="btn-round" onclick="startRound()">▶ New Round</button>
+      <button class="btn btn-play" id="btn-play" onclick="togglePlay()">▶ Play</button>
       <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
     </div>
   </div>
@@ -217,11 +220,47 @@ async function startRound() {
   document.getElementById('typing-text').textContent = 'Agents are responding...';
 }
 
+let isPlaying = false;
+
+async function togglePlay() {
+  const btn = document.getElementById('btn-play');
+  if (!isPlaying) {
+    isPlaying = true;
+    btn.textContent = '⏸ Pause';
+    btn.classList.add('playing');
+    document.getElementById('typing').style.display = 'flex';
+    document.getElementById('typing-text').textContent = 'Auto-conversation running...';
+    await fetch('/api/conversation/start', {method: 'POST'});
+  } else {
+    isPlaying = false;
+    btn.textContent = '▶ Play';
+    btn.classList.remove('playing');
+    document.getElementById('typing').style.display = 'none';
+    await fetch('/api/conversation/stop', {method: 'POST'});
+  }
+}
+
+async function syncPlayStatus() {
+  try {
+    const res = await fetch('/api/conversation/status');
+    const {running} = await res.json();
+    const btn = document.getElementById('btn-play');
+    if (running !== isPlaying) {
+      isPlaying = running;
+      btn.textContent = running ? '⏸ Pause' : '▶ Play';
+      btn.classList.toggle('playing', running);
+      document.getElementById('typing').style.display = running ? 'flex' : 'none';
+    }
+  } catch(e) {}
+}
+
 loadAgents();
 loadMarket();
 poll();
+syncPlayStatus();
 setInterval(poll, 3000);
 setInterval(loadMarket, 60000);
+setInterval(syncPlayStatus, 5000);
 </script>
 </body>
 </html>
