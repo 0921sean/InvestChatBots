@@ -33,6 +33,12 @@ def init_db():
             round_count INTEGER DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS consensus_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id INTEGER,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """)
 
 def save_message(round_id, agent_name, model, content):
@@ -92,6 +98,21 @@ def save_market_snapshot(data_json):
     with _conn() as con:
         cur = con.execute("INSERT INTO market_snapshots (data) VALUES (?)", (data_json,))
         return cur.lastrowid
+
+def save_consensus(round_id, content):
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO consensus_notes (round_id, content) VALUES (?,?)",
+            (round_id, content)
+        )
+
+def get_consensus_notes(limit=20):
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM consensus_notes ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 def get_latest_market_snapshot():
     with _conn() as con:

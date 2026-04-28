@@ -52,6 +52,18 @@
   #input-area input { flex: 1; background: #2a2d31; border: 1px solid #3a3d41; border-radius: 6px; padding: 10px 14px; color: #e8e8e8; font-size: 13px; outline: none; }
   #input-area input:focus { border-color: #6366f1; }
   #input-area button { background: #4a154b; border: none; color: #e8e8e8; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+
+  /* 오른쪽 합의 메모 패널 */
+  #memo-panel { width: 260px; background: #1a1d21; border-left: 1px solid #2a2d31; display: flex; flex-direction: column; flex-shrink: 0; }
+  #memo-header { padding: 14px 14px 10px; border-bottom: 1px solid #2a2d31; }
+  #memo-header h3 { font-size: 13px; font-weight: 700; color: #e2e8f0; }
+  #memo-header p { font-size: 10px; color: #9d9d9d; margin-top: 2px; }
+  #memo-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .memo-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; border-left: 3px solid #6366f1; }
+  .memo-card:first-child { border-left-color: #22c55e; }
+  .memo-time { font-size: 10px; color: #475569; margin-bottom: 6px; }
+  .memo-body { font-size: 12px; line-height: 1.7; color: #cbd5e1; white-space: pre-wrap; }
+  #memo-empty { font-size: 12px; color: #475569; text-align: center; padding: 24px 12px; line-height: 1.7; }
 </style>
 </head>
 <body>
@@ -89,6 +101,16 @@
   <div id="input-area">
     <input id="msg-input" placeholder="Message #war-room..." onkeydown="if(event.key==='Enter')sendMessage()" />
     <button onclick="sendMessage()">Send</button>
+  </div>
+</div>
+
+<div id="memo-panel">
+  <div id="memo-header">
+    <h3>📌 합의 메모</h3>
+    <p>5라운드마다 분석 · 자동 업데이트</p>
+  </div>
+  <div id="memo-list">
+    <div id="memo-empty">아직 합의된 결론이<br>없습니다.<br><br>대화가 쌓이면<br>자동으로 채워집니다.</div>
   </div>
 </div>
 
@@ -254,13 +276,34 @@ async function syncPlayStatus() {
   } catch(e) {}
 }
 
+async function loadConsensus() {
+  try {
+    const res = await fetch('/api/consensus');
+    const notes = await res.json();
+    const list = document.getElementById('memo-list');
+    const empty = document.getElementById('memo-empty');
+    if (!notes.length) { if(empty) empty.style.display='block'; return; }
+    if(empty) empty.style.display='none';
+    list.innerHTML = '';
+    notes.forEach((n, i) => {
+      const d = document.createElement('div');
+      d.className = 'memo-card';
+      const t = new Date(n.created_at + 'Z').toLocaleString('ko-KR', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      d.innerHTML = `<div class="memo-time">${t}</div><div class="memo-body">${esc(n.content)}</div>`;
+      list.appendChild(d);
+    });
+  } catch(e) {}
+}
+
 loadAgents();
 loadMarket();
 poll();
 syncPlayStatus();
+loadConsensus();
 setInterval(poll, 3000);
 setInterval(loadMarket, 60000);
 setInterval(syncPlayStatus, 5000);
+setInterval(loadConsensus, 30000);
 </script>
 </body>
 </html>

@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state
+from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes
 from orchestrator import run_round, handle_user_message
 from prompts import AGENT_ORDER, AGENT_PROFILES
 from scheduler import start_scheduler
@@ -84,6 +84,11 @@ def api_agents():
             "round_count": state["round_count"],
         })
     return result
+
+
+@app.get("/api/consensus")
+def api_consensus():
+    return get_consensus_notes()
 
 
 @app.get("/api/conversation/status")
