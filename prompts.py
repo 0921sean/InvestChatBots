@@ -218,7 +218,8 @@ def build_system_prompt(agent_name, evolution_notes):
     return profile["system"].format(evolution_notes=evolution_notes or "아직 큰 변화 없음.")
 
 
-def build_round_prompt(market_summary, position_summary, recent_text, agent_name):
+def build_round_prompt(market_summary, position_summary, recent_text, agent_name, topic_shift=False):
+    shift_note = "\n⚠️ 방금 전 주제에서 합의가 나왔습니다. 이번엔 완전히 다른 섹터·종목·테마로 논의를 전환하세요." if topic_shift else ""
     return f"""오늘의 시황:
 {market_summary}
 
@@ -226,6 +227,7 @@ def build_round_prompt(market_summary, position_summary, recent_text, agent_name
 
 최근 대화 (마지막 5개):
 {recent_text}
+{shift_note}
 
 {agent_name}, 당신 차례입니다.
 규칙:

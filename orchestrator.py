@@ -24,10 +24,12 @@ SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
 CONSENSUS_EVERY_N_ROUNDS = 3
 _round_counter = 0
-_recent_speakers: list[str] = []   # 최근 발언자 추적 (공평성 보장)
-_devil_silence = 0                 # Devil이 마지막 발언한 이후 라운드 수
-DEVIL_MIN_SILENCE = 4              # 최소 4라운드는 조용히
-DEVIL_MAX_SILENCE = 8              # 8라운드 침묵하면 강제 등장
+_recent_speakers: list[str] = []
+_devil_silence = 0
+DEVIL_MIN_SILENCE = 4
+DEVIL_MAX_SILENCE = 8
+_pending_topic_shift = False   # 합의 후 다음 라운드에 주제 전환 신호
+_last_consensus = ""           # 마지막으로 합의된 내용 (새 주제 안내에 사용)
 
 def _get_summary_agent(index):
     return SUMMARY_ROTATION[index % len(SUMMARY_ROTATION)]
@@ -119,26 +121,33 @@ def _pick_speakers() -> list[str]:
     return chosen
 
 def run_round(market_summary=None):
-    global _round_counter
+    global _round_counter, _pending_topic_shift
     market_refreshed = False
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()
 
     round_id = create_round(market_summary[:200])
-    # 시황이 갱신됐을 때만 System 메시지 표시
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 {market_summary}")
+
+    # 합의 후 주제 전환 신호
+    if _pending_topic_shift:
+        _pending_topic_shift = False
+        shift_msg = f"📌 앞서 합의된 내용을 정리했습니다. 이제 다른 섹터나 주제로 시선을 돌려보겠습니다."
+        save_message(round_id, "System", None, shift_msg)
 
     all_history = get_recent_messages(20)
     recent_history = all_history[-5:]
     position_summary = build_position_summary(all_history)
     recent_text = format_history_compact(recent_history)
     speakers = _pick_speakers()
+    is_first_after_shift = _pending_topic_shift is False and _last_consensus != ""
 
-    for agent_name in speakers:
+    for i, agent_name in enumerate(speakers):
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
-        prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name)
+        prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name,
+                                    topic_shift=(i == 0 and is_first_after_shift))
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
@@ -232,11 +241,10 @@ def _detect_consensus(round_id):
         if result and "합의 없음" not in result and "📌" in result:
             content = result.strip()
             save_consensus(round_id, content)
-            notify(
-                "📌 InvestChat 합의 메모",
-                content,
-                priority="default",
-            )
+            notify("📌 InvestChat 합의 메모", content, priority="default")
+            global _pending_topic_shift, _last_consensus
+            _pending_topic_shift = True
+            _last_consensus = content
     except Exception:
         pass
 
