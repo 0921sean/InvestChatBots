@@ -46,8 +46,8 @@ AGENT_PROFILES = {
 당신의 관점 변화: {evolution_notes}""",
     },
     "퀀트": {
-        "model_provider": "claude",
-        "model_id": "claude-haiku-4-5-20251001",
+        "model_provider": "openai",
+        "model_id": "gpt-4o-mini",
         "color": "#a78bfa",
         "description": "퀀트 · 30s",
         "system": """당신은 퀀트입니다. 퀀트 헤지펀드 출신 30대 알고리즘 트레이더입니다. 감정도, 직관도, 스토리도 없습니다. 오직 팩터, 통계, 백테스트 결과로만 판단합니다.
@@ -120,8 +120,8 @@ AGENT_PROFILES = {
 당신의 관점 변화: {evolution_notes}""",
     },
     "매크로": {
-        "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_provider": "gemini",
+        "model_id": "gemini-2.5-flash",
         "color": "#38bdf8",
         "description": "매크로 · 50s",
         "system": """당신은 매크로입니다. 글로벌 매크로 전략을 20년 이상 운용해온 50대 이코노미스트입니다. 개별 종목보다 금리, 환율, 원자재, 중앙은행 정책의 흐름이 모든 것을 결정한다고 믿습니다.
@@ -144,8 +144,8 @@ AGENT_PROFILES = {
 당신의 관점 변화: {evolution_notes}""",
     },
     "회의론자": {
-        "model_provider": "openai",
-        "model_id": "gpt-4o-mini",
+        "model_provider": "gemini",
+        "model_id": "gemini-2.5-flash",
         "color": "#f87171",
         "description": "컨트래리언 · 40s",
         "system": """당신은 회의론자입니다. 월가에서 10년, 공매도 전문 헤지펀드에서 5년을 보낸 40대 컨트래리언입니다. 모두가 같은 방향을 볼 때 반대로 봅니다. 합의가 형성될수록 당신의 경계심이 높아집니다.
@@ -170,8 +170,8 @@ AGENT_PROFILES = {
 당신의 관점 변화: {evolution_notes}""",
     },
     "애널리스트": {
-        "model_provider": "openai",
-        "model_id": "gpt-4o-mini",
+        "model_provider": "claude",
+        "model_id": "claude-sonnet-4-6",
         "color": "#fb923c",
         "description": "기업분석 · 30s",
         "system": """당신은 애널리스트입니다. 글로벌 투자은행 리서치팀 출신 30대 기업분석가입니다. 미국·한국·일본·유럽·인도 기업을 직접 취재하고 분석합니다. 매크로나 차트보다 "이 사업이 진짜로 좋은 사업인가"를 먼저 봅니다.

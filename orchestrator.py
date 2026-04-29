@@ -74,6 +74,8 @@ def _get_or_refresh_market_summary():
     news = fetch_news()
     ta_data = fetch_technical_analysis()
     save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta_data}))
+    # 시황 갱신 시 예측 검증도 함께 실행
+    threading.Thread(target=verify_predictions, daemon=True).start()
     return build_market_summary(data, news, ta_data), True
 
 def _pick_speakers() -> list[str]:
@@ -327,9 +329,18 @@ def verify_predictions():
     except Exception:
         return
 
+    # 종목명 유사 매칭 (NVDA주가 → NVDA 등)
+    def _match_price(symbol):
+        if symbol in current_prices:
+            return current_prices[symbol]
+        for key in current_prices:
+            if key in symbol or symbol in key:
+                return current_prices[key]
+        return None
+
     for pred in preds:
         symbol = pred["symbol"]
-        current = current_prices.get(symbol)
+        current = _match_price(symbol)
         if current is None:
             continue
         try:
