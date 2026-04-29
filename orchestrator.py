@@ -31,7 +31,9 @@ _recent_speakers: list[str] = []
 _devil_silence = 0
 DEVIL_MIN_SILENCE = 4
 DEVIL_MAX_SILENCE = 8
-_user_active_until: float = 0.0   # epoch 타임스탬프
+_user_active_until: float = 0.0
+_agent_fail_count: dict = {}      # {agent_name: consecutive_fail_count}
+AGENT_FAIL_ALERT = 3              # N번 연속 실패 시 알림
 _pending_topic_shift = False   # 합의 후 다음 라운드에 주제 전환 신호
 _last_consensus = ""           # 마지막으로 합의된 내용 (새 주제 안내에 사용)
 
@@ -75,8 +77,26 @@ def _get_or_refresh_market_summary():
     data = fetch_market_data()
     news = fetch_news()
     ta_data = fetch_technical_analysis()
+
+    # 데이터 품질 체크 → 실패 시 알림
+    price_ok = any(v.get("price") for v in data.values() if v)
+    ta_ok = any(v is not None for v in ta_data.values())
+    news_ok = len(news) > 0
+
+    if not price_ok:
+        notify("⚠️ 주가 데이터 없음",
+               "Yahoo Finance 연결 실패 — 모든 종목 가격 수신 불가. 퀀트 판단 데이터 부족.",
+               priority="high")
+    if not ta_ok:
+        notify("⚠️ TradingView 차트 데이터 없음",
+               "RSI·MACD·이평선 수신 실패 — 트레이더·퀀트의 기술적 분석 데이터 부족.",
+               priority="high")
+    if not news_ok:
+        notify("⚠️ 뉴스 수신 실패",
+               "RSS 피드 연결 실패 — 최신 뉴스 없이 대화 진행 중.",
+               priority="default")
+
     save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta_data}))
-    # 시황 갱신 시 예측 검증도 함께 실행
     threading.Thread(target=verify_predictions, daemon=True).start()
     return build_market_summary(data, news, ta_data), True
 
@@ -172,18 +192,20 @@ def run_round(market_summary=None):
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
             if is_credit_error(e):
-                notify(
-                    f"⚠️ {agent_name} 크레딧 소진",
-                    f"{agent_name} API 크레딧 부족.\n충전 후 계속됩니다.",
-                    priority="high",
-                )
+                notify(f"⚠️ {agent_name} 크레딧 소진",
+                       f"{agent_name} API 크레딧 부족. 충전 후 계속됩니다.", priority="high")
             elif is_rate_limit(e):
-                notify(
-                    f"🔄 {agent_name} API 한도 초과",
-                    f"크레딧 문제 아님 — 분당 요청/토큰 한도 초과.\n잠시 후 자동 재개됩니다.",
-                    priority="default",
-                )
+                notify(f"🔄 {agent_name} API 한도 초과",
+                       f"분당 요청/토큰 한도 초과. 잠시 후 자동 재개.", priority="default")
+            # 연속 실패 카운트
+            _agent_fail_count[agent_name] = _agent_fail_count.get(agent_name, 0) + 1
+            if _agent_fail_count[agent_name] == AGENT_FAIL_ALERT:
+                notify(f"🚨 {agent_name} {AGENT_FAIL_ALERT}회 연속 오류",
+                       f"{agent_name}이 {AGENT_FAIL_ALERT}번 연속 응답 실패.\n({type(e).__name__})",
+                       priority="high")
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
+        else:
+            _agent_fail_count[agent_name] = 0  # 성공 시 카운트 초기화
         _save_with_summary(round_id, agent_name, response)
         # 발언 후 포지션 요약 갱신 (compact 버전 사용)
         all_history = get_recent_messages(20)
