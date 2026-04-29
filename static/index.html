@@ -30,6 +30,8 @@
   .btn-primary { background: #4a154b; color: #e8e8e8; }
   .btn-play { background: #166534; color: #86efac; transition: background .2s; }
   .btn-play.playing { background: #7f1d1d; color: #fca5a5; }
+  .btn-guard { background: #2a2d31; color: #9d9d9d; font-size:11px; border:1px solid #3a3d41; }
+  .btn-guard.active { background: #7f1d1d; color: #fca5a5; border-color:#f87171; }
   .btn-group { display: flex; gap: 8px; }
 
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -104,6 +106,7 @@
       <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ Resume</button>
       <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ Pause</button>
       <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
+      <button class="btn btn-guard" id="btn-guard" onclick="toggleGuard()" title="크레딧 소진 시 대화 자동 정지">🛡 크레딧 정지</button>
     </div>
   </div>
   <div id="messages"></div>
@@ -368,6 +371,31 @@ async function syncUserMode() {
 }
 syncUserMode();
 setInterval(syncUserMode, 10000);
+
+let guardOn = false;
+async function toggleGuard() {
+  const btn = document.getElementById('btn-guard');
+  const endpoint = guardOn ? '/api/stop-on-credit/off' : '/api/stop-on-credit/on';
+  const res = await fetch(endpoint, {method:'POST'});
+  const {enabled} = await res.json();
+  guardOn = enabled;
+  btn.textContent = enabled ? '🛡 크레딧 정지 ON' : '🛡 크레딧 정지';
+  btn.classList.toggle('active', enabled);
+}
+async function syncGuard() {
+  try {
+    const res = await fetch('/api/stop-on-credit');
+    const {enabled} = await res.json();
+    if (enabled !== guardOn) {
+      guardOn = enabled;
+      const btn = document.getElementById('btn-guard');
+      btn.textContent = enabled ? '🛡 크레딧 정지 ON' : '🛡 크레딧 정지';
+      btn.classList.toggle('active', enabled);
+    }
+  } catch(e) {}
+}
+syncGuard();
+setInterval(syncGuard, 10000);
 setInterval(loadConsensus, 30000);
 </script>
 </body>

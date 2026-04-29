@@ -34,7 +34,8 @@ DEVIL_MAX_SILENCE = 8
 _user_active_until: float = 0.0
 _agent_fail_count: dict = {}      # {agent_name: consecutive_fail_count}
 AGENT_FAIL_ALERT = 3              # N번 연속 실패 시 알림
-_pending_topic_shift = False   # 합의 후 다음 라운드에 주제 전환 신호
+_pending_topic_shift = False
+_stop_on_credit = False        # 크레딧 소진 시 전체 대화 정지 모드
 _last_consensus = ""           # 마지막으로 합의된 내용 (새 주제 안내에 사용)
 
 def _get_summary_agent(index):
@@ -194,6 +195,12 @@ def run_round(market_summary=None):
             if is_credit_error(e):
                 notify(f"⚠️ {agent_name} 크레딧 소진",
                        f"{agent_name} API 크레딧 부족. 충전 후 계속됩니다.", priority="high")
+                if _stop_on_credit:
+                    import main as _main
+                    with _main._loop_lock:
+                        _main._loop_running = False
+                    notify("🛑 크레딧 소진으로 대화 정지",
+                           f"{agent_name} 크레딧 부족 — 정지 모드 활성화로 대화를 멈췄습니다.", priority="high", cooldown=0)
             elif is_rate_limit(e):
                 notify(f"🔄 {agent_name} API 한도 초과",
                        f"분당 요청/토큰 한도 초과. 잠시 후 자동 재개.", priority="default")

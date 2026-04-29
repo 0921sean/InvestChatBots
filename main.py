@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes
 from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS
+import orchestrator as _orch
 from prompts import AGENT_ORDER, AGENT_PROFILES
 from scheduler import start_scheduler
 
@@ -101,6 +102,21 @@ def api_consensus():
 @app.get("/api/user/active")
 def api_user_active():
     return {"active": is_user_active(), "resumes_in": max(0, int(USER_IDLE_SECONDS - (time.time() - 0)))}
+
+
+@app.get("/api/stop-on-credit")
+def api_get_stop_on_credit():
+    return {"enabled": _orch._stop_on_credit}
+
+@app.post("/api/stop-on-credit/on")
+def api_stop_on_credit_on():
+    _orch._stop_on_credit = True
+    return {"enabled": True}
+
+@app.post("/api/stop-on-credit/off")
+def api_stop_on_credit_off():
+    _orch._stop_on_credit = False
+    return {"enabled": False}
 
 
 @app.get("/api/conversation/status")
