@@ -110,6 +110,7 @@
   <div id="typing">
     <span class="typing-dots" id="typing-text">Agents are responding...</span>
   </div>
+  <div id="user-mode-banner" style="display:none;background:#1e2a1e;border-top:1px solid #166534;padding:6px 16px;font-size:11px;color:#86efac;flex-shrink:0;">💬 사용자 응답 대기 중 — 5분 무응답 시 AI 자율 대화 자동 재개.</div>
   <div id="input-area">
     <input id="msg-input" placeholder="Message #war-room..." onkeydown="if(event.key==='Enter')sendMessage()" />
     <button onclick="sendMessage()">Send</button>
@@ -360,6 +361,17 @@ loadConsensus();
 setInterval(poll, 3000);
 setInterval(loadMarket, 60000);
 setInterval(syncPlayStatus, 5000);
+
+async function syncUserMode() {
+  try {
+    const res = await fetch("/api/user/active");
+    const {active} = await res.json();
+    const banner = document.getElementById("user-mode-banner");
+    if (banner) banner.style.display = active ? "block" : "none";
+  } catch(e) {}
+}
+syncUserMode();
+setInterval(syncUserMode, 10000);
 setInterval(loadConsensus, 30000);
 </script>
 </body>

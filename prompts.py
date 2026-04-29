@@ -263,13 +263,15 @@ def build_round_prompt(market_summary, position_summary, recent_text, agent_name
 
 
 def build_user_response_prompt(user_message, history_text, agent_name):
-    return f"""지금까지 대화:
+    return f"""지금까지 나눈 투자 대화 맥락:
 {history_text}
 
-사용자 발언:
+사용자 질문:
 "{user_message}"
 
-{agent_name}으로서 사용자의 의견에 직접 반응하세요. 구체적으로, 캐릭터에 충실하게. 반드시 한국어로."""
+{agent_name}으로서 사용자 질문에 직접 답하세요.
+- 대화에서 쌓인 인사이트를 바탕으로, 사용자가 묻는 것에 명확히 답하는 게 최우선
+- 캐릭터에 충실하게, 핵심 먼저. 반드시 한국어로."""
 
 
 def build_summary_prompt(history_text, user_message):

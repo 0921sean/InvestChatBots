@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes
-from orchestrator import run_round, handle_user_message
+from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS
 from prompts import AGENT_ORDER, AGENT_PROFILES
 from scheduler import start_scheduler
 
@@ -96,6 +96,11 @@ def api_agents():
 @app.get("/api/consensus")
 def api_consensus():
     return get_consensus_notes()
+
+
+@app.get("/api/user/active")
+def api_user_active():
+    return {"active": is_user_active(), "resumes_in": max(0, int(USER_IDLE_SECONDS - (time.time() - 0)))}
 
 
 @app.get("/api/conversation/status")

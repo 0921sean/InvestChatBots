@@ -25,11 +25,13 @@ from notifier import notify, is_credit_error, is_rate_limit
 SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
 CONSENSUS_EVERY_N_ROUNDS = 5
+USER_IDLE_SECONDS = 300   # 사용자 5분 무응답 → 루프 재개
 _round_counter = 0
 _recent_speakers: list[str] = []
 _devil_silence = 0
 DEVIL_MIN_SILENCE = 4
 DEVIL_MAX_SILENCE = 8
+_user_active_until: float = 0.0   # epoch 타임스탬프
 _pending_topic_shift = False   # 합의 후 다음 라운드에 주제 전환 신호
 _last_consensus = ""           # 마지막으로 합의된 내용 (새 주제 안내에 사용)
 
@@ -125,8 +127,14 @@ def _pick_speakers() -> list[str]:
     _recent_speakers = _recent_speakers[-30:]
     return chosen
 
+def is_user_active() -> bool:
+    return time.time() < _user_active_until
+
 def run_round(market_summary=None):
     global _round_counter, _pending_topic_shift
+    # 사용자가 최근 5분 내 발언했으면 이번 라운드 건너뜀
+    if is_user_active():
+        return
     market_refreshed = False
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()
@@ -192,6 +200,9 @@ def run_round(market_summary=None):
     _maybe_update_evolution(round_id)
 
 def handle_user_message(user_text):
+    global _user_active_until
+    # 사용자 발언 → 5분간 AI 자율 대화 정지
+    _user_active_until = time.time() + USER_IDLE_SECONDS
     save_message(round_id=0, agent_name="User", model=None, content=user_text)
 
     all_history = get_recent_messages(20)
