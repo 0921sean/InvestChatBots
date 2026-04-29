@@ -198,11 +198,13 @@ def run_round(market_summary=None):
                 notify(f"🔄 {agent_name} API 한도 초과",
                        f"분당 요청/토큰 한도 초과. 잠시 후 자동 재개.", priority="default")
             # 연속 실패 카운트
-            _agent_fail_count[agent_name] = _agent_fail_count.get(agent_name, 0) + 1
-            if _agent_fail_count[agent_name] == AGENT_FAIL_ALERT:
-                notify(f"🚨 {agent_name} {AGENT_FAIL_ALERT}회 연속 오류",
-                       f"{agent_name}이 {AGENT_FAIL_ALERT}번 연속 응답 실패.\n({type(e).__name__})",
-                       priority="high")
+            count = _agent_fail_count.get(agent_name, 0) + 1
+            _agent_fail_count[agent_name] = count
+            # 3번째, 이후 10번 단위마다 알림 (쿨다운 없이)
+            if count == AGENT_FAIL_ALERT or (count > AGENT_FAIL_ALERT and count % 10 == 0):
+                notify(f"🚨 {agent_name} {count}회 연속 오류",
+                       f"{agent_name}이 {count}번 연속 응답 실패.\n({type(e).__name__})",
+                       priority="high", cooldown=0)
             response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
         else:
             _agent_fail_count[agent_name] = 0  # 성공 시 카운트 초기화

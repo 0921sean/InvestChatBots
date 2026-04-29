@@ -1,10 +1,15 @@
 import os
 import json
+import time
 import smtplib
 import urllib.request
 import urllib.parse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+# 쿨다운: {알림 키 → 마지막 발송 시각}
+_cooldown: dict[str, float] = {}
+COOLDOWN_SECONDS = 4 * 3600  # 4시간
 
 NTFY_TOPIC = os.getenv("NTFY_TOPIC", "investchat-sean-alerts")
 NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
@@ -30,8 +35,13 @@ def is_rate_limit(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(k.lower() in msg for k in RATE_LIMIT_KEYWORDS)
 
-def notify(title: str, body: str, priority: str = "default"):
-    """ntfy.sh 푸시 + Gmail 이메일(설정된 경우) 동시 발송."""
+def notify(title: str, body: str, priority: str = "default", cooldown: int = COOLDOWN_SECONDS):
+    """ntfy.sh 푸시 + Gmail. cooldown(초) 내 같은 제목 알림은 1회만 발송."""
+    key = title.strip()
+    now = time.time()
+    if cooldown > 0 and now - _cooldown.get(key, 0) < cooldown:
+        return  # 쿨다운 중 — 무시
+    _cooldown[key] = now
     _ntfy(title, body, priority)
     _email(title, body)
 
