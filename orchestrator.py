@@ -24,7 +24,7 @@ from notifier import notify, is_credit_error, is_rate_limit
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
 MARKET_REFRESH_HOURS = 2
-CONSENSUS_EVERY_N_ROUNDS = 3
+CONSENSUS_EVERY_N_ROUNDS = 5
 _round_counter = 0
 _recent_speakers: list[str] = []
 _devil_silence = 0
@@ -233,8 +233,8 @@ def _detect_consensus(round_id):
 실제 투자에 활용할 수 있는 **매수/관심 합의**를 찾으세요.
 
 우선순위:
-1. 3명 이상이 긍정적으로 언급한 섹터·종목·테마 (매수, 비중확대, 유망, 주목할 만하다)
-2. 위가 없으면 2명이 강하게 동의한 경우도 포함
+1. **5명 이상**이 긍정적으로 언급한 섹터·종목·테마 (매수, 비중확대, 유망, 주목할 만하다)
+2. 위가 없으면 4명이 강하게 동의한 경우만 포함 (단순 언급 아닌 확실한 방향성)
 
 매도 의견은 📌 형식이 아닌 ⚠️ 한 줄로만 (선택사항, 매우 강한 합의일 때만):
 ⚠️ 주의: [섹터/종목] — [이유 한 줄]
