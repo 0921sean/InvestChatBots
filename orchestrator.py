@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 import random
 from datetime import datetime, timezone
@@ -8,7 +9,8 @@ logger = logging.getLogger("investchat")
 from db import (
     create_round, complete_round, save_message, get_recent_messages,
     get_agent_state, save_agent_state, save_market_snapshot,
-    get_latest_market_snapshot, save_consensus
+    get_latest_market_snapshot, save_consensus,
+    save_prediction, get_unverified_predictions, mark_prediction_verified
 )
 from agents import call_agent
 from prompts import (
@@ -184,6 +186,7 @@ def run_round(market_summary=None):
     _round_counter += 1
     if _round_counter % CONSENSUS_EVERY_N_ROUNDS == 0:
         _detect_consensus(round_id)
+    threading.Thread(target=_extract_predictions, args=(round_id,), daemon=True).start()
     _maybe_update_evolution(round_id)
 
 def handle_user_message(user_text):
@@ -260,6 +263,107 @@ def _detect_consensus(round_id):
             _last_consensus = content
     except Exception:
         pass
+
+def _extract_predictions(round_id):
+    """라운드 직후 각 에이전트 발언에서 종목·방향 예측을 추출해 저장."""
+    history = get_recent_messages(20)
+    round_msgs = [m for m in history if m.get("round_id") == round_id
+                  and m["agent_name"] not in ("System", "User")]
+    if not round_msgs:
+        return
+
+    snap = get_latest_market_snapshot()
+    prices = {}
+    if snap:
+        try:
+            d = json.loads(snap["data"])
+            for name, info in d.get("data", {}).items():
+                if info and info.get("price"):
+                    prices[name] = info["price"]
+        except Exception:
+            pass
+
+    for msg in round_msgs:
+        prompt = f"""다음 발언에서 특정 종목·지수·섹터에 대한 명확한 방향성 예측이 있으면 추출하세요.
+없으면 "없음"만 출력.
+
+발언: {msg['content']}
+
+있으면 아래 형식으로만:
+종목: [NVDA/KOSPI/반도체섹터 등]
+방향: [상승/하락/중립]
+근거: [한 줄]"""
+        try:
+            result = call_agent(
+                "퀀트",
+                "투자 발언에서 예측을 구조화 추출하는 시스템입니다.",
+                prompt
+            )
+            if result and "없음" not in result and "종목:" in result:
+                lines = {l.split(":")[0].strip(): ":".join(l.split(":")[1:]).strip()
+                         for l in result.strip().split("\n") if ":" in l}
+                symbol = lines.get("종목", "")
+                direction = lines.get("방향", "")
+                basis = lines.get("근거", "")
+                if symbol and direction in ("상승", "하락", "중립"):
+                    price = prices.get(symbol)
+                    save_prediction(msg["agent_name"], symbol, direction, price, basis)
+        except Exception:
+            pass
+
+def verify_predictions():
+    """미검증 예측을 현재 주가와 비교해 맞았는지 확인 후 evolution notes 반영."""
+    preds = get_unverified_predictions()
+    if not preds:
+        return
+
+    snap = get_latest_market_snapshot()
+    if not snap:
+        return
+    try:
+        d = json.loads(snap["data"])
+        current_prices = {k: v["price"] for k, v in d.get("data", {}).items()
+                          if v and v.get("price")}
+    except Exception:
+        return
+
+    for pred in preds:
+        symbol = pred["symbol"]
+        current = current_prices.get(symbol)
+        if current is None:
+            continue
+        try:
+            past = float(pred["price_at"])
+        except Exception:
+            continue
+
+        change = (current - past) / past * 100
+        if abs(change) < 1.5:  # ±1.5% 이내는 중립 처리
+            continue
+
+        actual = "상승" if change > 0 else "하락"
+        correct = actual == pred["direction"]
+        result = f"{'✅' if correct else '❌'} {pred['direction']} 예측 → 실제 {actual} ({change:+.1f}%)"
+        mark_prediction_verified(pred["id"], result)
+
+        # evolution notes에 피드백 반영
+        state = get_agent_state(pred["agent_name"])
+        feedback_line = f"[예측피드백] {pred['symbol']} {result} (근거: {pred['basis']})"
+        notes = state["evolution_notes"]
+        # 최근 피드백 5개만 유지
+        existing = [l for l in notes.split("\n") if l.startswith("[예측피드백]")]
+        existing.append(feedback_line)
+        existing = existing[-5:]
+        non_feedback = [l for l in notes.split("\n") if not l.startswith("[예측피드백]")]
+        new_notes = "\n".join(non_feedback + existing).strip()
+        save_agent_state(pred["agent_name"], new_notes, state["round_count"])
+
+        # 알림
+        notify(
+            f"{'✅' if correct else '❌'} {pred['agent_name']} 예측 {'적중' if correct else '빗나감'}",
+            f"{pred['symbol']}: {result}",
+            priority="default"
+        )
 
 def _maybe_update_evolution(round_id):
     for agent_name in AGENT_ORDER:

@@ -49,6 +49,17 @@ def init_db():
             content TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            price_at TEXT,
+            basis TEXT,
+            verified INTEGER DEFAULT 0,
+            result TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """)
 
 def save_message(round_id, agent_name, model, content, summary=None):
@@ -123,6 +134,28 @@ def get_consensus_notes(limit=20):
             "SELECT * FROM consensus_notes ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+def save_prediction(agent_name, symbol, direction, price_at, basis):
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO predictions (agent_name, symbol, direction, price_at, basis) VALUES (?,?,?,?,?)",
+            (agent_name, symbol, direction, str(price_at), basis)
+        )
+
+def get_unverified_predictions():
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM predictions WHERE verified=0 ORDER BY created_at ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+def mark_prediction_verified(pred_id, result):
+    with _conn() as con:
+        con.execute(
+            "UPDATE predictions SET verified=1, result=? WHERE id=?",
+            (result, pred_id)
+        )
 
 def get_latest_market_snapshot():
     with _conn() as con:
