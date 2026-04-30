@@ -1,0 +1,14 @@
+{"type":"server-started","port":53254,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:53254","screen_dir":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content","state_dir":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/state"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/interface-type.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/waiting-1.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/approaches.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/architecture.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/user-interaction.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/ui-mockup.html"}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/nicknames.html"}
+{"source":"user-event","type":"click","text":"A\n      \n        복리신\n        복리의 신. 시간을 무기로 쓰는 사람","choice":"longterm-a","id":null,"timestamp":1777222932387}
+{"source":"user-event","type":"click","text":"A\n      \n        칼날\n        예리하게 들어가고 빠르게 나온다","choice":"short-a","id":null,"timestamp":1777222941919}
+{"source":"user-event","type":"click","text":"A\n      \n        달나라\n        To the moon. 10배 아니면 의미없다","choice":"risk-a","id":null,"timestamp":1777222945866}
+{"source":"user-event","type":"click","text":"C\n      \n        거북이\n        느리지만 절대 잃지 않는다","choice":"safe-c","id":null,"timestamp":1777222951890}
+{"type":"screen-added","file":"/Users/cheonseungbeom/Desktop/CSB/MyApps/InvestChatBots/.superpowers/brainstorm/59051-1777222037/content/ui-mockup-v2.html"}
+{"type":"server-stopped","reason":"idle timeout"}

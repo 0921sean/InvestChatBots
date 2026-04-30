@@ -623,12 +623,23 @@ def evaluate_positions():
 
     for pos in open_pos:
         symbol = pos["symbol"]
+        # 스냅샷에서 먼저 찾기
         current = None
         for k, v in prices.items():
             if k.upper() in symbol.upper() or symbol.upper() in k.upper():
                 current = v
                 break
-        if current is None or pos["entry_price"] == 0:
+        # 스냅샷에 없으면 실시간 조회
+        if current is None:
+            current = fetch_stock_price(symbol)
+        if current is None:
+            continue
+        # 진입가 0이면 현재가로 업데이트
+        if pos["entry_price"] == 0:
+            from db import _conn
+            with _conn() as con:
+                con.execute("UPDATE virtual_positions SET entry_price=? WHERE id=?",
+                           (current, pos["id"]))
             continue
 
         target_date_reached = pos["target_date"] and today >= pos["target_date"]

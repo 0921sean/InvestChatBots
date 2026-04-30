@@ -1,0 +1,45 @@
+<h2>아키텍처 방향 3가지</h2>
+<p class="subtitle">어떤 스택으로 구축할지 선택해주세요</p>
+
+<div class="options">
+  <div class="option" data-choice="streamlit" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Python + Streamlit (빠른 MVP)</h3>
+      <p>Streamlit의 내장 채팅 UI로 빠르게 프로토타입. 수십 줄로 동작하는 버전 완성 가능.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>가장 빠른 구현 (1-2일)</li><li>Python만으로 완결</li><li>배포 간단 (Streamlit Cloud)</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>Slack 느낌 한계 있음</li><li>커스터마이징 어려움</li><li>실시간성 약함</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option recommended" data-choice="fastapi-react" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>⭐ Python FastAPI + React (추천)</h3>
+      <p>FastAPI가 AI 대화 오케스트레이션 담당, React 프론트엔드가 WebSocket으로 실시간 채팅 렌더링. 진짜 Slack 느낌.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>진짜 Slack 스타일 UI 가능</li><li>WebSocket으로 실시간 스트리밍</li><li>확장성 좋음</li><li>사용자 메시지 자연스럽게 통합</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>구현 3-5일</li><li>프론트엔드 별도 작업 필요</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="fastapi-htmx" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Python FastAPI + HTMX (중간)</h3>
+      <p>React 없이 HTMX로 서버 사이드 렌더링. 자바스크립트 최소화하면서도 실시간 느낌 구현.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>React보다 간단</li><li>Python 중심 개발</li><li>실시간 폴링/SSE 지원</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>UI 커스터마이징 한계</li><li>HTMX 러닝커브</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;padding:16px;background:rgba(99,102,241,0.1);border-radius:8px;border-left:3px solid #6366f1">
+  <p class="label">추천 이유</p>
+  <p><strong>B (FastAPI + React)</strong>를 추천합니다. Slack 스타일 UI를 제대로 구현하려면 WebSocket 기반 실시간 업데이트가 필수인데, React가 이걸 가장 깔끔하게 처리합니다. AI 응답이 스트리밍될 때 타이핑 효과도 자연스럽게 줄 수 있어요.</p>
+</div>

@@ -1,0 +1,40 @@
+<h2>어떤 인터페이스로 볼 건가요?</h2>
+<p class="subtitle">4명의 투자 전문가 AI가 대화하는 걸 어떻게 보고 싶으세요?</p>
+
+<div class="options">
+  <div class="option" data-choice="web" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>웹 앱 (브라우저)</h3>
+      <p>실시간 채팅 UI, 각 AI의 프로필 아바타, 시황 차트가 함께 보이는 풍부한 대시보드. 어디서든 브라우저로 접근 가능.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>시각적으로 풍부함</li><li>차트·그래프 통합 가능</li><li>공유 용이</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>개발 복잡도 높음</li><li>프론트엔드 별도 필요</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="terminal" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>터미널 / CLI</h3>
+      <p>터미널에서 실행되는 텍스트 기반 대화 뷰어. 빠르고 가볍고, 서버 없이도 동작.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>빠른 개발</li><li>서버 불필요</li><li>가볍고 단순</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>시각적 제한</li><li>차트 표시 어려움</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="chat" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>채팅 앱 스타일 (Slack/Discord형)</h3>
+      <p>각 AI가 채널에서 대화하는 방식. 사용자도 참여해서 의견을 던질 수 있는 실시간 채팅 형태.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul><li>자연스러운 대화 흐름</li><li>사용자 참여 자연스러움</li><li>알림·스레드 지원 가능</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>실시간 인프라 필요</li><li>복잡도 중간</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,81 @@
+<h2>사용자 참여 + AI 성장 메커니즘</h2>
+<p class="subtitle">어떻게 "의견을 가진 사람처럼" 동작하는가</p>
+
+<div class="section">
+  <h3>사용자 메시지가 들어왔을 때</h3>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#0f172a;border-radius:8px;border-left:3px solid #f59e0b">
+      <span style="color:#f59e0b;font-weight:bold;min-width:28px;font-size:13px">①</span>
+      <div>
+        <div style="color:#fbbf24;font-size:13px;font-weight:600">사용자 메시지 주입</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:2px">"나는 AI 반도체 섹터가 아직 유망하다고 보는데, 여러분 생각은?"</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#0f172a;border-radius:8px;border-left:3px solid #6366f1">
+      <span style="color:#6366f1;font-weight:bold;min-width:28px;font-size:13px">②</span>
+      <div>
+        <div style="color:#a78bfa;font-size:13px;font-weight:600">요약 에이전트 (로테이션)</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:2px">"지금까지 우리 대화를 정리하면… 나스닥 조정 이후 반도체에 대해 저는 신중, 준혁씨는 단기 반등 기대, 지수씨는 강한 매수 신호라고 했고, 미경씨는 분산을 권했습니다. 사용자분 의견과 연결하면…"</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#0f172a;border-radius:8px;border-left:3px solid #34d399">
+      <span style="color:#34d399;font-weight:bold;min-width:28px;font-size:13px">③</span>
+      <div>
+        <div style="color:#6ee7b7;font-size:13px;font-weight:600">4명 순차 응답</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:2px">각자 사용자 의견에 동의/반론, 추가 질문 던지기</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#0f172a;border-radius:8px;border-left:3px solid #f472b6">
+      <span style="color:#f472b6;font-weight:bold;min-width:28px;font-size:13px">④</span>
+      <div>
+        <div style="color:#f9a8d4;font-size:13px;font-weight:600">대화 재개</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:2px">사용자가 답하거나 → 자동으로 다음 라운드 진행</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>"한 사람처럼 발전" — 두 가지 메모리</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #1e293b">
+      <div style="color:#38bdf8;font-weight:600;margin-bottom:8px;font-size:13px">🔄 단기 메모리 (컨텍스트)</div>
+      <div style="color:#94a3b8;font-size:12px;line-height:1.8">
+        매 발언마다 최근 N개 메시지를<br>
+        그대로 컨텍스트에 포함.<br><br>
+        → "아까 준혁씨가 RSI 과매도 얘기했는데<br>저는 그게 단기 노이즈라고 생각해요"<br>
+        같은 자연스러운 반응 가능
+      </div>
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #1e293b">
+      <div style="color:#a78bfa;font-weight:600;margin-bottom:8px;font-size:13px">📈 장기 메모리 (진화)</div>
+      <div style="color:#94a3b8;font-size:12px;line-height:1.8">
+        매 10라운드마다 자동으로<br>
+        "캐릭터 업데이트" 생성.<br><br>
+        → "지난 논의에서 AI 섹터 낙관론에<br>
+        일부 동의하게 됐고, 다만 밸류에이션<br>
+        리스크는 여전히 경계함" 형태로 저장
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>AI 발언 예시 — 이런 느낌</h3>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #fbbf24">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:16px">🧓</span>
+        <span style="color:#fbbf24;font-size:12px;font-weight:600">김철수 (장기·Claude)</span>
+      </div>
+      <div style="color:#e2e8f0;font-size:12px;line-height:1.7">"준혁씨 말처럼 단기 반등 가능성은 있어요. 근데 저는 지금 반도체 사이클 전체를 봐야 한다고 봅니다. 2000년대 닷컴 때도 이런 논리였거든요. 사용자분이 AI 수요 구조적 성장을 말씀하시는 건 맞는데, 그게 지금 주가에 얼마나 반영돼 있느냐가 핵심이에요."</div>
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #60a5fa">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:16px">👨</span>
+        <span style="color:#60a5fa;font-size:12px;font-weight:600">박준혁 (단기·GPT-4o)</span>
+      </div>
+      <div style="color:#e2e8f0;font-size:12px;line-height:1.7">"철수씨, 닷컴이랑 비교하시는 건 좀 다르죠. 그때는 실제 수요가 없었잖아요. NVDA 데이터센터 매출 보셨어요? 분기마다 서프라이즈예요. 저는 단기 모멘텀 아직 살아있다고 봅니다. 다만 오늘 -2% 조정은 포지션 정리 기회로 보고 있어요."</div>
+    </div>
+  </div>
+</div>
