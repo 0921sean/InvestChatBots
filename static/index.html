@@ -416,36 +416,65 @@ async function startAnalysis() {
   } catch(e) {}
 }
 
+const AGENT_COLORS_PF = {
+  '펀더멘털 가디언': '#fbbf24', '모멘텀 헌터': '#60a5fa',
+  '매크로 워처': '#38bdf8', '리스크 어드바이저': '#f87171'
+};
+const AGENT_LIST_PF = ['펀더멘털 가디언', '모멘텀 헌터', '매크로 워처'];
+
 async function loadPortfolio() {
   try {
     const [pfRes, posRes] = await Promise.all([fetch('/api/portfolio'), fetch('/api/positions')]);
-    const portfolio = await pfRes.json();
+    const pfData = await pfRes.json();
     const positions = await posRes.json();
     const panel = document.getElementById('portfolio-list');
     if (!panel) return;
+
+    const pfMap = {};
+    pfData.forEach(p => pfMap[p.agent_name] = p);
+
     let html = '';
-    portfolio.forEach(p => {
+    AGENT_LIST_PF.forEach(name => {
+      const p = pfMap[name] || {balance: 10000000, total_pnl: 0, win_count: 0, loss_count: 0};
       const pnl = p.total_pnl || 0;
-      const color = pnl >= 0 ? '#2bac76' : '#f87171';
-      const rate = p.win_count + p.loss_count > 0 ? Math.round(p.win_count / (p.win_count + p.loss_count) * 100) : 0;
-      html += `<div style="padding:8px;border-bottom:1px solid #1e293b;font-size:11px">
-        <span style="color:${COLORS[p.agent_name]||'#9d9d9d'};font-weight:700">${p.agent_name}</span>
-        <span style="float:right;color:${color}">${pnl >= 0 ? '+' : ''}₩${Math.round(pnl).toLocaleString()}</span>
-        <div style="color:#475569;margin-top:2px">승률 ${rate}% (${p.win_count}승 ${p.loss_count}패)</div>
+      const color = AGENT_COLORS_PF[name] || '#9d9d9d';
+      const pnlColor = pnl > 0 ? '#2bac76' : pnl < 0 ? '#f87171' : '#9d9d9d';
+      const rate = p.win_count + p.loss_count > 0 ? Math.round(p.win_count / (p.win_count + p.loss_count) * 100) : '-';
+      html += `<div style="padding:8px 10px;border-bottom:1px solid #1e293b;font-size:11px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:${color};font-weight:700">${name}</span>
+          <span style="color:${pnlColor};font-size:10px">${pnl !== 0 ? (pnl > 0 ? '+' : '') + '₩' + Math.round(pnl).toLocaleString() : '대기중'}</span>
+        </div>
+        <div style="color:#475569;margin-top:2px;font-size:10px">잔액 ₩${Math.round(p.balance||10000000).toLocaleString()} · 승률 ${rate}%</div>
       </div>`;
     });
+
     const open = positions.filter(p => p.status === 'open');
     if (open.length) {
-      html += `<div style="padding:6px 8px;font-size:10px;color:#6366f1;font-weight:600">OPEN POSITIONS</div>`;
-      open.slice(0,5).forEach(p => {
-        html += `<div style="padding:6px 8px;font-size:11px;color:#94a3b8;border-bottom:1px solid #1e293b">
-          ${p.symbol} ${p.direction} · ${p.target_date}<br>
-          진입 ${p.entry_price ? p.entry_price.toLocaleString() : '?'} → 목표 ${p.target_price ? p.target_price.toLocaleString() : '?'}
+      html += `<div style="padding:6px 10px;font-size:10px;color:#6366f1;font-weight:600;letter-spacing:.5px">● OPEN (${open.length})</div>`;
+      open.forEach(p => {
+        const c = AGENT_COLORS_PF[p.agent_name] || '#9d9d9d';
+        const entry = p.entry_price > 0 ? p.entry_price.toLocaleString() : '확인중';
+        html += `<div style="padding:6px 10px;font-size:11px;border-bottom:1px solid #1e293b">
+          <div><span style="color:${c}">${p.agent_name}</span> <span style="color:#e2e8f0">${p.symbol}</span> <span style="color:${p.direction==='매수'?'#2bac76':'#f87171'}">${p.direction}</span></div>
+          <div style="color:#475569;font-size:10px;margin-top:2px">진입 ${entry} · 목표일 ${p.target_date||'?'}</div>
         </div>`;
       });
     }
-    panel.innerHTML = html || '<div style="padding:16px;color:#475569;font-size:11px;text-align:center">아직 포지션 없음</div>';
-  } catch(e) {}
+
+    const closed = positions.filter(p => p.status === 'closed').slice(0,3);
+    if (closed.length) {
+      html += `<div style="padding:6px 10px;font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px">최근 청산</div>`;
+      closed.forEach(p => {
+        const win = p.pnl >= 0;
+        html += `<div style="padding:5px 10px;font-size:10px;color:${win?'#2bac76':'#f87171'};border-bottom:1px solid #1e293b">
+          ${win?'✅':'❌'} ${p.symbol} ${(p.pnl_pct||0).toFixed(1)}% · ${p.outcome||''}
+        </div>`;
+      });
+    }
+
+    panel.innerHTML = html;
+  } catch(e) { console.error('portfolio error', e); }
 }
 loadPortfolio();
 setInterval(loadPortfolio, 30000);

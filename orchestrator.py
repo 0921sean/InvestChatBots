@@ -477,8 +477,15 @@ def _parse_trade(agent_name: str, text: str, current_prices: dict):
         if k.upper() in symbol.upper() or symbol.upper() in k.upper():
             entry = v
             break
+    if entry is None or entry == 0:
+        # 스냅샷에서 다시 한번 시도 (대소문자 무관)
+        sym_upper = symbol.upper()
+        for k, v in current_prices.items():
+            if sym_upper in k.upper() or k.upper() in sym_upper:
+                entry = v
+                break
     if entry is None:
-        entry = 0.0  # 가격 없으면 0으로 저장 (추후 수동 확인)
+        entry = 0.0
 
     # 목표 기간 → 날짜
     weeks = _re.search(r'(\d+)\s*주', period_s)
