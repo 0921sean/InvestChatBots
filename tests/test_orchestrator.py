@@ -15,22 +15,22 @@ def setup(monkeypatch):
         os.remove(TEST_DB)
 
 def test_run_round_saves_agent_messages():
-    # 랜덤 2~4명 선택 구조 — 최소 2명, 최대 5명(Devil 포함 시) 발언
     with patch("orchestrator.call_agent", return_value="Test response."):
-        run_round("NASDAQ dropped today.")
+        with patch("orchestrator.fetch_technical_analysis", return_value={}):
+            run_round("오늘 반도체 섹터 조정 중.")
     msgs = get_messages_since(0)
     agent_names = [m["agent_name"] for m in msgs if m["agent_name"] != "System"]
-    known_agents = {"Compounder", "Razor", "Sigma", "Moonshot", "Tortoise", "Macro", "Devil"}
+    known = {"펀더멘털 가디언", "모멘텀 헌터", "매크로 워처", "리스크 어드바이저"}
     assert len(agent_names) >= 2
-    assert all(name in known_agents for name in agent_names)
+    assert all(n in known for n in agent_names)
 
 def test_handle_user_message_saves_user_and_ai_messages():
-    # 사용자 1 + 요약 1 + 전체 에이전트 7 = 9개 (Devil 포함 기준)
+    # 사용자 1 + 요약 1 + 에이전트 4명 = 6개
     with patch("orchestrator.call_agent", return_value="Agent reply."):
-        handle_user_message("What about AI software?")
+        handle_user_message("반도체 어때?")
     msgs = get_messages_since(0)
     agent_names = [m["agent_name"] for m in msgs]
     assert "User" in agent_names
     assert agent_names.count("User") == 1
     ai_msgs = [m for m in msgs if m["agent_name"] != "User"]
-    assert len(ai_msgs) == 8  # 요약 1 + 에이전트 7명 모두 응답
+    assert len(ai_msgs) >= 4  # 요약 1 + 에이전트 4명

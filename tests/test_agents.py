@@ -16,36 +16,36 @@ def _mock_gemini(text):
     mock.text = text
     return mock
 
-def test_compounder_uses_claude():
+def test_guardian_uses_claude():
     with patch("agents.anthropic.Anthropic") as MockAnth:
         instance = MockAnth.return_value
-        instance.messages.create.return_value = _mock_claude("Long term is king.")
-        result = call_agent("Compounder", "system", "user prompt")
-    assert result == "Long term is king."
+        instance.messages.create.return_value = _mock_claude("FCF 강점 확인.")
+        result = call_agent("펀더멘털 가디언", "system", "user prompt")
+    assert result == "FCF 강점 확인."
 
-def test_razor_uses_openai():
+def test_momentum_uses_openai():
     with patch("agents.openai.OpenAI") as MockOAI:
         instance = MockOAI.return_value
-        instance.chat.completions.create.return_value = _mock_openai("RSI says buy.")
-        result = call_agent("Razor", "system", "user prompt")
-    assert result == "RSI says buy."
+        instance.chat.completions.create.return_value = _mock_openai("RSI 매수.")
+        result = call_agent("모멘텀 헌터", "system", "user prompt")
+    assert result == "RSI 매수."
 
-def test_moonshot_uses_gemini():
+def test_macro_uses_gemini():
     with patch("agents.genai.GenerativeModel") as MockGemini:
         with patch("agents.genai.configure"):
             instance = MockGemini.return_value
-            instance.generate_content.return_value = _mock_gemini("10x or bust.")
-            result = call_agent("Moonshot", "system", "user prompt")
-    assert result == "10x or bust."
+            instance.generate_content.return_value = _mock_gemini("금리 유리.")
+            result = call_agent("매크로 워처", "system", "user prompt")
+    assert result == "금리 유리."
 
-def test_tortoise_uses_claude():
+def test_risk_uses_claude():
     import agents as agents_mod
     with patch("agents.anthropic.Anthropic") as MockAnth:
         agents_mod._anthropic_client = None
         instance = MockAnth.return_value
-        instance.messages.create.return_value = _mock_claude("Slow and steady.")
-        result = call_agent("Tortoise", "system", "user prompt")
-    assert result == "Slow and steady."
+        instance.messages.create.return_value = _mock_claude("최대 리스크 발견.")
+        result = call_agent("리스크 어드바이저", "system", "user prompt")
+    assert result == "최대 리스크 발견."
 
 def test_unknown_provider_raises():
     import pytest

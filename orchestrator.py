@@ -22,7 +22,7 @@ from prompts import (
     build_phase1_prompt, build_phase2_momentum_prompt, build_phase2_macro_prompt,
     build_phase3_risk_prompt, build_final_summary_prompt
 )
-from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary
+from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary, fetch_stock_price
 from notifier import notify, is_credit_error, is_rate_limit
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
@@ -617,7 +617,7 @@ def evaluate_positions():
         d = _json.loads(snap["data"])
         prices = {k: v["price"] for k, v in d.get("data", {}).items() if v and v.get("price")}
     except Exception:
-        return
+        prices = {}
 
     today = _dt.now().strftime('%Y-%m-%d')
 
