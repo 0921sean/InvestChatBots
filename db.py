@@ -8,10 +8,13 @@ def _conn():
 def _migrate():
     """기존 DB에 누락된 컬럼을 안전하게 추가."""
     with _conn() as con:
-        try:
-            con.execute("ALTER TABLE messages ADD COLUMN summary TEXT")
-        except Exception:
-            pass  # 이미 있으면 무시
+        for sql in [
+            "ALTER TABLE messages ADD COLUMN summary TEXT",
+        ]:
+            try:
+                con.execute(sql)
+            except Exception:
+                pass
 
 def init_db():
     _migrate()
@@ -59,6 +62,34 @@ def init_db():
             verified INTEGER DEFAULT 0,
             result TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS virtual_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_price REAL,
+            quantity REAL,
+            amount REAL,
+            target_price REAL,
+            stop_loss REAL,
+            target_date TEXT,
+            reasoning TEXT,
+            status TEXT DEFAULT 'open',
+            exit_price REAL,
+            pnl REAL,
+            pnl_pct REAL,
+            outcome TEXT,
+            opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            closed_at DATETIME
+        );
+        CREATE TABLE IF NOT EXISTS agent_portfolio (
+            agent_name TEXT PRIMARY KEY,
+            balance REAL DEFAULT 10000000,
+            total_pnl REAL DEFAULT 0,
+            win_count INTEGER DEFAULT 0,
+            loss_count INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         """)
 
@@ -156,6 +187,85 @@ def mark_prediction_verified(pred_id, result):
             "UPDATE predictions SET verified=1, result=? WHERE id=?",
             (result, pred_id)
         )
+
+def open_position(agent_name, symbol, direction, entry_price, amount,
+                  target_price, stop_loss, target_date, reasoning):
+    quantity = round(amount / entry_price, 4) if entry_price else 0
+    with _conn() as con:
+        cur = con.execute("""
+            INSERT INTO virtual_positions
+            (agent_name, symbol, direction, entry_price, quantity, amount,
+             target_price, stop_loss, target_date, reasoning)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (agent_name, symbol, direction, entry_price, quantity, amount,
+              target_price, stop_loss, target_date, reasoning))
+        return cur.lastrowid
+
+def get_open_positions(agent_name=None):
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if agent_name:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE status='open' AND agent_name=? ORDER BY opened_at",
+                (agent_name,)).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE status='open' ORDER BY opened_at").fetchall()
+        return [dict(r) for r in rows]
+
+def close_position(pos_id, exit_price, outcome_note):
+    with _conn() as con:
+        row = dict(con.execute(
+            "SELECT * FROM virtual_positions WHERE id=?", (pos_id,)).fetchone() or {})
+        if not row:
+            return None
+        entry = row.get("entry_price", 0) or 0
+        qty = row.get("quantity", 0) or 0
+        direction = row.get("direction", "매수")
+        if entry and qty:
+            if direction == "매수":
+                pnl = (exit_price - entry) * qty
+                pnl_pct = (exit_price - entry) / entry * 100
+            else:
+                pnl = (entry - exit_price) * qty
+                pnl_pct = (entry - exit_price) / entry * 100
+        else:
+            pnl, pnl_pct = 0, 0
+        con.execute("""
+            UPDATE virtual_positions SET status='closed', exit_price=?, pnl=?, pnl_pct=?,
+            outcome=?, closed_at=CURRENT_TIMESTAMP WHERE id=?
+        """, (exit_price, round(pnl, 0), round(pnl_pct, 2), outcome_note, pos_id))
+        _update_portfolio(con, row["agent_name"], pnl)
+        return {"pnl": pnl, "pnl_pct": pnl_pct, "outcome": outcome_note}
+
+def _update_portfolio(con, agent_name, pnl):
+    con.execute("""
+        INSERT INTO agent_portfolio (agent_name, balance, total_pnl, win_count, loss_count)
+        VALUES (?, 10000000 + ?, ?, ?, ?)
+        ON CONFLICT(agent_name) DO UPDATE SET
+            balance = balance + ?,
+            total_pnl = total_pnl + ?,
+            win_count = win_count + ?,
+            loss_count = loss_count + ?,
+            updated_at = CURRENT_TIMESTAMP
+    """, (agent_name, pnl, max(0, pnl), 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0,
+          pnl, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0))
+
+def get_portfolio(agent_name=None):
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if agent_name:
+            row = con.execute("SELECT * FROM agent_portfolio WHERE agent_name=?", (agent_name,)).fetchone()
+            return dict(row) if row else {"agent_name": agent_name, "balance": 10000000, "total_pnl": 0, "win_count": 0, "loss_count": 0}
+        rows = con.execute("SELECT * FROM agent_portfolio ORDER BY total_pnl DESC").fetchall()
+        return [dict(r) for r in rows]
+
+def get_all_positions(limit=20):
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM virtual_positions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_latest_market_snapshot():
     with _conn() as con:

@@ -106,6 +106,7 @@
       <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ Resume</button>
       <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ Pause</button>
       <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
+      <button class="btn btn-ghost" onclick="startAnalysis()" title="Phase 분석 시작">🔍 분석</button>
       <button class="btn btn-guard" id="btn-guard" onclick="toggleGuard()" title="크레딧 소진 시 대화 자동 정지">🛡 크레딧 정지</button>
     </div>
   </div>
@@ -137,17 +138,26 @@
 <div id="memo-panel">
   <div id="memo-header">
     <h3>📌 합의 메모</h3>
-    <p>5라운드마다 분석 · 자동 업데이트</p>
+    <p>3라운드마다 분석 · 자동 업데이트</p>
   </div>
   <div id="memo-list">
     <div id="memo-empty">아직 합의된 결론이<br>없습니다.<br><br>대화가 쌓이면<br>자동으로 채워집니다.</div>
   </div>
 </div>
 
+<div id="portfolio-panel" style="width:220px;background:#1a1d21;border-left:1px solid #2a2d31;display:flex;flex-direction:column;flex-shrink:0">
+  <div style="padding:14px 14px 10px;border-bottom:1px solid #2a2d31">
+    <h3 style="font-size:13px;font-weight:700;color:#e2e8f0">💼 가상 포트폴리오</h3>
+    <p style="font-size:10px;color:#9d9d9d;margin-top:2px">봇별 수익률 추적</p>
+  </div>
+  <div id="portfolio-list" style="flex:1;overflow-y:auto"></div>
+</div>
+
 <script>
 const COLORS = {
-  장기파: '#fbbf24', 단기파: '#60a5fa', 안정파: '#34d399',
-  모험파: '#f472b6', 분석파: '#fb923c', User: '#fbbf24', System: '#6366f1'
+  '펀더멘털 가디언': '#fbbf24', '모멘텀 헌터': '#60a5fa',
+  '매크로 워처': '#38bdf8', '리스크 어드바이저': '#f87171',
+  User: '#fbbf24', System: '#6366f1'
 };
 
 let lastId = 0;
@@ -207,11 +217,10 @@ async function poll() {
 }
 
 const BELIEFS = {
-  장기파: ['가치투자+매크로 결합', '금리·달러 사이클이 방향을 결정', '5~10년 구조적 트렌드에 집중'],
-  단기파: ['가격이 진실, 나머지는 후행', '모멘텀+기술적 신호 겹칠 때 최강', '손절 빠르게, 팩터 지속 시 홀드'],
-  안정파: ['잃지 않는 것이 이기는 것', '합의가 강할수록 반전 리스크 크다', '위험 조정 수익률 > 절대 수익률'],
-  모험파: ['가장 큰 리스크는 리스크 안 지는 것', '시장은 혁신 속도를 과소평가', '확신 있을 때 집중투자 > 분산'],
-  분석파: ['좋은 사업을 적정 가격에 사는 것', '해자 없는 고ROE는 언제든 무너진다', '경영진 자본배분이 수익률 결정'],
+  '펀더멘털 가디언': ['재무제표 빈틈 찾기가 임무', 'FCF·PER·자본잠식 엄격히 분석', '"이 기업이 진짜 돈을 버는가?"'],
+  '모멘텀 헌터': ['지금 사람들이 사고 있는가?', 'RSI·수급·이평선으로 진입 타이밍', '공격적 단기 트렌드 추종'],
+  '매크로 워처': ['금리·환율이 모든 것을 결정', '지정학·원자재·장단기 스프레드', '"시장 판도가 이 종목에 유리한가?"'],
+  '리스크 어드바이저': ['다른 봇들 논리의 구멍을 찾음', '공매도·경쟁사·경영진 리스크', '"망할 이유"만 집중'],
 };
 
 function openProfile(name) {
@@ -396,6 +405,50 @@ async function syncGuard() {
 }
 syncGuard();
 setInterval(syncGuard, 10000);
+
+async function startAnalysis() {
+  const topic = prompt('분석할 종목/섹터를 입력하세요 (비워두면 자동):', '');
+  if (topic === null) return;
+  document.getElementById('typing').style.display = 'flex';
+  document.getElementById('typing-text').textContent = '3-Phase 분석 진행 중...';
+  try {
+    await fetch('/api/analysis/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({topic})});
+  } catch(e) {}
+}
+
+async function loadPortfolio() {
+  try {
+    const [pfRes, posRes] = await Promise.all([fetch('/api/portfolio'), fetch('/api/positions')]);
+    const portfolio = await pfRes.json();
+    const positions = await posRes.json();
+    const panel = document.getElementById('portfolio-list');
+    if (!panel) return;
+    let html = '';
+    portfolio.forEach(p => {
+      const pnl = p.total_pnl || 0;
+      const color = pnl >= 0 ? '#2bac76' : '#f87171';
+      const rate = p.win_count + p.loss_count > 0 ? Math.round(p.win_count / (p.win_count + p.loss_count) * 100) : 0;
+      html += `<div style="padding:8px;border-bottom:1px solid #1e293b;font-size:11px">
+        <span style="color:${COLORS[p.agent_name]||'#9d9d9d'};font-weight:700">${p.agent_name}</span>
+        <span style="float:right;color:${color}">${pnl >= 0 ? '+' : ''}₩${Math.round(pnl).toLocaleString()}</span>
+        <div style="color:#475569;margin-top:2px">승률 ${rate}% (${p.win_count}승 ${p.loss_count}패)</div>
+      </div>`;
+    });
+    const open = positions.filter(p => p.status === 'open');
+    if (open.length) {
+      html += `<div style="padding:6px 8px;font-size:10px;color:#6366f1;font-weight:600">OPEN POSITIONS</div>`;
+      open.slice(0,5).forEach(p => {
+        html += `<div style="padding:6px 8px;font-size:11px;color:#94a3b8;border-bottom:1px solid #1e293b">
+          ${p.symbol} ${p.direction} · ${p.target_date}<br>
+          진입 ${p.entry_price ? p.entry_price.toLocaleString() : '?'} → 목표 ${p.target_price ? p.target_price.toLocaleString() : '?'}
+        </div>`;
+      });
+    }
+    panel.innerHTML = html || '<div style="padding:16px;color:#475569;font-size:11px;text-align:center">아직 포지션 없음</div>';
+  } catch(e) {}
+}
+loadPortfolio();
+setInterval(loadPortfolio, 30000);
 setInterval(loadConsensus, 30000);
 </script>
 </body>

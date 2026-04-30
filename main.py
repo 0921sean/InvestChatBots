@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes
-from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS
+from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes, get_portfolio, get_all_positions
+from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS, run_analysis, evaluate_positions
 import orchestrator as _orch
 from prompts import AGENT_ORDER, AGENT_PROFILES
 from scheduler import start_scheduler
@@ -160,3 +160,27 @@ def api_user_message(body: UserMessage):
 def api_start_round():
     run_round()
     return {"ok": True}
+
+
+class AnalysisTopic(BaseModel):
+    topic: str = ""
+
+@app.post("/api/analysis/run")
+def api_run_analysis(body: AnalysisTopic):
+    import threading
+    threading.Thread(target=run_analysis, args=(body.topic or None,), daemon=True).start()
+    return {"ok": True, "topic": body.topic or "auto"}
+
+@app.post("/api/positions/evaluate")
+def api_evaluate_positions():
+    import threading
+    threading.Thread(target=evaluate_positions, daemon=True).start()
+    return {"ok": True}
+
+@app.get("/api/portfolio")
+def api_portfolio():
+    return get_portfolio()
+
+@app.get("/api/positions")
+def api_positions():
+    return get_all_positions(50)

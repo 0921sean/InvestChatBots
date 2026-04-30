@@ -10,14 +10,17 @@ from db import (
     create_round, complete_round, save_message, get_recent_messages,
     get_agent_state, save_agent_state, save_market_snapshot,
     get_latest_market_snapshot, save_consensus,
-    save_prediction, get_unverified_predictions, mark_prediction_verified
+    save_prediction, get_unverified_predictions, mark_prediction_verified,
+    open_position, get_open_positions, close_position, get_portfolio
 )
 from agents import call_agent
 from prompts import (
     AGENT_ORDER, build_system_prompt, format_history,
     format_history_compact, build_round_prompt, build_user_response_prompt,
-    build_summary_prompt, build_evolution_prompt,
-    build_position_summary, build_summarize_prompt
+    build_summary_prompt, build_evolution_prompt, build_position_summary,
+    build_summarize_prompt, is_investment_impossible,
+    build_phase1_prompt, build_phase2_momentum_prompt, build_phase2_macro_prompt,
+    build_phase3_risk_prompt, build_final_summary_prompt
 )
 from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary
 from notifier import notify, is_credit_error, is_rate_limit
@@ -437,3 +440,208 @@ def _maybe_update_evolution(round_id):
                 save_agent_state(agent_name, state["evolution_notes"], new_count)
         else:
             save_agent_state(agent_name, state["evolution_notes"], new_count)
+
+# ── 트레이드 파싱 ──────────────────────────────────────────
+import re as _re
+from datetime import datetime as _dt, timedelta as _td
+
+def _parse_trade(agent_name: str, text: str, current_prices: dict):
+    """발언에서 [TRADE] 블록을 파싱해 가상 포지션을 생성."""
+    m = _re.search(r'\[TRADE\](.*?)(?:\n|$)', text, _re.DOTALL)
+    if not m:
+        return
+    raw = m.group(1)
+    def _field(key):
+        fm = _re.search(rf'{key}:\s*([^\|]+)', raw)
+        return fm.group(1).strip() if fm else ''
+
+    symbol    = _field('종목') or _field('섹터')
+    direction = _field('방향')
+    period_s  = _field('목표기간')
+    target_s  = _field('목표가')
+    stop_s    = _field('손절가')
+    ratio_s   = _field('비중')
+
+    if not symbol or not direction:
+        return
+
+    # 현재 가격 조회
+    entry = None
+    for k, v in current_prices.items():
+        if k.upper() in symbol.upper() or symbol.upper() in k.upper():
+            entry = v
+            break
+    if entry is None:
+        entry = 0.0  # 가격 없으면 0으로 저장 (추후 수동 확인)
+
+    # 목표 기간 → 날짜
+    weeks = _re.search(r'(\d+)\s*주', period_s)
+    months = _re.search(r'(\d+)\s*개월', period_s)
+    if weeks:
+        target_date = (_dt.now() + _td(weeks=int(weeks.group(1)))).strftime('%Y-%m-%d')
+    elif months:
+        target_date = (_dt.now() + _td(days=int(months.group(1))*30)).strftime('%Y-%m-%d')
+    else:
+        target_date = (_dt.now() + _td(days=30)).strftime('%Y-%m-%d')
+
+    # 금액 (비중 % 기반, 포트폴리오 ₩10,000,000 기준)
+    ratio = float(_re.search(r'[\d.]+', ratio_s).group()) / 100 if _re.search(r'[\d.]+', ratio_s) else 0.1
+    amount = 10_000_000 * min(ratio, 0.3)  # 최대 30%
+
+    def _to_float(s):
+        n = _re.search(r'[\d,.]+', s.replace(',', ''))
+        return float(n.group().replace(',', '')) if n else 0.0
+
+    open_position(
+        agent_name=agent_name,
+        symbol=symbol,
+        direction=direction,
+        entry_price=entry,
+        amount=amount,
+        target_price=_to_float(target_s),
+        stop_loss=_to_float(stop_s),
+        target_date=target_date,
+        reasoning=raw.strip(),
+    )
+    logger.info(f"[TRADE] {agent_name} → {symbol} {direction} ₩{amount:,.0f} until {target_date}")
+
+
+def run_analysis(topic: str = None):
+    """3-Phase 구조적 분석 — 특정 종목/섹터 분석 시 호출."""
+    market_summary, _ = _get_or_refresh_market_summary()
+    if not topic:
+        # 토픽 없으면 최근 뉴스에서 주제 자동 추출
+        snap = get_latest_market_snapshot()
+        if snap:
+            import json as _json
+            d = _json.loads(snap["data"])
+            news = d.get("news", [])
+            topic = news[0]["title"] if news else "오늘의 시장 전반"
+        else:
+            topic = "오늘의 시장 전반"
+
+    # 현재 가격 사전
+    current_prices = {}
+    try:
+        snap = get_latest_market_snapshot()
+        if snap:
+            import json as _json
+            d = _json.loads(snap["data"])
+            for k, v in d.get("data", {}).items():
+                if v and v.get("price"):
+                    current_prices[k] = v["price"]
+    except Exception:
+        pass
+
+    round_id = create_round(f"[분석] {topic[:100]}")
+    save_message(round_id, "System", None, f"🔍 분석 시작: {topic}")
+
+    # ── Phase 1: 펀더멘털 가디언 ─────────────────────────
+    guardian = get_agent_state("펀더멘털 가디언")
+    sys1 = build_system_prompt("펀더멘털 가디언", guardian["evolution_notes"])
+    g_resp = call_agent("펀더멘털 가디언", sys1, build_phase1_prompt(market_summary, topic))
+    _save_with_summary(round_id, "펀더멘털 가디언", g_resp)
+    _parse_trade("펀더멘털 가디언", g_resp, current_prices)
+
+    if is_investment_impossible(g_resp):
+        save_message(round_id, "System", None, "🚫 투자 불가 판정으로 분석을 종료합니다.")
+        complete_round(round_id)
+        notify("🚫 투자불가 판정", f"[{topic}]\n{g_resp[:200]}", priority="default")
+        return
+
+    time.sleep(0.5)
+
+    # ── Phase 2: 모멘텀 헌터 + 매크로 워처 ──────────────
+    m_state = get_agent_state("모멘텀 헌터")
+    sys_m = build_system_prompt("모멘텀 헌터", m_state["evolution_notes"])
+    m_resp = call_agent("모멘텀 헌터", sys_m, build_phase2_momentum_prompt(market_summary, topic, g_resp))
+    _save_with_summary(round_id, "모멘텀 헌터", m_resp)
+    _parse_trade("모멘텀 헌터", m_resp, current_prices)
+    time.sleep(0.5)
+
+    mac_state = get_agent_state("매크로 워처")
+    sys_mac = build_system_prompt("매크로 워처", mac_state["evolution_notes"])
+    mac_resp = call_agent("매크로 워처", sys_mac, build_phase2_macro_prompt(market_summary, topic, g_resp))
+    _save_with_summary(round_id, "매크로 워처", mac_resp)
+    _parse_trade("매크로 워처", mac_resp, current_prices)
+    time.sleep(0.5)
+
+    # ── Phase 3: 리스크 어드바이저 + 최종 요약 ──────────
+    r_state = get_agent_state("리스크 어드바이저")
+    sys_r = build_system_prompt("리스크 어드바이저", r_state["evolution_notes"])
+    r_resp = call_agent("리스크 어드바이저", sys_r,
+                        build_phase3_risk_prompt(topic, g_resp, m_resp, mac_resp))
+    _save_with_summary(round_id, "리스크 어드바이저", r_resp)
+    time.sleep(0.5)
+
+    # 최종 요약 테이블 (GPT-4o-mini로 저렴하게)
+    summary_resp = call_agent("모멘텀 헌터",
+                              "당신은 투자 분석 요약 전문가입니다. 표 형식으로 정리하세요.",
+                              build_final_summary_prompt(topic, g_resp, m_resp, mac_resp, r_resp))
+    save_message(round_id, "System", None, f"📊 분석 결과\n\n{summary_resp}")
+    complete_round(round_id)
+    notify("📊 분석 완료", f"[{topic}]\n{summary_resp[:300]}", priority="default")
+
+
+def evaluate_positions():
+    """목표 기간 도달 또는 손절가 터치 포지션을 청산하고 evolution notes에 반영."""
+    open_pos = get_open_positions()
+    if not open_pos:
+        return
+
+    snap = get_latest_market_snapshot()
+    if not snap:
+        return
+    try:
+        import json as _json
+        d = _json.loads(snap["data"])
+        prices = {k: v["price"] for k, v in d.get("data", {}).items() if v and v.get("price")}
+    except Exception:
+        return
+
+    today = _dt.now().strftime('%Y-%m-%d')
+
+    for pos in open_pos:
+        symbol = pos["symbol"]
+        current = None
+        for k, v in prices.items():
+            if k.upper() in symbol.upper() or symbol.upper() in k.upper():
+                current = v
+                break
+        if current is None or pos["entry_price"] == 0:
+            continue
+
+        target_date_reached = pos["target_date"] and today >= pos["target_date"]
+        stop_hit = (pos["stop_loss"] and pos["direction"] == "매수" and current <= pos["stop_loss"]) or \
+                   (pos["stop_loss"] and pos["direction"] == "공매도" and current >= pos["stop_loss"])
+
+        if not target_date_reached and not stop_hit:
+            continue
+
+        reason = "목표 기간 도달" if target_date_reached else "손절가 도달"
+        result = close_position(pos["id"], current, reason)
+        if not result:
+            continue
+
+        pnl = result["pnl"]
+        pnl_pct = result["pnl_pct"]
+        win = pnl >= 0
+        emoji = "✅" if win else "❌"
+
+        feedback = (f"[포지션 결과] {pos['symbol']} {pos['direction']} | "
+                    f"{emoji} {pnl_pct:+.1f}% (₩{pnl:+,.0f}) | {reason}")
+
+        # evolution notes에 피드백 추가
+        state = get_agent_state(pos["agent_name"])
+        notes = state["evolution_notes"] or ""
+        feedback_lines = [l for l in notes.split("\n") if l.startswith("[포지션 결과]")]
+        feedback_lines.append(feedback)
+        feedback_lines = feedback_lines[-5:]  # 최근 5개만
+        other_lines = [l for l in notes.split("\n") if not l.startswith("[포지션 결과]")]
+        new_notes = "\n".join(other_lines + feedback_lines).strip()
+        save_agent_state(pos["agent_name"], new_notes, state["round_count"])
+
+        notify(f"{emoji} {pos['agent_name']} 포지션 청산",
+               f"{pos['symbol']} {pos['direction']}\n{pnl_pct:+.1f}% (₩{pnl:+,.0f})\n{reason}",
+               priority="high" if not win else "default", cooldown=0)
+        logger.info(f"[POSITION] {pos['agent_name']} {symbol} closed: {pnl_pct:+.1f}%")
