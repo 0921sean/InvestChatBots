@@ -23,6 +23,7 @@ from prompts import (
     build_phase3_risk_prompt, build_final_summary_prompt
 )
 from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary, fetch_stock_price
+from discovery import discover_events
 from notifier import notify, is_credit_error, is_rate_limit
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
@@ -197,7 +198,8 @@ def run_round(market_summary=None):
         )[-3*100:]
         prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name,
                                     topic_shift=(i == 0 and this_round_is_shift),
-                                    self_recent=self_recent)
+                                    self_recent=self_recent,
+                                    event_text=event_text if i == 0 else "")
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
