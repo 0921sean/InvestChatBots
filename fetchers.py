@@ -1,5 +1,12 @@
+"""
+데이터 소스:
+- 가격: yfinance (글로벌) + pykrx (한국)
+- TA 지표: TradingView (tradingview-ta) — RSI/MACD/EMA
+- 뉴스: RSS 피드
+"""
 import math
 import logging
+import time
 from datetime import datetime, timedelta
 
 import yfinance as yf
@@ -8,7 +15,7 @@ from tradingview_ta import TA_Handler, Interval
 
 logger = logging.getLogger("investchat")
 
-# ── 글로벌 지수/종목 (yfinance) ───────────────────────────
+# ── 글로벌 종목 (yfinance) ────────────────────────────────
 GLOBAL_TICKERS = {
     "NASDAQ": "^IXIC",
     "S&P500": "^GSPC",
@@ -17,19 +24,30 @@ GLOBAL_TICKERS = {
     "LRCX":   "LRCX",
 }
 
-# ── 한국 종목 (pykrx — KRX 직접) ──────────────────────────
-# 코드: 이름
+# ── 한국 종목 (pykrx) — 코드: 이름 ───────────────────────
 KRX_TICKERS = {
     "005930": "삼성전자",
     "000660": "SK하이닉스",
     "015890": "이수페타시스",
     "006400": "삼성SDI",
-    "003490": "대한항공",
-    "012450": "한화에어로스페이스",
-    "004490": "세아베스틸지주",
     "000270": "기아",
     "005380": "현대차",
-    "035420": "NAVER",
+    "012450": "한화에어로스페이스",
+    "089010": "켐트로닉스",
+    "086520": "에코프로",
+    "066970": "LG이노텍",
+}
+KRX_CODE_TO_NAME = KRX_TICKERS
+KRX_NAME_TO_CODE = {v: k for k, v in KRX_TICKERS.items()}
+
+# ── TradingView TA (가격 아님, RSI/MACD/EMA 전용) ─────────
+TV_TA_SYMBOLS = {
+    "NVDA":  ("NVDA",    "america", "NASDAQ"),
+    "TSMC":  ("TSM",     "america", "NYSE"),
+    "KOSPI": ("KOSPI",   "korea",   "KRX"),
+    "BTC":   ("BTCUSDT", "crypto",  "BINANCE"),
+    "삼성전자": ("005930", "korea",  "KRX"),
+    "SK하이닉스": ("000660", "korea", "KRX"),
 }
 
 # ── 뉴스 피드 ─────────────────────────────────────────────
@@ -41,31 +59,21 @@ NEWS_FEEDS = [
     "https://www.cnbc.com/id/100727362/device/rss/rss.html",
 ]
 
-# ── TradingView TA ────────────────────────────────────────
-TV_SYMBOLS = {
-    "NVDA":  ("NVDA",    "america", "NASDAQ"),
-    "TSMC":  ("TSM",     "america", "NYSE"),
-    "KOSPI": ("KOSPI",   "korea",   "KRX"),
-    "BTC":   ("BTCUSDT", "crypto",  "BINANCE"),
-}
 
-
-def _fetch_yfinance(symbol: str):
-    """yfinance로 가격 조회. 실패 시 None 반환."""
+def _yf_price(symbol: str):
     try:
         t = yf.Ticker(symbol)
         price = t.fast_info.last_price
-        prev = t.fast_info.previous_close
+        prev  = t.fast_info.previous_close
         if price is None or prev is None or math.isnan(price) or math.isnan(prev) or prev == 0:
             return None, None
         return round(price, 2), round((price - prev) / prev * 100, 2)
     except Exception as e:
-        logger.debug(f"yfinance {symbol} 실패: {e}")
+        logger.debug(f"yfinance {symbol}: {e}")
         return None, None
 
 
-def _fetch_krx_prices():
-    """pykrx로 한국 종목 일봉 조회."""
+def _pykrx_prices() -> dict:
     try:
         from pykrx import stock as krx
         today = datetime.now().strftime("%Y%m%d")
@@ -75,79 +83,71 @@ def _fetch_krx_prices():
             try:
                 df = krx.get_market_ohlcv(start, today, code)
                 if df is None or df.empty:
-                    result[name] = {"symbol": code, "price": None, "change_pct": None}
+                    result[name] = None
                     continue
                 price = float(df["종가"].iloc[-1])
-                prev = float(df["종가"].iloc[-2]) if len(df) > 1 else price
-                chg = (price - prev) / prev * 100 if prev else 0
+                prev  = float(df["종가"].iloc[-2]) if len(df) > 1 else price
+                chg   = (price - prev) / prev * 100 if prev else 0
                 result[name] = {"symbol": code, "price": price, "change_pct": round(chg, 2)}
-            except Exception as e:
-                logger.debug(f"pykrx {name} 실패: {e}")
-                result[name] = {"symbol": code, "price": None, "change_pct": None}
+            except Exception:
+                result[name] = None
+
+        # KOSPI 지수
+        try:
+            df = krx.get_index_ohlcv(start, today, "1001")
+            if df is not None and not df.empty:
+                price = float(df["종가"].iloc[-1])
+                prev  = float(df["종가"].iloc[-2]) if len(df) > 1 else price
+                result["KOSPI"] = {"symbol": "1001", "price": price,
+                                   "change_pct": round((price-prev)/prev*100, 2) if prev else 0}
+        except Exception:
+            pass
         return result
     except ImportError:
         return {}
 
 
-def fetch_market_data():
-    """글로벌(yfinance) + 한국(pykrx) 통합 가격 조회."""
+def fetch_market_data() -> dict:
     result = {}
 
-    # 글로벌
+    # 글로벌 (yfinance)
     for name, symbol in GLOBAL_TICKERS.items():
-        price, chg = _fetch_yfinance(symbol)
+        price, chg = _yf_price(symbol)
         result[name] = {"symbol": symbol, "price": price, "change_pct": chg}
 
     # 한국 (pykrx)
-    krx = _fetch_krx_prices()
-    result.update(krx)
-
-    # KOSPI 지수 (yfinance 실패 시 pykrx fallback)
-    if "KOSPI" not in result or result.get("KOSPI", {}).get("price") is None:
-        try:
-            from pykrx import stock as krx_mod
-            today = datetime.now().strftime("%Y%m%d")
-            start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
-            df = krx_mod.get_index_ohlcv(start, today, "1001")  # KOSPI 지수
-            if df is not None and not df.empty:
-                price = float(df["종가"].iloc[-1])
-                prev = float(df["종가"].iloc[-2]) if len(df) > 1 else price
-                chg = (price - prev) / prev * 100 if prev else 0
-                result["KOSPI"] = {"symbol": "1001", "price": price, "change_pct": round(chg, 2)}
-        except Exception:
-            if "KOSPI" not in result:
-                result["KOSPI"] = {"symbol": "^KS11", "price": None, "change_pct": None}
+    kr = _pykrx_prices()
+    for name, data in kr.items():
+        if data:
+            result[name] = data
+        elif name not in result:
+            result[name] = {"symbol": name, "price": None, "change_pct": None}
 
     return result
 
 
-def fetch_stock_price(symbol: str) -> float | None:
-    """단일 종목 현재가 조회 (포트폴리오 추적용). 한국 종목 코드 또는 글로벌 티커."""
-    # 한국 종목 코드 (6자리 숫자)
-    if symbol.isdigit() and len(symbol) == 6:
+def fetch_stock_price(identifier: str) -> float | None:
+    """단일 종목 현재가 (포트폴리오용)."""
+    code = KRX_NAME_TO_CODE.get(identifier)
+    if code:
+        from pykrx import stock as krx
         try:
-            from pykrx import stock as krx
             today = datetime.now().strftime("%Y%m%d")
             start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
-            df = krx.get_market_ohlcv(start, today, symbol)
-            if df is not None and not df.empty:
-                return float(df["종가"].iloc[-1])
+            df = krx.get_market_ohlcv(start, today, code)
+            return float(df["종가"].iloc[-1]) if df is not None and not df.empty else None
         except Exception:
-            pass
-        return None
-    # 한국 종목 이름으로 코드 역조회
-    name_to_code = {v: k for k, v in KRX_TICKERS.items()}
-    if symbol in name_to_code:
-        return fetch_stock_price(name_to_code[symbol])
-    # 글로벌 티커
-    price, _ = _fetch_yfinance(symbol)
+            return None
+    if identifier.isdigit() and len(identifier) == 6:
+        return fetch_stock_price(KRX_CODE_TO_NAME.get(identifier, identifier))
+    price, _ = _yf_price(identifier)
     return price
 
 
-def fetch_technical_analysis():
-    """TradingView 기술적 지표 조회."""
+def fetch_technical_analysis() -> dict:
+    """TradingView RSI/MACD/EMA — rate limit 방지를 위해 딜레이 포함."""
     result = {}
-    for name, (symbol, screener, exchange) in TV_SYMBOLS.items():
+    for name, (symbol, screener, exchange) in TV_TA_SYMBOLS.items():
         try:
             h = TA_Handler(symbol=symbol, screener=screener,
                            exchange=exchange, interval=Interval.INTERVAL_1_DAY)
@@ -156,19 +156,19 @@ def fetch_technical_analysis():
                 "recommendation": a.summary.get("RECOMMENDATION", ""),
                 "buy": a.summary.get("BUY", 0),
                 "sell": a.summary.get("SELL", 0),
-                "rsi": round(a.indicators.get("RSI", 0), 1),
+                "rsi":  round(a.indicators.get("RSI", 0), 1),
                 "macd": round(a.indicators.get("MACD.macd", 0), 2),
                 "ema20": round(a.indicators.get("EMA20", 0), 1),
                 "ema50": round(a.indicators.get("EMA50", 0), 1),
             }
+            time.sleep(0.3)  # rate limit 방지
         except Exception:
             result[name] = None
     return result
 
 
-def fetch_news(max_items=12):
-    """RSS 뉴스 피드 수집."""
-    seen_titles = set()
+def fetch_news(max_items=12) -> list:
+    seen = set()
     items = []
     for url in NEWS_FEEDS:
         if len(items) >= max_items:
@@ -179,48 +179,42 @@ def fetch_news(max_items=12):
                 if len(items) >= max_items:
                     break
                 title = getattr(entry, "title", "")
-                if title in seen_titles:
+                if title in seen:
                     continue
-                seen_titles.add(title)
-                items.append({
-                    "title": title,
-                    "summary": getattr(entry, "summary", ""),
-                })
+                seen.add(title)
+                items.append({"title": title, "summary": getattr(entry, "summary", "")})
         except Exception:
             continue
     return items
 
 
-def build_market_summary(market_data, news, ta_data=None):
+def build_market_summary(market_data: dict, news: list, ta_data: dict = None) -> str:
     lines = ["=== 오늘의 시황 ==="]
 
     # 글로벌
-    global_keys = list(GLOBAL_TICKERS.keys()) + ["KOSPI"]
-    for name in global_keys:
+    for name in ["NASDAQ", "S&P500", "NVDA", "TSMC", "LRCX"]:
         d = market_data.get(name, {})
-        if d and d.get("price") is not None:
-            arrow = "▲" if d["change_pct"] >= 0 else "▼"
-            lines.append(f"{name}: {d['price']:,.2f} {arrow}{abs(d['change_pct']):.1f}%")
+        if d and d.get("price"):
+            arrow = "▲" if (d.get("change_pct") or 0) >= 0 else "▼"
+            ta = ta_data.get(name, {}) if ta_data else {}
+            rsi_str = f" | RSI {ta['rsi']}" if ta and ta.get("rsi") else ""
+            rec_str = f" | {ta['recommendation']}" if ta and ta.get("recommendation") else ""
+            lines.append(f"{name}: {d['price']:,.2f} {arrow}{abs(d.get('change_pct') or 0):.1f}%{rsi_str}{rec_str}")
 
     # 한국 주요 종목
-    kr_names = list(KRX_TICKERS.values())
-    kr_data = [(n, market_data[n]) for n in kr_names if n in market_data and market_data[n].get("price")]
+    kr_main = ["KOSPI", "삼성전자", "SK하이닉스", "삼성SDI", "현대차",
+               "기아", "한화에어로스페이스", "이수페타시스", "켐트로닉스"]
+    kr_data = [(n, market_data[n]) for n in kr_main
+               if n in market_data and market_data[n] and market_data[n].get("price")]
     if kr_data:
         lines.append("\n=== 한국 주요 종목 ===")
-        for name, d in kr_data[:8]:
-            arrow = "▲" if d["change_pct"] >= 0 else "▼"
-            lines.append(f"{name}: {d['price']:,.0f}원 {arrow}{abs(d['change_pct']):.1f}%")
-
-    if ta_data:
-        lines.append("\n=== 기술적 지표 (TradingView) ===")
-        for name, ta in ta_data.items():
-            if ta:
-                rec = (ta["recommendation"]
-                       .replace("STRONG_", "강한 ")
-                       .replace("BUY", "매수")
-                       .replace("SELL", "매도")
-                       .replace("NEUTRAL", "중립"))
-                lines.append(f"{name}: {rec} | RSI {ta['rsi']} | EMA20 {ta['ema20']}")
+        for name, d in kr_data:
+            arrow = "▲" if (d.get("change_pct") or 0) >= 0 else "▼"
+            ta = ta_data.get(name, {}) if ta_data else {}
+            rsi_str = f" RSI {ta['rsi']}" if ta and ta.get("rsi") else ""
+            unit = "원" if d.get("symbol", "").isdigit() else ""
+            fmt = f"{d['price']:,.0f}{unit}" if unit else f"{d['price']:,.2f}"
+            lines.append(f"{name}: {fmt} {arrow}{abs(d.get('change_pct') or 0):.1f}%{rsi_str}")
 
     lines.append("\n=== 주요 뉴스 ===")
     for item in news[:6]:
