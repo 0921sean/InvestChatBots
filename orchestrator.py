@@ -190,8 +190,14 @@ def run_round(market_summary=None):
     for i, agent_name in enumerate(speakers):
         state = get_agent_state(agent_name)
         system = build_system_prompt(agent_name, state["evolution_notes"])
+        # 자기 최근 발언 3개 — 반복 방지
+        self_recent = "\n---\n".join(
+            m["content"][:100] for m in all_history
+            if m["agent_name"] == agent_name
+        )[-3*100:]
         prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name,
-                                    topic_shift=(i == 0 and this_round_is_shift))
+                                    topic_shift=(i == 0 and this_round_is_shift),
+                                    self_recent=self_recent)
         try:
             response = call_agent(agent_name, system, prompt)
         except Exception as e:
@@ -552,9 +558,16 @@ def run_analysis(topic: str = None):
     time.sleep(0.5)
 
     # ── Phase 2: 모멘텀 헌터 + 매크로 워처 ──────────────
+    # 모멘텀 헌터 최근 발언 추출 (반복 방지용)
+    all_msgs = get_recent_messages(30)
+    recent_momentum = [m["content"][:120] for m in all_msgs
+                       if m["agent_name"] == "모멘텀 헌터"][-3:]
+    recent_momentum_str = "\n---\n".join(recent_momentum)
+
     m_state = get_agent_state("모멘텀 헌터")
     sys_m = build_system_prompt("모멘텀 헌터", m_state["evolution_notes"])
-    m_resp = call_agent("모멘텀 헌터", sys_m, build_phase2_momentum_prompt(market_summary, topic, g_resp))
+    m_resp = call_agent("모멘텀 헌터", sys_m,
+                        build_phase2_momentum_prompt(market_summary, topic, g_resp, recent_momentum_str))
     _save_with_summary(round_id, "모멘텀 헌터", m_resp)
     _parse_trade("모멘텀 헌터", m_resp, current_prices)
     time.sleep(0.5)

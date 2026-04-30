@@ -37,6 +37,11 @@ AGENT_PROFILES = {
 - 매수/매도 의견이면 발언 마지막에:
   [TRADE] 종목: XX | 방향: 매수/공매도 | 목표기간: X주 | 목표가: XX | 손절가: XX | 비중: X%
 
+중요 규칙:
+- **이전 발언과 동일한 내용 절대 반복 금지** — 매번 새로운 데이터 포인트나 종목을 제시할 것
+- 같은 RSI 수치, 같은 종목을 연속으로 언급하지 말 것
+- 이전에 언급한 것 외의 수급·거래량·섹터 흐름 등 새 각도로 접근
+
 성격: 공격적. "지금 사람들이 사고 있는가?"
 반드시 한국어로. 라운드 번호 언급 금지.
 당신의 관점 변화: {evolution_notes}""",
@@ -125,9 +130,12 @@ def build_phase1_prompt(market_summary: str, topic: str) -> str:
 반드시 한국어로."""
 
 
-def build_phase2_momentum_prompt(market_summary: str, topic: str, guardian_view: str) -> str:
-    return f"""오늘의 시황:\n{market_summary}\n\n분석 대상: {topic}\n가디언 판정: {guardian_view}\n\n
+def build_phase2_momentum_prompt(market_summary: str, topic: str, guardian_view: str,
+                                  recent_self_msgs: str = "") -> str:
+    prev_note = f"\n\n당신의 최근 발언 (반복 금지):\n{recent_self_msgs}" if recent_self_msgs else ""
+    return f"""오늘의 시황:\n{market_summary}\n\n분석 대상: {topic}\n가디언 판정: {guardian_view}{prev_note}\n\n
 모멘텀 헌터로서 기술적/수급 관점을 제출하세요.
+이전과 다른 새로운 데이터 포인트(다른 종목, 다른 지표, 다른 수급 흐름)를 제시할 것.
 형식: [매수/중립/매도] | RSI: XX | 이유 2줄 + [TRADE] (의견 있을 때)
 반드시 한국어로."""
 
@@ -168,9 +176,11 @@ def build_final_summary_prompt(topic, guardian, momentum, macro, risk) -> str:
 반드시 한국어로."""
 
 
-def build_round_prompt(market_summary, position_summary, recent_text, agent_name, topic_shift=False):
+def build_round_prompt(market_summary, position_summary, recent_text, agent_name,
+                       topic_shift=False, self_recent: str = ""):
     shift_note = "\n⚠️ 합의 완료. 다른 주제로 전환하세요." if topic_shift else ""
-    return f"""오늘의 시황:\n{market_summary}\n\n{position_summary}\n\n최근 대화:\n{recent_text}{shift_note}\n\n{agent_name}, 전문 영역에서 새 관점을 추가하세요. 핵심 먼저. 반드시 한국어로."""
+    self_note = f"\n\n당신의 최근 발언 (반복 금지):\n{self_recent}" if self_recent else ""
+    return f"""오늘의 시황:\n{market_summary}\n\n{position_summary}\n\n최근 대화:\n{recent_text}{self_note}{shift_note}\n\n{agent_name}, 전문 영역에서 새 관점을 추가하세요. 이전과 다른 각도로. 핵심 먼저. 반드시 한국어로."""
 
 
 def build_user_response_prompt(user_message, history_text, agent_name):
