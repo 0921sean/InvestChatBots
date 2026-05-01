@@ -125,25 +125,23 @@ def _get_or_refresh_market_summary():
     threading.Thread(target=verify_predictions, daemon=True).start()
     return build_market_summary(data, news, ta_data), True
 
+_skeptic_silence = 0   # 회의론자 침묵 카운터
+SKEPTIC_SPEAK_PROB = 0.3   # 3라운드 지나면 30% 확률로 등장
+SKEPTIC_MAX_SILENCE = 6    # 6라운드 침묵하면 강제 등장
+
 def _pick_speakers() -> list[str]:
-    """
-    3~4명 선택. 가중치 기반 랜덤 — 최근에 많이 말할수록 확률 감소.
-    Devil은 별도 침묵 규칙.
-    """
-    global _recent_speakers, _devil_silence
+    """3명 선택. 회의론자는 별도 침묵 규칙 (4라운드에 1번꼴)."""
+    global _recent_speakers, _skeptic_silence
 
-    non_devil = [a for a in AGENT_ORDER if a != "Devil"]
-
-    # 최근 발언 횟수 기반 역가중치 (적게 말한 에이전트 우선)
-    counts = {a: _recent_speakers.count(a) for a in non_devil}
+    # 핵심 3봇만 기본 풀
+    core = [a for a in AGENT_ORDER if a != "회의론자"]
+    counts = {a: _recent_speakers.count(a) for a in core}
     max_count = max(counts.values()) if counts else 0
-    weights = {a: (max_count - counts[a] + 1) for a in non_devil}
+    weights = {a: (max_count - counts[a] + 1) for a in core}
 
-    # 가중치 비례 샘플링 (중복 없이 3~4명)
-    pool = non_devil[:]
+    pool = core[:]
     chosen = []
-    n = random.choice([3, 3, 4])  # 3명이 더 자주 (자연스러운 소규모 대화)
-    for _ in range(min(n, len(pool))):
+    for _ in range(min(3, len(pool))):
         total = sum(weights[a] for a in pool)
         r = random.uniform(0, total)
         cumul = 0
@@ -154,18 +152,15 @@ def _pick_speakers() -> list[str]:
                 pool.remove(a)
                 break
 
-    # Devil 등장 판단
-    devil_appears = False
-    if _devil_silence >= DEVIL_MAX_SILENCE:
-        devil_appears = True
-    elif _devil_silence >= DEVIL_MIN_SILENCE:
-        devil_appears = random.random() < 0.25
-
-    if devil_appears:
-        chosen.append("Devil")
-        _devil_silence = 0
+    # 회의론자: 최소 3라운드 침묵, 6라운드 초과 시 강제 등장
+    if _skeptic_silence >= SKEPTIC_MAX_SILENCE:
+        chosen.append("회의론자")
+        _skeptic_silence = 0
+    elif _skeptic_silence >= 3 and random.random() < SKEPTIC_SPEAK_PROB:
+        chosen.append("회의론자")
+        _skeptic_silence = 0
     else:
-        _devil_silence += 1
+        _skeptic_silence += 1
 
     random.shuffle(chosen)
     _recent_speakers.extend(chosen)
