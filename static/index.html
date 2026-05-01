@@ -424,57 +424,70 @@ const AGENT_LIST_PF = ['데이터허브', '밸류에이터', '컨텍스트'];
 
 async function loadPortfolio() {
   try {
-    const [pfRes, posRes] = await Promise.all([fetch('/api/portfolio'), fetch('/api/positions')]);
-    const pfData = await pfRes.json();
-    const positions = await posRes.json();
+    const res = await fetch('/api/shared-portfolio');
+    const pf = await res.json();
     const panel = document.getElementById('portfolio-list');
     if (!panel) return;
 
-    const pfMap = {};
-    pfData.forEach(p => pfMap[p.agent_name] = p);
-
-    let html = '';
-    AGENT_LIST_PF.forEach(name => {
-      const p = pfMap[name] || {balance: 10000000, total_pnl: 0, win_count: 0, loss_count: 0};
-      const pnl = p.total_pnl || 0;
-      const color = AGENT_COLORS_PF[name] || '#9d9d9d';
-      const pnlColor = pnl > 0 ? '#2bac76' : pnl < 0 ? '#f87171' : '#9d9d9d';
-      const rate = p.win_count + p.loss_count > 0 ? Math.round(p.win_count / (p.win_count + p.loss_count) * 100) : '-';
-      html += `<div style="padding:8px 10px;border-bottom:1px solid #1e293b;font-size:11px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:${color};font-weight:700">${name}</span>
-          <span style="color:${pnlColor};font-size:10px">${pnl !== 0 ? (pnl > 0 ? '+' : '') + '₩' + Math.round(pnl).toLocaleString() : '대기중'}</span>
-        </div>
-        <div style="color:#475569;margin-top:2px;font-size:10px">잔액 ₩${Math.round(p.balance||10000000).toLocaleString()} · 승률 ${rate}%</div>
-      </div>`;
-    });
-
-    const open = positions.filter(p => p.status === 'open');
-    if (open.length) {
-      html += `<div style="padding:6px 10px;font-size:10px;color:#6366f1;font-weight:600;letter-spacing:.5px">● OPEN (${open.length})</div>`;
-      open.forEach(p => {
-        const c = AGENT_COLORS_PF[p.agent_name] || '#9d9d9d';
-        const entry = p.entry_price > 0 ? p.entry_price.toLocaleString() : '확인중';
-        html += `<div style="padding:6px 10px;font-size:11px;border-bottom:1px solid #1e293b">
-          <div><span style="color:${c}">${p.agent_name}</span> <span style="color:#e2e8f0">${p.symbol}</span> <span style="color:${p.direction==='매수'?'#2bac76':'#f87171'}">${p.direction}</span></div>
-          <div style="color:#475569;font-size:10px;margin-top:2px">진입 ${entry} · 목표일 ${p.target_date||'?'}</div>
-        </div>`;
-      });
+    // 시장 상태 업데이트
+    const msEl = document.getElementById('market-status');
+    if (msEl) {
+      const ms = pf.market_status;
+      const msColor = ms === 'KRX' ? '#2bac76' : ms === 'US' ? '#60a5fa' : '#475569';
+      const msText = ms === 'KRX' ? '🟢 국장 장중' : ms === 'US' ? '🔵 미장 장중' : '⚪ 장외 시간 — 토론 중';
+      msEl.style.color = msColor;
+      msEl.textContent = msText;
     }
 
-    const closed = positions.filter(p => p.status === 'closed').slice(0,3);
+    // 잔액 & 수익
+    const pnl = pf.total_pnl || 0;
+    const pnlColor = pnl > 0 ? '#2bac76' : pnl < 0 ? '#f87171' : '#9d9d9d';
+    const rate = pf.win_count + pf.loss_count > 0
+      ? Math.round(pf.win_count / (pf.win_count + pf.loss_count) * 100) : 0;
+    const retPct = ((pf.balance - 30000000) / 30000000 * 100).toFixed(1);
+
+    let h = `<div style="padding:10px;border-bottom:1px solid #1e293b">
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:#e2e8f0;font-size:12px;font-weight:600">잔액</span>
+        <span style="color:#e2e8f0;font-size:12px">₩${Math.round(pf.balance).toLocaleString()}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px">
+        <span style="color:#9d9d9d;font-size:11px">총 수익</span>
+        <span style="color:${pnlColor};font-size:11px">${pnl>=0?'+':''}₩${Math.round(pnl).toLocaleString()} (${retPct}%)</span>
+      </div>
+      <div style="color:#475569;font-size:10px;margin-top:4px">승률 ${rate}% · ${pf.win_count}승 ${pf.loss_count}패</div>
+    </div>`;
+
+    // 오픈 포지션
+    const open = (pf.positions || []).filter(p => p.status === 'open');
+    if (open.length) {
+      h += `<div style="padding:6px 10px;font-size:10px;color:#6366f1;font-weight:600;letter-spacing:.5px">● OPEN (${open.length})</div>`;
+      open.forEach(p => {
+        const c = COLORS[p.agent_name] || '#9d9d9d';
+        const entry = p.entry_price > 0 ? p.entry_price.toLocaleString() : '확인중';
+        h += `<div style="padding:6px 10px;font-size:11px;border-bottom:1px solid #1e293b">
+          <div><span style="color:#e2e8f0">${p.symbol}</span> <span style="color:${p.direction==='매수'?'#2bac76':'#f87171'}">${p.direction}</span> <span style="color:#475569;font-size:10px">by ${p.agent_name}</span></div>
+          <div style="color:#475569;font-size:10px;margin-top:2px">진입 ${entry} · ${p.target_date||'?'}까지</div>
+        </div>`;
+      });
+    } else {
+      h += `<div style="padding:12px;color:#475569;font-size:11px;text-align:center">오픈 포지션 없음</div>`;
+    }
+
+    // 최근 청산
+    const closed = (pf.positions || []).filter(p => p.status === 'closed').slice(0,3);
     if (closed.length) {
-      html += `<div style="padding:6px 10px;font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px">최근 청산</div>`;
+      h += `<div style="padding:6px 10px;font-size:10px;color:#475569;font-weight:600">최근 청산</div>`;
       closed.forEach(p => {
         const win = p.pnl >= 0;
-        html += `<div style="padding:5px 10px;font-size:10px;color:${win?'#2bac76':'#f87171'};border-bottom:1px solid #1e293b">
-          ${win?'✅':'❌'} ${p.symbol} ${(p.pnl_pct||0).toFixed(1)}% · ${p.outcome||''}
+        h += `<div style="padding:5px 10px;font-size:10px;color:${win?'#2bac76':'#f87171'};border-bottom:1px solid #1e293b">
+          ${win?'✅':'❌'} ${p.symbol} ${(p.pnl_pct||0).toFixed(1)}%
         </div>`;
       });
     }
 
-    panel.innerHTML = html;
-  } catch(e) { console.error('portfolio error', e); }
+    panel.innerHTML = h;
+  } catch(e) { console.error('portfolio', e); }
 }
 loadPortfolio();
 setInterval(loadPortfolio, 30000);

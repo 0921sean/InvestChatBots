@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes, get_portfolio, get_all_positions
-from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS, run_analysis, evaluate_positions
+from db import init_db, get_messages_since, get_latest_market_snapshot, get_agent_state, get_consensus_notes, get_portfolio, get_all_positions, get_shared_portfolio
+from orchestrator import run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS, run_analysis, evaluate_positions, is_market_open
 import orchestrator as _orch
 from prompts import AGENT_ORDER, AGENT_PROFILES
 from scheduler import start_scheduler
@@ -180,6 +180,13 @@ def api_evaluate_positions():
 @app.get("/api/portfolio")
 def api_portfolio():
     return get_portfolio()
+
+@app.get("/api/shared-portfolio")
+def api_shared_portfolio():
+    pf = get_shared_portfolio()
+    pf["market_status"] = is_market_open()
+    pf["positions"] = get_all_positions(20)
+    return pf
 
 @app.get("/api/positions")
 def api_positions():

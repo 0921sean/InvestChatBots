@@ -91,6 +91,15 @@ def init_db():
             loss_count INTEGER DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS shared_portfolio (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            balance REAL DEFAULT 30000000,
+            total_pnl REAL DEFAULT 0,
+            win_count INTEGER DEFAULT 0,
+            loss_count INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, 30000000);
         """)
 
 def save_message(round_id, agent_name, model, content, summary=None):
@@ -145,6 +154,13 @@ def create_round(topic):
 def complete_round(round_id):
     with _conn() as con:
         con.execute("UPDATE rounds SET status='complete' WHERE id=?", (round_id,))
+
+def complete_position(pos_id, exit_price, outcome_note):
+    """close_position의 별칭 + 공유 포트폴리오 업데이트."""
+    result = close_position(pos_id, exit_price, outcome_note)
+    if result:
+        update_shared_portfolio(result["pnl"])
+    return result
 
 def save_market_snapshot(data_json):
     with _conn() as con:
@@ -250,6 +266,23 @@ def _update_portfolio(con, agent_name, pnl):
             updated_at = CURRENT_TIMESTAMP
     """, (agent_name, pnl, max(0, pnl), 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0,
           pnl, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0))
+
+def get_shared_portfolio():
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM shared_portfolio WHERE id=1").fetchone()
+        return dict(row) if row else {"balance": 30000000, "total_pnl": 0, "win_count": 0, "loss_count": 0}
+
+def update_shared_portfolio(pnl: float):
+    with _conn() as con:
+        con.execute("""UPDATE shared_portfolio SET
+            balance = balance + ?,
+            total_pnl = total_pnl + ?,
+            win_count = win_count + ?,
+            loss_count = loss_count + ?,
+            updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1""",
+            (pnl, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0))
 
 def get_portfolio(agent_name=None):
     with _conn() as con:

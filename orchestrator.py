@@ -11,7 +11,8 @@ from db import (
     get_agent_state, save_agent_state, save_market_snapshot,
     get_latest_market_snapshot, save_consensus,
     save_prediction, get_unverified_predictions, mark_prediction_verified,
-    open_position, get_open_positions, close_position, get_portfolio
+    open_position, get_open_positions, close_position, complete_position,
+    get_portfolio, get_shared_portfolio, update_shared_portfolio
 )
 from agents import call_agent
 from prompts import (
@@ -27,6 +28,25 @@ from discovery import discover_events
 from notifier import notify, is_credit_error, is_rate_limit
 
 SUMMARY_ROTATION = list(AGENT_ORDER)
+
+def is_market_open() -> str:
+    """현재 어느 시장이 열려있는지. 'KRX' | 'US' | 'NONE'"""
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+    weekday = now.weekday()  # 0=월 6=일
+    if weekday >= 5:
+        return "NONE"
+    h, m = now.hour, now.minute
+    # 국장: 9:00~15:30 KST
+    if 9 <= h < 15 or (h == 15 and m <= 30):
+        return "KRX"
+    # 미장: 22:30~05:00 KST (다음날)
+    if h >= 22 and m >= 30:
+        return "US"
+    if h < 5:
+        return "US"
+    return "NONE"
 MARKET_REFRESH_HOURS = 2
 CONSENSUS_EVERY_N_ROUNDS = 3
 USER_IDLE_SECONDS = 300   # 사용자 5분 무응답 → 루프 재개
@@ -177,7 +197,6 @@ def run_round(market_summary=None):
                      "📌 합의 완료. 이제 다른 섹터·종목·테마로 논의를 전환합니다.")
 
     all_history = get_recent_messages(20)
-    # 주제 전환 직후엔 이전 대화 컨텍스트를 지워서 현대차 등 이전 주제에 묶이지 않게
     if this_round_is_shift:
         recent_history = []
         position_summary = ""
@@ -186,6 +205,18 @@ def run_round(market_summary=None):
         recent_history = all_history[-5:]
         position_summary = build_position_summary(all_history)
         recent_text = format_history_compact(recent_history)
+
+    # Discovery 이벤트 (버그 수정: 항상 초기화 후 할당)
+    event_text = ""
+    try:
+        event_text = discover_events(n=2) or ""
+        if event_text and not market_refreshed:
+            import random as _rand
+            if _rand.random() > 0.5:
+                event_text = ""
+    except Exception:
+        event_text = ""
+
     speakers = _pick_speakers()
 
     for i, agent_name in enumerate(speakers):
