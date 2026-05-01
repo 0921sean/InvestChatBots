@@ -149,8 +149,9 @@ def build_round_prompt(market_summary, position_summary, recent_text, agent_name
 {self_n}{shift}
 
 {agent_name}, 대화에서 가장 중요한 포인트에 반응하세요.
-- 다른 멤버 이름 부르며 동의/반박/보완
+- 다른 멤버 이름 부르며 의견 교환 (동의·보완·질문·우려 모두 OK)
 - 구체적 종목명 필수
+- 목표는 좋은 투자 종목 발굴 — 팀으로 함께 결론 찾기
 - 2-3문장 이내. 반드시 한국어."""
 
 

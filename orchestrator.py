@@ -306,6 +306,53 @@ def handle_user_message(user_text):
         history_text = format_history_compact(all_history[-5:])
         time.sleep(1)
 
+def _execute_shared_trade(consensus_note: str, round_id: int):
+    """합의점 도달 시 공유 계좌에서 포지션 실행."""
+    import re as _re
+    # 추천종목 추출
+    m = _re.search(r'추천종목[:]\s*(.+)', consensus_note)
+    if not m:
+        m2 = _re.search(r'\U0001f4cc\s*([^\n]+)', consensus_note)
+        if not m2:
+            return
+        symbol = m2.group(1).strip()
+    else:
+        symbols = [s.strip() for s in _re.split(r'[,、·]', m.group(1)) if s.strip()]
+        symbol = symbols[0] if symbols else ""
+
+    if not symbol:
+        return
+
+    # 공유 계좌 잔액의 20% 투입
+    from db import get_shared_portfolio
+    pf = get_shared_portfolio()
+    amount = pf["balance"] * 0.20
+
+    # 현재 가격 조회
+    entry = fetch_stock_price(symbol) or 0.0
+
+    # 목표 기간: 1개월 기본
+    from datetime import datetime as _dt2, timedelta as _td2
+    target_date = (_dt2.now() + _td2(days=30)).strftime('%Y-%m-%d')
+    target_price = round(entry * 1.15, 2) if entry else 0  # 15% 목표
+    stop_loss   = round(entry * 0.92, 2) if entry else 0   # 8% 손절
+
+    pos_id = open_position(
+        agent_name="공유계좌",
+        symbol=symbol,
+        direction="매수",
+        entry_price=entry,
+        amount=amount,
+        target_price=target_price,
+        stop_loss=stop_loss,
+        target_date=target_date,
+        reasoning=f"합의 매수: {consensus_note[:200]}",
+    )
+    save_message(round_id, "System", None,
+                 f"💰 공유계좌 매수 실행: {symbol} | ₩{amount:,.0f} | 목표 {target_date}")
+    logger.info(f"[SHARED TRADE] {symbol} ₩{amount:,.0f} pos_id={pos_id}")
+
+
 def _detect_consensus(round_id):
     history = get_recent_messages(80)
     agent_msgs = [m for m in history if m["agent_name"] not in ("System", "User")]
