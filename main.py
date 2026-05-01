@@ -156,6 +156,43 @@ def api_user_message(body: UserMessage):
     return {"ok": True}
 
 
+@app.post("/api/summary/request")
+def api_request_summary():
+    import threading
+    threading.Thread(target=_generate_summary, daemon=True).start()
+    return {"ok": True}
+
+def _generate_summary():
+    from db import get_recent_messages
+    from agents import call_agent
+    from notifier import notify
+    msgs = get_recent_messages(30)
+    agent_msgs = [m for m in msgs if m["agent_name"] not in ("System", "User")]
+    if not agent_msgs:
+        notify("📋 요약", "아직 대화가 없습니다.", priority="default", cooldown=0)
+        return
+    conversation = "\n".join(f"{m['agent_name']}: {m['content'][:120]}" for m in agent_msgs[-20:])
+    try:
+        result = call_agent(
+            "밸류에이터",
+            "투자 토론 요약 전문가입니다.",
+            f"""다음은 AI 투자 그룹의 최근 대화입니다:
+
+{conversation}
+
+아래 형식으로 요약하세요 (총 5줄 이내):
+📌 주요 논의 종목/섹터: [종목명들]
+💬 핵심 논점: [한 줄]
+✅ 긍정 의견: [한 줄]
+⚠️ 우려 사항: [한 줄]
+🎯 현재 방향: [매수검토/관망/없음]
+
+반드시 한국어로."""
+        )
+        notify("📋 InvestChat 요약", result, priority="default", cooldown=0)
+    except Exception as e:
+        notify("📋 요약 실패", str(e)[:100], priority="low", cooldown=0)
+
 @app.post("/api/rounds/start")
 def api_start_round():
     run_round()

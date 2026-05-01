@@ -107,6 +107,7 @@
       <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ Pause</button>
       <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
       <button class="btn btn-ghost" onclick="startAnalysis()" title="Phase 분석 시작">🔍 분석</button>
+      <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()" title="최근 대화 요약을 알림으로 받기">📋 요약</button>
       <button class="btn btn-guard" id="btn-guard" onclick="toggleGuard()" title="크레딧 소진 시 대화 자동 정지">🛡 크레딧 정지</button>
     </div>
   </div>
@@ -405,6 +406,20 @@ async function syncGuard() {
 }
 syncGuard();
 setInterval(syncGuard, 10000);
+
+async function requestSummary() {
+  const btn = document.getElementById('btn-summary');
+  btn.disabled = true;
+  btn.textContent = '⏳ 요약 중...';
+  try {
+    await fetch('/api/summary/request', {method: 'POST'});
+    btn.textContent = '✅ 알림 발송됨';
+    setTimeout(() => { btn.textContent = '📋 요약'; btn.disabled = false; }, 3000);
+  } catch(e) {
+    btn.textContent = '📋 요약';
+    btn.disabled = false;
+  }
+}
 
 async function startAnalysis() {
   const topic = prompt('분석할 종목/섹터를 입력하세요 (비워두면 자동):', '');
