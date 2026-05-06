@@ -294,6 +294,22 @@ def _parse_decision(text: str) -> tuple[str, int]:
     return decision, weight
 
 
+def _extract_reason(response: str) -> str:
+    """봇 응답에서 매수 이유 추출. 여러 포맷 대응."""
+    # 1순위: "[결정] 매수 | ... | 이유: TEXT" 형식
+    m = re.search(r'\[결정\].*?이유[:\s]+(.+?)(?:\n|$)', response)
+    if m:
+        return m.group(1).strip()[:120]
+    # 2순위: 텍스트 내 "이유:" 뒤
+    m = re.search(r'이유[:\s]+(.+?)(?:\n|$)', response)
+    if m:
+        return m.group(1).strip()[:120]
+    # 3순위: [결정] 줄을 제외한 마지막 의미 있는 줄
+    lines = [l.strip() for l in response.split('\n')
+             if l.strip() and not l.strip().startswith('[결정]')]
+    return lines[-1][:120] if lines else response[:120]
+
+
 def _tally_votes(decisions: list[tuple[str, int]]) -> tuple[str, float]:
     """(final_decision, avg_weight_pct)"""
     buy_votes  = [(d, w) for d, w in decisions if d == "매수"]
@@ -319,12 +335,10 @@ def _execute_buy(stock: dict, price: float, weight_pct: float,
         _save_msg(round_id, "System", f"⚠️ 잔액 부족으로 {stock['name']} 매수 건너뜀 (잔액: ₩{balance:,.0f})")
         return
 
-    # 매수 이유 정리: [결정] 태그 이후 이유 부분 추출
+    # 매수 이유 정리
     reasons = []
     for bot_name, response in buy_votes:
-        # "[결정] 매수 | 제안비중: X% | 이유: ..." 에서 이유 부분 추출
-        m = re.search(r'이유[:\s]*(.+?)(?:\n|$)', response)
-        reason_text = m.group(1).strip() if m else response.split('\n')[0][:80]
+        reason_text = _extract_reason(response)
         reasons.append(f"• {bot_name}: {reason_text}")
 
     reasoning_summary = "\n".join(reasons)
