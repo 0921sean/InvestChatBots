@@ -18,6 +18,7 @@ from db import (
     get_consensus_notes, buy_shared_position, sell_shared_position,
     get_shared_portfolio, get_open_positions_by_symbol,
     save_cycle_state, load_cycle_state,
+    log_stock_analyzed, was_stock_analyzed_today,
 )
 from agents import call_agent
 from prompts import (
@@ -482,12 +483,48 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         _persist_state()
 
 
+def _advance_stock(round_id: int, sector: dict):
+    """현재 종목 완료 후 다음 종목 또는 다음 섹터로 상태 전환."""
+    with _state_lock:
+        globals()["_stock_idx"] += 1
+        if _stock_idx >= len(sector["stocks"]):
+            next_sector_idx = _sector_idx + 1
+            is_last = next_sector_idx >= len(SECTORS)
+            if is_last:
+                _save_msg(round_id, "System",
+                          f"✅ [{sector['name']}] 섹터 완료\n\n"
+                          f"🎉 오늘 전체 {len(SECTORS)}개 섹터 분석 완료!\n"
+                          f"봇들이 {CYCLE_REST_HOURS}시간 휴식 후 내일 다시 반도체 섹터부터 시작합니다.")
+                globals()["_sector_idx"] = 0
+                globals()["_phase"] = "cycle_rest"
+                globals()["_cycle_done_at"] = time.time()
+            else:
+                next_name = SECTORS[next_sector_idx]["name"]
+                _save_msg(round_id, "System",
+                          f"✅ [{sector['name']}] 섹터 완료 → 다음: {next_name}")
+                globals()["_sector_idx"] = next_sector_idx
+                globals()["_phase"] = "sector_discussion"
+            globals()["_stock_idx"] = 0
+            globals()["_discussion_round"] = 0
+        else:
+            next_stock = sector["stocks"][_stock_idx]["name"]
+            _save_msg(round_id, "System", f"다음 종목 → {next_stock}")
+        _persist_state()
+
+
 # ── 종목 분석 라운드 ──────────────────────────────────────
 def _run_stock_analysis_round(round_id: int, market_summary: str):
     global _phase, _stock_idx, _sector_idx, _discussion_round
 
     sector = SECTORS[_sector_idx]
     stock = sector["stocks"][_stock_idx]
+
+    # 오늘 이미 분석한 종목이면 건너뜀
+    if was_stock_analyzed_today(sector["name"], stock["name"]):
+        _save_msg(round_id, "System",
+                  f"⏭ {stock['name']} — 오늘 이미 분석 완료, 건너뜁니다.")
+        _advance_stock(round_id, sector)
+        return
 
     # 종목 데이터 페치
     _save_msg(round_id, "System", f"🔍 {stock['name']} ({stock['code']}) 데이터 수집 중...")
@@ -556,35 +593,8 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         )
         _execute_sell(stock, current_price, sell_reasoning, round_id)
 
-    # 다음 종목 or 다음 섹터로
-    with _state_lock:
-        globals()["_stock_idx"] += 1
-        if _stock_idx >= len(sector["stocks"]):
-            next_sector_idx = _sector_idx + 1
-            is_last = next_sector_idx >= len(SECTORS)
-
-            if is_last:
-                _save_msg(round_id, "System",
-                          f"✅ [{sector['name']}] 섹터 완료\n\n"
-                          f"🎉 오늘 전체 {len(SECTORS)}개 섹터 분석 완료!\n"
-                          f"봇들이 {CYCLE_REST_HOURS}시간 휴식 후 내일 다시 반도체 섹터부터 시작합니다.")
-                globals()["_sector_idx"] = 0
-                globals()["_phase"] = "cycle_rest"
-                globals()["_cycle_done_at"] = time.time()
-            else:
-                next_name = SECTORS[next_sector_idx]["name"]
-                _save_msg(round_id, "System",
-                          f"✅ [{sector['name']}] 섹터 완료 → 다음: {next_name}")
-                globals()["_sector_idx"] = next_sector_idx
-                globals()["_phase"] = "sector_discussion"
-
-            globals()["_stock_idx"] = 0
-            globals()["_discussion_round"] = 0
-        else:
-            next_stock = sector["stocks"][_stock_idx]["name"]
-            _save_msg(round_id, "System",
-                      f"다음 종목 → {next_stock}")
-        _persist_state()
+    log_stock_analyzed(sector["name"], stock["name"])
+    _advance_stock(round_id, sector)
 
 
 # ── 오류 처리 ─────────────────────────────────────────────

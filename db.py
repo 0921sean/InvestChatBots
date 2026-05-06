@@ -84,6 +84,14 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, {INITIAL_BALANCE});
+        CREATE TABLE IF NOT EXISTS daily_analysis_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            sector_name TEXT NOT NULL,
+            stock_name TEXT NOT NULL,
+            analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, sector_name, stock_name)
+        );
         CREATE TABLE IF NOT EXISTS cycle_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             sector_idx INTEGER DEFAULT 0,
@@ -286,6 +294,42 @@ def get_all_positions(limit=30) -> list:
             "SELECT * FROM virtual_positions ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def log_stock_analyzed(sector_name: str, stock_name: str):
+    """오늘 분석한 종목 기록. 중복 무시."""
+    from datetime import date
+    today = date.today().isoformat()
+    with _conn() as con:
+        try:
+            con.execute(
+                "INSERT OR IGNORE INTO daily_analysis_log (date, sector_name, stock_name) VALUES (?,?,?)",
+                (today, sector_name, stock_name)
+            )
+        except Exception:
+            pass
+
+
+def was_stock_analyzed_today(sector_name: str, stock_name: str) -> bool:
+    from datetime import date
+    today = date.today().isoformat()
+    with _conn() as con:
+        row = con.execute(
+            "SELECT 1 FROM daily_analysis_log WHERE date=? AND sector_name=? AND stock_name=?",
+            (today, sector_name, stock_name)
+        ).fetchone()
+    return row is not None
+
+
+def get_today_analyzed_stocks() -> list[tuple[str, str]]:
+    from datetime import date
+    today = date.today().isoformat()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT sector_name, stock_name FROM daily_analysis_log WHERE date=? ORDER BY analyzed_at",
+            (today,)
+        ).fetchall()
+    return [(r[0], r[1]) for r in rows]
 
 
 def save_cycle_state(sector_idx: int, phase: str, stock_idx: int,
