@@ -36,50 +36,130 @@ from telegram_fetcher import fetch_telegram_messages, get_cached_context
 from notifier import notify, is_credit_error, is_rate_limit
 
 # ── 섹터 + 종목 설정 ────────────────────────────────────
+# market: "KRX" | "US"
+# KRX 종목: code=종목코드, yf=종목코드.KS
+# US 종목:  code=티커, yf=티커, screener="america", exchange="NASDAQ"|"NYSE"
 SECTORS = [
+    # ── 국내 ──────────────────────────────────────────────
     {
         "name": "반도체",
         "description": "메모리·파운드리·반도체 장비",
         "stocks": [
-            {"name": "삼성전자",   "code": "005930", "yf": "005930.KS"},
-            {"name": "SK하이닉스", "code": "000660", "yf": "000660.KS"},
-            {"name": "한미반도체", "code": "042700", "yf": "042700.KS"},
+            {"name": "삼성전자",   "code": "005930", "yf": "005930.KS", "market": "KRX"},
+            {"name": "SK하이닉스", "code": "000660", "yf": "000660.KS", "market": "KRX"},
+            {"name": "한미반도체", "code": "042700", "yf": "042700.KS", "market": "KRX"},
         ],
     },
     {
         "name": "2차전지",
         "description": "EV·ESS 배터리 셀·소재",
         "stocks": [
-            {"name": "LG에너지솔루션", "code": "373220", "yf": "373220.KS"},
-            {"name": "삼성SDI",        "code": "006400", "yf": "006400.KS"},
-            {"name": "에코프로비엠",   "code": "247540", "yf": "247540.KS"},
+            {"name": "LG에너지솔루션", "code": "373220", "yf": "373220.KS", "market": "KRX"},
+            {"name": "삼성SDI",        "code": "006400", "yf": "006400.KS", "market": "KRX"},
+            {"name": "에코프로비엠",   "code": "247540", "yf": "247540.KS", "market": "KRX"},
         ],
     },
     {
         "name": "바이오·헬스케어",
         "description": "신약개발·의료기기·CMO",
         "stocks": [
-            {"name": "셀트리온",         "code": "068270", "yf": "068270.KS"},
-            {"name": "삼성바이오로직스", "code": "207940", "yf": "207940.KS"},
-            {"name": "유한양행",         "code": "000100", "yf": "000100.KS"},
+            {"name": "삼성바이오로직스", "code": "207940", "yf": "207940.KS", "market": "KRX"},
+            {"name": "셀트리온",         "code": "068270", "yf": "068270.KS", "market": "KRX"},
+            {"name": "유한양행",         "code": "000100", "yf": "000100.KS", "market": "KRX"},
         ],
     },
     {
         "name": "방산·우주",
         "description": "국방·항공우주·방위산업",
         "stocks": [
-            {"name": "한화에어로스페이스", "code": "012450", "yf": "012450.KS"},
-            {"name": "LIG넥스원",         "code": "079550", "yf": "079550.KS"},
-            {"name": "현대로템",           "code": "064350", "yf": "064350.KS"},
+            {"name": "한화에어로스페이스", "code": "012450", "yf": "012450.KS", "market": "KRX"},
+            {"name": "LIG넥스원",         "code": "079550", "yf": "079550.KS", "market": "KRX"},
+            {"name": "현대로템",           "code": "064350", "yf": "064350.KS", "market": "KRX"},
         ],
     },
     {
         "name": "자동차·모빌리티",
         "description": "완성차·부품·자율주행",
         "stocks": [
-            {"name": "현대차",   "code": "005380", "yf": "005380.KS"},
-            {"name": "기아",     "code": "000270", "yf": "000270.KS"},
-            {"name": "현대모비스", "code": "012330", "yf": "012330.KS"},
+            {"name": "현대차",     "code": "005380", "yf": "005380.KS", "market": "KRX"},
+            {"name": "기아",       "code": "000270", "yf": "000270.KS", "market": "KRX"},
+            {"name": "현대모비스", "code": "012330", "yf": "012330.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "조선·해운",
+        "description": "선박 수주·해운 운임",
+        "stocks": [
+            {"name": "HD한국조선해양", "code": "009540", "yf": "009540.KS", "market": "KRX"},
+            {"name": "한화오션",       "code": "042660", "yf": "042660.KS", "market": "KRX"},
+            {"name": "HMM",           "code": "011200", "yf": "011200.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "인터넷·플랫폼",
+        "description": "포털·게임·커머스·핀테크",
+        "stocks": [
+            {"name": "NAVER",   "code": "035420", "yf": "035420.KS", "market": "KRX"},
+            {"name": "카카오",  "code": "035720", "yf": "035720.KS", "market": "KRX"},
+            {"name": "크래프톤", "code": "259960", "yf": "259960.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "금융·보험",
+        "description": "은행·증권·보험",
+        "stocks": [
+            {"name": "KB금융",   "code": "105560", "yf": "105560.KS", "market": "KRX"},
+            {"name": "신한지주", "code": "055550", "yf": "055550.KS", "market": "KRX"},
+            {"name": "삼성화재", "code": "000810", "yf": "000810.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "철강·소재",
+        "description": "철강·비철금속·화학 소재",
+        "stocks": [
+            {"name": "POSCO홀딩스", "code": "005490", "yf": "005490.KS", "market": "KRX"},
+            {"name": "현대제철",    "code": "004020", "yf": "004020.KS", "market": "KRX"},
+            {"name": "LG화학",      "code": "051910", "yf": "051910.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "에너지",
+        "description": "정유·신재생에너지·가스",
+        "stocks": [
+            {"name": "SK이노베이션", "code": "096770", "yf": "096770.KS", "market": "KRX"},
+            {"name": "한국가스공사", "code": "036460", "yf": "036460.KS", "market": "KRX"},
+            {"name": "한화솔루션",   "code": "009830", "yf": "009830.KS", "market": "KRX"},
+        ],
+    },
+    {
+        "name": "통신",
+        "description": "이동통신·네트워크·IDC",
+        "stocks": [
+            {"name": "SK텔레콤", "code": "017670", "yf": "017670.KS", "market": "KRX"},
+            {"name": "KT",       "code": "030200", "yf": "030200.KS", "market": "KRX"},
+            {"name": "LG유플러스", "code": "032640", "yf": "032640.KS", "market": "KRX"},
+        ],
+    },
+    # ── 미국 ──────────────────────────────────────────────
+    {
+        "name": "미국 빅테크",
+        "description": "AI·클라우드·플랫폼 메가캡",
+        "stocks": [
+            {"name": "엔비디아",     "code": "NVDA", "yf": "NVDA", "market": "US", "exchange": "NASDAQ"},
+            {"name": "마이크로소프트", "code": "MSFT", "yf": "MSFT", "market": "US", "exchange": "NASDAQ"},
+            {"name": "알파벳",       "code": "GOOGL", "yf": "GOOGL", "market": "US", "exchange": "NASDAQ"},
+            {"name": "메타",         "code": "META", "yf": "META", "market": "US", "exchange": "NASDAQ"},
+            {"name": "애플",         "code": "AAPL", "yf": "AAPL", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 AI·반도체",
+        "description": "AI 인프라·팹리스·장비",
+        "stocks": [
+            {"name": "TSMC",    "code": "TSM",  "yf": "TSM",  "market": "US", "exchange": "NYSE"},
+            {"name": "브로드컴", "code": "AVGO", "yf": "AVGO", "market": "US", "exchange": "NASDAQ"},
+            {"name": "팔란티어", "code": "PLTR", "yf": "PLTR", "market": "US", "exchange": "NYSE"},
+            {"name": "AMD",     "code": "AMD",  "yf": "AMD",  "market": "US", "exchange": "NASDAQ"},
         ],
     },
 ]
@@ -91,12 +171,14 @@ SELL_MAJORITY = 4              # 매도 결정에 필요한 최소 투표 수
 DEFAULT_BUY_PCT = 10           # 기본 매수 비중 (잔액의 %)
 MAX_BUY_PCT = 20               # 최대 매수 비중
 MARKET_REFRESH_HOURS = 2
+SECTOR_COOLDOWN_HOURS = 20     # 한 섹터 완료 후 다음 섹터까지 대기 (하루 1섹터)
 
 # ── 상태 ─────────────────────────────────────────────────
 _sector_idx: int = 0
-_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis"
+_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis" | "cooldown"
 _stock_idx: int = 0
 _discussion_round: int = 0
+_sector_done_at: float = 0.0        # 섹터 완료 시각 (cooldown 계산용)
 _user_active_until: float = 0.0
 _stop_on_credit: bool = False
 _agent_fail_count: dict = {}
@@ -124,7 +206,10 @@ def is_market_open() -> str:
 
 def get_current_state() -> dict:
     sector = SECTORS[_sector_idx]
-    stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" else None
+    stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" and _stock_idx < len(sector["stocks"]) else None
+    cooldown_remaining_h = 0.0
+    if _phase == "cooldown" and _sector_done_at:
+        cooldown_remaining_h = max(0.0, round(SECTOR_COOLDOWN_HOURS - (time.time() - _sector_done_at) / 3600, 1))
     return {
         "sector_idx": _sector_idx,
         "sector": sector["name"],
@@ -135,6 +220,8 @@ def get_current_state() -> dict:
         "stock": stock["name"] if stock else None,
         "stocks_total": len(sector["stocks"]),
         "market_status": is_market_open(),
+        "cooldown_remaining_h": cooldown_remaining_h,
+        "total_sectors": len(SECTORS),
     }
 
 
@@ -205,7 +292,11 @@ def _tally_votes(decisions: list[tuple[str, int]]) -> tuple[str, float]:
 
 
 # ── 매수/매도 실행 ────────────────────────────────────────
-def _execute_buy(stock: dict, price: float, weight_pct: float, reasoning: str, round_id: int):
+def _execute_buy(stock: dict, price: float, weight_pct: float,
+                 buy_votes: list[tuple[str, str]], round_id: int):
+    """
+    buy_votes: [(bot_name, full_response_text), ...] — 매수 투표한 봇들의 발언
+    """
     pf = get_shared_portfolio()
     balance = pf["balance"]
     amount = round(balance * (weight_pct / 100))
@@ -213,22 +304,37 @@ def _execute_buy(stock: dict, price: float, weight_pct: float, reasoning: str, r
         _save_msg(round_id, "System", f"⚠️ 잔액 부족으로 {stock['name']} 매수 건너뜀 (잔액: ₩{balance:,.0f})")
         return
 
+    # 매수 이유 정리: [결정] 태그 이후 이유 부분 추출
+    reasons = []
+    for bot_name, response in buy_votes:
+        # "[결정] 매수 | 제안비중: X% | 이유: ..." 에서 이유 부분 추출
+        m = re.search(r'이유[:\s]*(.+?)(?:\n|$)', response)
+        reason_text = m.group(1).strip() if m else response.split('\n')[0][:80]
+        reasons.append(f"• {bot_name}: {reason_text}")
+
+    reasoning_summary = "\n".join(reasons)
     pos_id, err = buy_shared_position(
         symbol=stock["name"],
         code=stock["code"],
         entry_price=price,
         amount=amount,
-        reasoning=reasoning,
+        reasoning=reasoning_summary,
     )
     if err:
         _save_msg(round_id, "System", f"⚠️ 매수 실패: {err}")
         return
 
-    msg = (f"🟢 매수 체결: {stock['name']} ({stock['code']})\n"
-           f"가격: ₩{price:,.0f} | 투자금: ₩{amount:,.0f} ({weight_pct:.0f}%)\n"
-           f"근거: {reasoning}")
-    _save_msg(round_id, "System", msg)
-    notify(f"🟢 매수: {stock['name']}", f"₩{price:,.0f} | ₩{amount:,.0f} 투자\n{reasoning}", priority="high", cooldown=0)
+    currency = "$" if stock.get("market") == "US" else "₩"
+    price_fmt = f"{currency}{price:,.2f}" if stock.get("market") == "US" else f"₩{price:,.0f}"
+    chat_msg = (f"🟢 매수 체결: {stock['name']} ({stock['code']})\n"
+                f"가격: {price_fmt} | 투자금: ₩{amount:,.0f} ({weight_pct:.0f}%)\n"
+                f"매수 근거:\n{reasoning_summary}")
+    _save_msg(round_id, "System", chat_msg)
+
+    # ntfy 알림 — 봇별 이유 포함
+    notify_body = (f"{price_fmt} | ₩{amount:,.0f} 투자\n\n"
+                   f"매수 이유:\n{reasoning_summary}")
+    notify(f"🟢 매수 결정: {stock['name']}", notify_body, priority="high", cooldown=0)
 
 
 def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int):
@@ -356,7 +462,11 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     # 종목 데이터 페치
     _save_msg(round_id, "System", f"🔍 {stock['name']} ({stock['code']}) 데이터 수집 중...")
     try:
-        stock_data = fetch_stock_data(stock["code"], stock["yf"], stock["name"])
+        stock_data = fetch_stock_data(
+            stock["code"], stock["yf"], stock["name"],
+            market=stock.get("market", "KRX"),
+            exchange=stock.get("exchange", "KRX"),
+        )
         stock_data_text = format_stock_data(stock_data)
         current_price = stock_data.get("price", 0) or 0
     except Exception as e:
@@ -370,6 +480,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
 
     decisions: list[tuple[str, int]] = []
     decision_summary: list[str] = []
+    bot_responses: list[tuple[str, str]] = []   # (bot_name, full_response)
 
     history = get_recent_messages(10)
     history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
@@ -390,6 +501,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         decision, weight = _parse_decision(resp)
         decisions.append((decision, weight))
         decision_summary.append(f"{agent_name}: {decision}")
+        bot_responses.append((agent_name, resp))
 
         history = get_recent_messages(10)
         history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
@@ -403,10 +515,11 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
 
     # 실행
     if final_decision == "매수" and current_price > 0:
-        buy_reasoning = " / ".join(
-            f"{AGENT_ORDER[i]}: {decisions[i][0]}" for i in range(len(decisions)) if decisions[i][0] == "매수"
-        )
-        _execute_buy(stock, current_price, avg_weight, buy_reasoning, round_id)
+        buy_votes = [
+            (bot_responses[i][0], bot_responses[i][1])
+            for i in range(len(decisions)) if decisions[i][0] == "매수"
+        ]
+        _execute_buy(stock, current_price, avg_weight, buy_votes, round_id)
     elif final_decision == "매도":
         sell_reasoning = " / ".join(
             f"{AGENT_ORDER[i]}: {decisions[i][0]}" for i in range(len(decisions)) if decisions[i][0] == "매도"
@@ -415,15 +528,17 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
 
     # 다음 종목 or 다음 섹터로
     with _state_lock:
-        _stock_idx += 1
+        globals()["_stock_idx"] += 1
         if _stock_idx >= len(sector["stocks"]):
+            next_name = SECTORS[(_sector_idx + 1) % len(SECTORS)]["name"]
             _save_msg(round_id, "System",
                       f"✅ [{sector['name']}] 섹터 모든 종목 분석 완료!\n"
-                      f"다음 섹터: {SECTORS[(_sector_idx + 1) % len(SECTORS)]['name']}")
-            _sector_idx = (_sector_idx + 1) % len(SECTORS)
-            _phase = "sector_discussion"
-            _stock_idx = 0
-            _discussion_round = 0
+                      f"내일 다음 섹터 분석 예정: {next_name}")
+            globals()["_sector_idx"] = (_sector_idx + 1) % len(SECTORS)
+            globals()["_phase"] = "cooldown"
+            globals()["_stock_idx"] = 0
+            globals()["_discussion_round"] = 0
+            globals()["_sector_done_at"] = time.time()
         else:
             next_stock = sector["stocks"][_stock_idx]["name"]
             _save_msg(round_id, "System",
@@ -446,6 +561,16 @@ def _handle_agent_error(agent_name: str, e: Exception):
 def run_round(market_summary=None):
     if is_user_active():
         return
+
+    # 섹터 완료 후 쿨다운 — 하루 1섹터 페이스
+    if _phase == "cooldown":
+        elapsed = (time.time() - _sector_done_at) / 3600
+        remaining = SECTOR_COOLDOWN_HOURS - elapsed
+        if remaining > 0:
+            return  # 아직 대기 중
+        # 쿨다운 끝 → 다음 섹터 시작
+        with _state_lock:
+            globals()["_phase"] = "sector_discussion"
 
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()

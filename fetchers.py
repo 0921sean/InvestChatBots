@@ -154,13 +154,17 @@ def build_market_summary(market_data: dict, news: list, ta_data: dict = None) ->
 
 
 # ── 개별 종목 데이터 (봇 분석용) ─────────────────────────
-def fetch_stock_data(code: str, yf_ticker: str, name: str) -> dict:
-    """TradingView TA + yfinance 펀더멘털. 가용 데이터만 포함."""
-    result = {"name": name, "code": code}
+def fetch_stock_data(code: str, yf_ticker: str, name: str,
+                     market: str = "KRX", exchange: str = "KRX") -> dict:
+    """TradingView TA + yfinance 펀더멘털. KRX/US 모두 지원."""
+    result = {"name": name, "code": code, "market": market}
+
+    screener = "america" if market == "US" else "korea"
+    tv_exchange = exchange if market == "US" else "KRX"
 
     # TradingView TA — 가격 + 기술적 지표
     try:
-        h = TA_Handler(symbol=code, screener="korea", exchange="KRX",
+        h = TA_Handler(symbol=code, screener=screener, exchange=tv_exchange,
                        interval=Interval.INTERVAL_1_DAY)
         a = h.get_analysis()
         close = a.indicators.get("close") or a.indicators.get("Close")
@@ -206,13 +210,17 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str) -> dict:
 
 def format_stock_data(data: dict) -> str:
     """봇 프롬프트용 종목 데이터 포맷."""
+    market = data.get("market", "KRX")
+    currency = "$" if market == "US" else "₩"
+    unit = "" if market == "US" else "원"
     lines = [f"=== {data['name']} ({data['code']}) — TradingView 기준 ==="]
 
     price = data.get("price")
     if price:
         change = data.get("change_pct", 0) or 0
         arrow = "▲" if change >= 0 else "▼"
-        lines.append(f"현재가: {price:,.0f}원 {arrow}{abs(change):.1f}%")
+        fmt = f"{currency}{price:,.2f}" if market == "US" else f"{price:,.0f}{unit}"
+        lines.append(f"현재가: {fmt} {arrow}{abs(change):.1f}%")
 
     rsi = data.get("rsi")
     if rsi:

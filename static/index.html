@@ -271,7 +271,9 @@ async function loadState() {
 
     document.getElementById('sector-name').textContent = s.sector || '—';
     let phaseText = '';
-    if (s.phase === 'sector_discussion') {
+    if (s.phase === 'cooldown') {
+      phaseText = `오늘 완료 ⏳ ${s.cooldown_remaining_h||0}h 후 다음 섹터`;
+    } else if (s.phase === 'sector_discussion') {
       phaseText = `섹터 토론 ${s.discussion_round||0}/3 라운드`;
     } else {
       phaseText = `종목 분석 ${(s.stock_idx||0)+1}/${s.stocks_total||3} — ${s.stock||''}`;
