@@ -84,6 +84,12 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, {INITIAL_BALANCE});
+        CREATE TABLE IF NOT EXISTS agent_state (
+            agent_name TEXT PRIMARY KEY,
+            evolution_notes TEXT DEFAULT '',
+            round_count INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS daily_analysis_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -330,6 +336,25 @@ def get_today_analyzed_stocks() -> list[tuple[str, str]]:
             (today,)
         ).fetchall()
     return [(r[0], r[1]) for r in rows]
+
+
+def get_evolution_notes(agent_name: str) -> str:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT evolution_notes FROM agent_state WHERE agent_name=?", (agent_name,)
+        ).fetchone()
+        return row[0] if row and row[0] else ""
+
+
+def save_evolution_notes(agent_name: str, notes: str):
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO agent_state (agent_name, evolution_notes, round_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(agent_name) DO UPDATE SET
+                evolution_notes = excluded.evolution_notes,
+                updated_at = CURRENT_TIMESTAMP
+        """, (agent_name, notes))
 
 
 def save_cycle_state(sector_idx: int, phase: str, stock_idx: int,

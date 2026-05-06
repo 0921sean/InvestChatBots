@@ -19,6 +19,7 @@ from db import (
     get_shared_portfolio, get_open_positions_by_symbol,
     save_cycle_state, load_cycle_state,
     log_stock_analyzed, was_stock_analyzed_today,
+    get_evolution_notes, save_evolution_notes,
 )
 from agents import call_agent
 from prompts import (
@@ -176,6 +177,17 @@ MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
 # ── 상태 ─────────────────────────────────────────────────
+def _build_system(agent_name: str) -> str:
+    """봇 시스템 프롬프트에 누적 학습 메모 주입."""
+    base = AGENT_PROFILES[agent_name]["system"]
+    notes = get_evolution_notes(agent_name)
+    if notes:
+        injection = f"\n\n[나의 투자 학습 메모 — 과거 매매에서 얻은 교훈]\n{notes}"
+    else:
+        injection = ""
+    return base.replace("{evolution_notes}", injection)
+
+
 def _load_state():
     """DB에서 사이클 상태 복원."""
     s = load_cycle_state()
@@ -386,26 +398,89 @@ def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int):
     _save_msg(round_id, "System", msg)
     notify(f"🔴 매도: {stock['name']}", f"₩{price:,.0f} | {direction} ₩{abs(total_pnl):,.0f}", priority="high", cooldown=0)
 
-    # 피드백 라운드
-    threading.Thread(target=_run_feedback_round, args=(stock["name"], total_pnl, reasoning), daemon=True).start()
+    # 피드백 + 학습 라운드 (백그라운드)
+    # stock 정보 (yf ticker 등) 찾기
+    stock_info = next(
+        (s for sec in SECTORS for s in sec["stocks"] if s["name"] == stock["name"]),
+        {"name": stock["name"], "code": stock.get("code",""), "yf": stock.get("code","") + ".KS"}
+    )
+    threading.Thread(
+        target=_run_feedback_round,
+        args=(stock_info, total_pnl, reasoning, positions[0].get("reasoning","") if positions else ""),
+        daemon=True
+    ).start()
 
 
-def _run_feedback_round(stock_name: str, pnl: float, trade_summary: str):
-    pnl_pct = 0.0
+def _run_feedback_round(stock_info: dict, pnl: float, sell_reasoning: str, buy_reasoning: str):
+    """매도 후 피드백 라운드: 뉴스 수집 → 봇별 반성 → evolution_notes 업데이트."""
+    from fetchers import fetch_stock_news, format_stock_news
+    stock_name = stock_info["name"]
+    yf_ticker = stock_info.get("yf", stock_info.get("code","") + ".KS")
+
     try:
         round_id = create_round(f"피드백: {stock_name}")
-        prompt = build_feedback_prompt(stock_name, pnl, pnl_pct, trade_summary)
-        for agent_name in AGENT_ORDER[:3]:
+        pnl_pct = 0.0  # 포지션 청산 시 계산됐으나 여기선 부호만 중요
+
+        # 1. 해당 종목 최신 뉴스/공시 수집
+        news_items = fetch_stock_news(stock_name, yf_ticker, max_items=8)
+        news_text = format_stock_news(stock_name, news_items)
+
+        direction = "이익" if pnl >= 0 else "손실"
+        _save_msg(round_id, "System",
+                  f"📋 [{stock_name}] 투자 피드백\n"
+                  f"결과: {direction} ₩{abs(pnl):,.0f}\n"
+                  f"매수 근거: {buy_reasoning[:200]}\n\n{news_text}")
+
+        # 2. 봇별 반성 생성 + evolution_notes 업데이트
+        for agent_name in AGENT_ORDER:
             try:
-                system = AGENT_PROFILES[agent_name]["system"]
-                resp = call_agent(agent_name, system, prompt)
-                _save_msg(round_id, agent_name, resp)
+                current_notes = get_evolution_notes(agent_name)
+                reflection_prompt = f"""[{stock_name}] 투자 피드백
+
+매수 당시 근거:
+{buy_reasoning}
+
+매도 이유:
+{sell_reasoning}
+
+결과: {direction} ₩{abs(pnl):,.0f}
+
+최신 뉴스/공시:
+{news_text}
+
+기존 학습 메모:
+{current_notes or '(없음)'}
+
+당신은 '{agent_name}'입니다. 위 내용을 바탕으로:
+1. 이 투자에서 당신의 관점({AGENT_PROFILES[agent_name]['description']})으로 무엇을 놓쳤거나 잘했나요?
+2. 앞으로 비슷한 상황에서 더 나은 판단을 위해 기억해야 할 점 1-2가지를 **기존 학습 메모에 추가하는 형태**로 작성하세요.
+
+형식:
+• [날짜 없이 교훈 요약]: 구체적 내용
+
+2문장 이내. 한국어."""
+
+                system = _build_system(agent_name)
+                reflection = call_agent(agent_name, system, reflection_prompt)
+                _save_msg(round_id, agent_name, reflection)
+
+                # evolution_notes 업데이트
+                new_notes = (current_notes + "\n" + reflection).strip() if current_notes else reflection
+                # 너무 길어지면 최근 5개 포인트만 유지
+                lines = [l for l in new_notes.split("\n") if l.strip()]
+                if len(lines) > 10:
+                    lines = lines[-10:]
+                save_evolution_notes(agent_name, "\n".join(lines))
+
                 time.sleep(0.5)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"피드백 {agent_name}: {e}")
+
         complete_round(round_id)
+        logger.info(f"피드백 완료: {stock_name}, 봇 학습 메모 업데이트됨")
+
     except Exception as e:
-        logger.error(f"피드백 오류: {e}")
+        logger.error(f"피드백 라운드 오류: {e}")
 
 
 # ── 섹터 토론 라운드 ──────────────────────────────────────
@@ -432,7 +507,7 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     tg_context = get_cached_context(max_msgs=20)
 
     for i, agent_name in enumerate(AGENT_ORDER):
-        system = AGENT_PROFILES[agent_name]["system"]
+        system = _build_system(agent_name)
         prompt = build_sector_discussion_prompt(
             sector["name"], sector["description"],
             market_summary, history_text, agent_name, _discussion_round,
@@ -553,7 +628,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
 
     for i, agent_name in enumerate(AGENT_ORDER):
-        system = AGENT_PROFILES[agent_name]["system"]
+        system = _build_system(agent_name)
         prompt = build_stock_analysis_prompt(
             stock_data_text, sector["name"], market_summary, history_text, agent_name,
             tg_context=tg_context if i == 0 else "",
@@ -662,7 +737,7 @@ def handle_user_message(user_text: str):
     # 3봇만 응답 (빠른 반응)
     responders = random.sample(AGENT_ORDER, 3)
     for agent_name in responders:
-        system = AGENT_PROFILES[agent_name]["system"]
+        system = _build_system(agent_name)
         prompt = build_user_response_prompt(user_text, history_text, agent_name)
         try:
             resp = call_agent(agent_name, system, prompt)

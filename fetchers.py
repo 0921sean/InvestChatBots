@@ -263,6 +263,59 @@ def format_stock_data(data: dict) -> str:
     return "\n".join(lines)
 
 
+def fetch_stock_news(stock_name: str, yf_ticker: str, max_items: int = 10) -> list[dict]:
+    """특정 종목 관련 최근 뉴스 수집 (yfinance + 네이버 RSS)."""
+    items = []
+    seen = set()
+
+    # yfinance 뉴스
+    try:
+        t = yf.Ticker(yf_ticker)
+        for article in (t.news or [])[:max_items]:
+            title = article.get("title", "")
+            if title and title not in seen:
+                seen.add(title)
+                items.append({
+                    "title": title,
+                    "summary": article.get("summary", ""),
+                    "source": article.get("publisher", ""),
+                })
+    except Exception as e:
+        logger.debug(f"yfinance news {yf_ticker}: {e}")
+
+    # 네이버 금융 종목 뉴스 RSS
+    naver_url = f"https://finance.naver.com/item/news_news.naver?code={yf_ticker.replace('.KS','')}&page=1&sm=title_entity_id.basic&clusterId="
+    try:
+        feed = feedparser.parse(
+            f"https://finance.naver.com/item/news.naver?code={yf_ticker.replace('.KS','')}&rss=true"
+        )
+        for entry in feed.entries[:max_items]:
+            title = getattr(entry, "title", "")
+            if title and title not in seen:
+                seen.add(title)
+                items.append({
+                    "title": title,
+                    "summary": getattr(entry, "summary", ""),
+                    "source": "네이버금융",
+                })
+    except Exception:
+        pass
+
+    return items[:max_items]
+
+
+def format_stock_news(stock_name: str, news_items: list[dict]) -> str:
+    if not news_items:
+        return f"=== {stock_name} 최근 뉴스 없음 ==="
+    lines = [f"=== {stock_name} 최근 뉴스/공시 ({len(news_items)}건) ==="]
+    for item in news_items:
+        src = f" [{item['source']}]" if item.get("source") else ""
+        lines.append(f"• {item['title']}{src}")
+        if item.get("summary"):
+            lines.append(f"  {item['summary'][:100]}")
+    return "\n".join(lines)
+
+
 def fetch_stock_price(symbol: str) -> float | None:
     """단일 종목 현재가."""
     try:
