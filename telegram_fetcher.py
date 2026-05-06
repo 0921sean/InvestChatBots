@@ -65,6 +65,14 @@ def _fetch_one(client, group: str, force: bool) -> list[dict]:
     # 숫자 ID는 int로 변환해야 Telethon이 정확히 인식
     entity = int(group) if group.lstrip("-").isdigit() else group
 
+    # 방 이름 조회
+    group_name = group
+    try:
+        chat = client.get_entity(entity)
+        group_name = getattr(chat, "title", None) or getattr(chat, "first_name", None) or group
+    except Exception:
+        pass
+
     messages = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     try:
@@ -84,6 +92,7 @@ def _fetch_one(client, group: str, force: bool) -> list[dict]:
                 pass
             messages.append({
                 "group": group,
+                "group_name": group_name,
                 "sender": sender,
                 "text": text[:300],
                 "time": msg.date.strftime("%H:%M"),
@@ -136,11 +145,12 @@ def format_telegram_context(messages: list[dict], max_msgs: int = 30) -> str:
         return ""
 
     recent = messages[-max_msgs:]
-    groups = list(dict.fromkeys(m["group"] for m in recent))
-    header = f"=== 텔레그램 투자방 최근 의견 ({len(recent)}개 / {len(groups)}개 방) ==="
+    groups = list(dict.fromkeys(m.get("group_name", m["group"]) for m in recent))
+    header = f"=== 텔레그램 투자방 최근 의견 ({len(recent)}개 / {', '.join(groups)}) ==="
     lines = [header]
     for m in recent:
-        lines.append(f"[{m['time']}][{m['group'].split('/')[-1]}] {m['sender']}: {m['text']}")
+        name = m.get("group_name", m["group"])
+        lines.append(f"[{m['time']}][{name}] {m['sender']}: {m['text']}")
 
     return "\n".join(lines)
 
