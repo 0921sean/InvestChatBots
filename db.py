@@ -84,6 +84,16 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, {INITIAL_BALANCE});
+        CREATE TABLE IF NOT EXISTS cycle_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            sector_idx INTEGER DEFAULT 0,
+            phase TEXT DEFAULT 'sector_discussion',
+            stock_idx INTEGER DEFAULT 0,
+            discussion_round INTEGER DEFAULT 0,
+            cycle_done_at REAL DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT OR IGNORE INTO cycle_state (id) VALUES (1);
         """)
 
 
@@ -276,6 +286,32 @@ def get_all_positions(limit=30) -> list:
             "SELECT * FROM virtual_positions ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def save_cycle_state(sector_idx: int, phase: str, stock_idx: int,
+                     discussion_round: int, cycle_done_at: float):
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO cycle_state (id, sector_idx, phase, stock_idx, discussion_round, cycle_done_at, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                sector_idx=excluded.sector_idx,
+                phase=excluded.phase,
+                stock_idx=excluded.stock_idx,
+                discussion_round=excluded.discussion_round,
+                cycle_done_at=excluded.cycle_done_at,
+                updated_at=excluded.updated_at
+        """, (sector_idx, phase, stock_idx, discussion_round, cycle_done_at))
+
+
+def load_cycle_state() -> dict:
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM cycle_state WHERE id=1").fetchone()
+        if row:
+            return dict(row)
+    return {"sector_idx": 0, "phase": "sector_discussion",
+            "stock_idx": 0, "discussion_round": 0, "cycle_done_at": 0.0}
 
 
 def get_open_positions() -> list:

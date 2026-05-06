@@ -45,23 +45,21 @@ def notify(title: str, body: str, priority: str = "default", cooldown: int = COO
     _ntfy(title, body, priority)
     _email(title, body)
 
+_PRIORITY_MAP = {"max": 5, "urgent": 5, "high": 4, "default": 3, "low": 2, "min": 1}
+
 def _ntfy(title: str, body: str, priority: str):
     try:
-        # JSON body 방식 — topic별 URL에 POST
+        prio_int = _PRIORITY_MAP.get(priority, 3)
         payload = json.dumps({
             "topic": NTFY_TOPIC,
             "title": title,
             "message": body,
-            "priority": priority,
+            "priority": prio_int,
         }).encode("utf-8")
         req = urllib.request.Request(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={
-                "Title": urllib.parse.quote(title),
-                "Priority": priority,
-                "Content-Type": "text/plain; charset=utf-8",
-            },
+            "https://ntfy.sh",
+            data=payload,
+            headers={"Content-Type": "application/json"},
             method="POST",
         )
         urllib.request.urlopen(req, timeout=10)

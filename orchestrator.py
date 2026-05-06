@@ -17,6 +17,7 @@ from db import (
     get_latest_market_snapshot, save_market_snapshot, save_consensus,
     get_consensus_notes, buy_shared_position, sell_shared_position,
     get_shared_portfolio, get_open_positions_by_symbol,
+    save_cycle_state, load_cycle_state,
 )
 from agents import call_agent
 from prompts import (
@@ -174,11 +175,25 @@ MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
 # ── 상태 ─────────────────────────────────────────────────
+def _load_state():
+    """DB에서 사이클 상태 복원."""
+    s = load_cycle_state()
+    globals()["_sector_idx"]      = s["sector_idx"]
+    globals()["_phase"]           = s["phase"]
+    globals()["_stock_idx"]       = s["stock_idx"]
+    globals()["_discussion_round"] = s["discussion_round"]
+    globals()["_cycle_done_at"]   = s["cycle_done_at"]
+
+def _persist_state():
+    """현재 상태를 DB에 저장."""
+    save_cycle_state(_sector_idx, _phase, _stock_idx, _discussion_round, _cycle_done_at)
+
 _sector_idx: int = 0
-_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis" | "cycle_rest"
+_phase: str = "sector_discussion"
 _stock_idx: int = 0
 _discussion_round: int = 0
-_cycle_done_at: float = 0.0         # 전체 사이클 완료 시각
+_cycle_done_at: float = 0.0
+_load_state()  # 서버 시작 시 DB에서 복원
 _user_active_until: float = 0.0
 _stop_on_credit: bool = False
 _agent_fail_count: dict = {}
@@ -447,9 +462,10 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
                   f"📊 [{sector['name']}] 섹터 토론 완료 → 종목 분석 시작")
 
     with _state_lock:
-        _phase = "stock_analysis"
-        _stock_idx = 0
-        _discussion_round = 0
+        globals()["_phase"] = "stock_analysis"
+        globals()["_stock_idx"] = 0
+        globals()["_discussion_round"] = 0
+        _persist_state()
 
 
 # ── 종목 분석 라운드 ──────────────────────────────────────
@@ -534,7 +550,6 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
             is_last = next_sector_idx >= len(SECTORS)
 
             if is_last:
-                # 전체 사이클 완료 → 휴식
                 _save_msg(round_id, "System",
                           f"✅ [{sector['name']}] 섹터 완료\n\n"
                           f"🎉 오늘 전체 {len(SECTORS)}개 섹터 분석 완료!\n"
@@ -543,7 +558,6 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
                 globals()["_phase"] = "cycle_rest"
                 globals()["_cycle_done_at"] = time.time()
             else:
-                # 다음 섹터로
                 next_name = SECTORS[next_sector_idx]["name"]
                 _save_msg(round_id, "System",
                           f"✅ [{sector['name']}] 섹터 완료 → 다음: {next_name}")
@@ -556,6 +570,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
             next_stock = sector["stocks"][_stock_idx]["name"]
             _save_msg(round_id, "System",
                       f"다음 종목 → {next_stock}")
+        _persist_state()
 
 
 # ── 오류 처리 ─────────────────────────────────────────────
@@ -585,6 +600,7 @@ def run_round(market_summary=None):
             globals()["_phase"] = "sector_discussion"
             globals()["_sector_idx"] = 0
             globals()["_discussion_round"] = 0
+            _persist_state()
 
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()
