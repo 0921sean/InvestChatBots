@@ -19,10 +19,27 @@ MIN_MSG_LEN = 10            # 이보다 짧은 메시지 필터링
 _cache: dict = {}           # {group: {"messages": [...], "fetched_at": float}}
 
 
+def _normalize_group(g: str) -> str:
+    """t.me/숫자 → 숫자, t.me/@이름 → @이름, 나머지는 그대로."""
+    g = g.strip()
+    # t.me/ 또는 https://t.me/ 접두사 제거
+    for prefix in ("https://t.me/", "http://t.me/", "t.me/"):
+        if g.startswith(prefix):
+            g = g[len(prefix):]
+            break
+    # 숫자 ID면 정수형 문자열로 정리
+    if g.lstrip("-").isdigit():
+        return g
+    # @ 없는 username이면 붙여주기
+    if g and not g.startswith("@") and not g.lstrip("-").isdigit():
+        g = f"@{g}"
+    return g
+
+
 def _get_groups() -> list[str]:
     """환경변수에서 방 목록 파싱. TELEGRAM_GROUPS 우선, 없으면 TELEGRAM_GROUP."""
     raw = os.getenv("TELEGRAM_GROUPS") or os.getenv("TELEGRAM_GROUP", "")
-    return [g.strip() for g in raw.split(",") if g.strip()]
+    return [_normalize_group(g) for g in raw.split(",") if g.strip()]
 
 
 def _get_client():
@@ -45,10 +62,13 @@ def _fetch_one(client, group: str, force: bool) -> list[dict]:
         if time.time() - _cache[group]["fetched_at"] < CACHE_TTL_SECONDS:
             return _cache[group]["messages"]
 
+    # 숫자 ID는 int로 변환해야 Telethon이 정확히 인식
+    entity = int(group) if group.lstrip("-").isdigit() else group
+
     messages = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     try:
-        for msg in client.iter_messages(group, limit=MAX_MESSAGES):
+        for msg in client.iter_messages(entity, limit=MAX_MESSAGES):
             if msg.date < cutoff:
                 break
             text = msg.text or ""
