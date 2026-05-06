@@ -3,242 +3,216 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>InvestChat</title>
+<title>InvestChat — AI 투자방</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1c1c1e; color: #e2e8f0; height: 100vh; display: flex; overflow: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; height: 100vh; display: flex; overflow: hidden; }
 
-  #sidebar { width: 220px; background: #1a1d21; border-right: 1px solid #2a2d31; display: flex; flex-direction: column; flex-shrink: 0; }
-  #sidebar-title { padding: 16px 12px 12px; font-size: 15px; font-weight: 700; border-bottom: 1px solid #2a2d31; }
-  .sidebar-section { padding: 12px 0 4px; }
-  .sidebar-label { padding: 4px 16px; font-size: 11px; font-weight: 600; letter-spacing: .8px; color: #9d9d9d; text-transform: uppercase; }
-  .channel { padding: 5px 16px; font-size: 14px; color: #9d9d9d; cursor: pointer; border-radius: 4px; margin: 1px 8px; }
-  .channel.active { background: #4a154b; color: #e8e8e8; }
-  .member { padding: 5px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  /* ── 좌측 사이드바 ── */
+  #sidebar { width: 220px; background: #161b22; border-right: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
+  #sidebar-title { padding: 16px 14px 12px; font-size: 15px; font-weight: 700; color: #e2e8f0; border-bottom: 1px solid #21262d; }
+  .sidebar-label { padding: 6px 14px 3px; font-size: 10px; font-weight: 600; letter-spacing: 1px; color: #6e7681; text-transform: uppercase; }
+
+  /* 섹터 진행 박스 */
+  #sector-box { margin: 10px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; }
+  #sector-name { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+  #sector-phase { font-size: 11px; color: #8b949e; margin-top: 2px; }
+  .progress-track { background: #21262d; border-radius: 3px; height: 4px; margin-top: 8px; }
+  .progress-fill { height: 4px; border-radius: 3px; background: #388bfd; transition: width .4s; }
+  #sector-stocks { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 3px; }
+  .stock-badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #21262d; color: #8b949e; }
+  .stock-badge.current { background: #1f6feb; color: #fff; }
+  .stock-badge.done { background: #1a7f37; color: #fff; }
+
+  /* 멤버 */
+  .member { padding: 4px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; border-radius: 4px; margin: 1px 8px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .member-name { font-weight: 600; }
-  .member-sub { font-size: 10px; color: #9d9d9d; padding: 0 24px 4px; }
-  #market-ticker { padding: 12px; border-top: 1px solid #2a2d31; background: #2a2d31; border-radius: 6px; margin: auto 12px 12px; font-size: 11px; color: #9d9d9d; line-height: 1.7; }
-  #market-ticker .live { color: #2bac76; font-weight: 600; }
+  .member-sub { font-size: 10px; color: #6e7681; padding: 0 20px 3px; }
+  #market-ticker { padding: 10px 12px; margin-top: auto; border-top: 1px solid #21262d; font-size: 11px; color: #6e7681; line-height: 1.8; }
+  #market-ticker .live { color: #3fb950; font-weight: 600; }
 
+  /* ── 메인 채팅 ── */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #chat-header { padding: 12px 16px; border-bottom: 1px solid #2a2d31; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-  #chat-header h2 { font-size: 15px; display: inline; }
-  #chat-header .sub { font-size: 12px; color: #9d9d9d; margin-left: 10px; }
-  .btn { border: none; border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
-  .btn-ghost { background: #2a2d31; color: #9d9d9d; }
-  .btn-primary { background: #4a154b; color: #e8e8e8; }
-  .btn-play { background: #166534; color: #86efac; transition: background .2s; }
-  .btn-play.playing { background: #7f1d1d; color: #fca5a5; }
-  .btn-guard { background: #2a2d31; color: #9d9d9d; font-size:11px; border:1px solid #3a3d41; }
-  .btn-guard.active { background: #7f1d1d; color: #fca5a5; border-color:#f87171; }
-  .btn-group { display: flex; gap: 8px; }
+  #chat-header { padding: 10px 16px; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; background: #161b22; }
+  #chat-header h2 { font-size: 14px; font-weight: 600; }
+  .sub { font-size: 11px; color: #6e7681; margin-left: 8px; }
+  .btn { border: none; border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-weight: 500; }
+  .btn-ghost { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+  .btn-play { background: #1a7f37; color: #fff; }
+  .btn-play.playing { background: #b62324; color: #fff; }
+  .btn-group { display: flex; gap: 6px; }
 
-  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   .msg-system { text-align: center; }
-  .msg-system span { background: #2a2d31; color: #9d9d9d; font-size: 11px; padding: 3px 12px; border-radius: 12px; }
+  .msg-system span { background: #1c2128; border: 1px solid #30363d; color: #8b949e; font-size: 11px; padding: 3px 14px; border-radius: 10px; }
   .msg { display: flex; gap: 10px; align-items: flex-start; }
   .msg.user-msg { flex-direction: row-reverse; }
-  .avatar { width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 900; flex-shrink: 0; border: 2px solid; }
-  .msg-body { max-width: 480px; }
+  .avatar { width: 34px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; flex-shrink: 0; border: 2px solid; }
+  .msg-body { max-width: 500px; }
   .msg.user-msg .msg-body { text-align: right; }
-  .msg-meta { font-size: 11px; color: #9d9d9d; margin-bottom: 4px; display: flex; align-items: baseline; gap: 6px; }
+  .msg-meta { font-size: 11px; color: #6e7681; margin-bottom: 3px; display: flex; align-items: baseline; gap: 5px; }
   .msg.user-msg .msg-meta { flex-direction: row-reverse; }
-  .msg-name { font-weight: 700; font-size: 14px; }
-  .msg-bubble { font-size: 13px; line-height: 1.7; padding: 10px 14px; border-radius: 0 8px 8px 8px; background: #2a2d31; display: inline-block; text-align: left; }
-  .msg.user-msg .msg-bubble { border-radius: 8px 0 8px 8px; background: #fbbf24; color: #1c1c1e; }
-  #typing { display: none; align-items: center; gap: 10px; padding: 4px 16px; }
-  .typing-dots { font-size: 12px; color: #9d9d9d; }
+  .msg-name { font-weight: 700; font-size: 13px; }
+  .msg-bubble { font-size: 13px; line-height: 1.65; padding: 8px 12px; border-radius: 0 8px 8px 8px; background: #1c2128; border: 1px solid #30363d; display: inline-block; text-align: left; }
+  .msg.user-msg .msg-bubble { border-radius: 8px 0 8px 8px; background: #1f6feb; border-color: #388bfd; color: #fff; }
+  .decision-buy  { color: #3fb950; font-weight: 700; }
+  .decision-sell { color: #f85149; font-weight: 700; }
+  .decision-hold { color: #d29922; font-weight: 700; }
 
-  #input-area { padding: 12px 16px; border-top: 1px solid #2a2d31; display: flex; gap: 10px; flex-shrink: 0; }
-  #input-area input { flex: 1; background: #2a2d31; border: 1px solid #3a3d41; border-radius: 6px; padding: 10px 14px; color: #e8e8e8; font-size: 13px; outline: none; }
-  #input-area input:focus { border-color: #6366f1; }
-  #input-area button { background: #4a154b; border: none; color: #e8e8e8; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  #typing { display: none; align-items: center; gap: 8px; padding: 4px 16px; }
+  .typing-dots { font-size: 11px; color: #6e7681; }
+  #input-area { padding: 10px 16px; border-top: 1px solid #21262d; display: flex; gap: 8px; flex-shrink: 0; }
+  #input-area input { flex: 1; background: #1c2128; border: 1px solid #30363d; border-radius: 6px; padding: 9px 12px; color: #e2e8f0; font-size: 13px; outline: none; }
+  #input-area input:focus { border-color: #388bfd; }
+  #input-area button { background: #1f6feb; border: none; color: #fff; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; }
 
-  /* 에이전트 프로필 모달 */
-  #profile-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center; }
-  #profile-modal.open { display:flex; }
-  #profile-box { background:#1e2229; border:1px solid #3a3d41; border-radius:12px; padding:24px; max-width:420px; width:90%; position:relative; }
-  #profile-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; }
-  #profile-box .p-desc { font-size:11px; color:#9d9d9d; margin-bottom:14px; }
-  #profile-box .p-section { font-size:12px; color:#cbd5e1; line-height:1.8; }
-  #profile-box .p-label { font-size:10px; font-weight:600; letter-spacing:.8px; color:#6366f1; text-transform:uppercase; margin-top:12px; margin-bottom:4px; }
-  #profile-close { position:absolute; top:12px; right:14px; background:none; border:none; color:#9d9d9d; font-size:18px; cursor:pointer; }
-  .member-row { cursor:pointer; border-radius:4px; transition:background .15s; }
-  .member-row:hover { background:rgba(255,255,255,0.07); }
+  /* ── 우측 — 합의 메모 ── */
+  #memo-panel { width: 240px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
+  .panel-header { padding: 12px 14px 10px; border-bottom: 1px solid #21262d; }
+  .panel-header h3 { font-size: 12px; font-weight: 700; }
+  .panel-header p { font-size: 10px; color: #6e7681; margin-top: 2px; }
+  #memo-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .memo-card { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 10px; border-left: 3px solid #388bfd; }
+  .memo-card:first-child { border-left-color: #3fb950; }
+  .memo-time { font-size: 10px; color: #6e7681; margin-bottom: 5px; }
+  .memo-body { font-size: 11px; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap; }
+  #memo-empty { font-size: 11px; color: #6e7681; text-align: center; padding: 20px 10px; line-height: 1.7; }
 
-  /* 오른쪽 합의 메모 패널 */
-  #memo-panel { width: 260px; background: #1a1d21; border-left: 1px solid #2a2d31; display: flex; flex-direction: column; flex-shrink: 0; }
-  #memo-header { padding: 14px 14px 10px; border-bottom: 1px solid #2a2d31; }
-  #memo-header h3 { font-size: 13px; font-weight: 700; color: #e2e8f0; }
-  #memo-header p { font-size: 10px; color: #9d9d9d; margin-top: 2px; }
-  #memo-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-  .memo-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; border-left: 3px solid #6366f1; }
-  .memo-card:first-child { border-left-color: #22c55e; }
-  .memo-time { font-size: 10px; color: #475569; margin-bottom: 6px; }
-  .memo-body { font-size: 12px; line-height: 1.7; color: #cbd5e1; white-space: pre-wrap; }
-  #memo-empty { font-size: 12px; color: #475569; text-align: center; padding: 24px 12px; line-height: 1.7; }
+  /* ── 우측 — 포트폴리오 ── */
+  #portfolio-panel { width: 220px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
+  .pf-summary { padding: 10px 12px; border-bottom: 1px solid #21262d; }
+  .pf-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .pf-label { font-size: 10px; color: #6e7681; }
+  .pf-value { font-size: 12px; font-weight: 600; }
+  .pf-pos { color: #3fb950; }
+  .pf-neg { color: #f85149; }
+  .pf-neu { color: #8b949e; }
+  #pf-positions { flex: 1; overflow-y: auto; }
+  .pos-section-label { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #6e7681; text-transform: uppercase; }
+  .pos-item { padding: 6px 10px; border-bottom: 1px solid #0d1117; font-size: 11px; }
+  .pos-meta { font-size: 10px; color: #6e7681; margin-top: 2px; }
 </style>
 </head>
 <body>
 
 <div id="sidebar">
   <div id="sidebar-title">📈 InvestChat</div>
-  <div class="sidebar-section">
-    <div class="sidebar-label">Channels</div>
-    <div class="channel active"># war-room</div>
-    <div class="channel"># market-pulse</div>
+
+  <div id="sector-box">
+    <div class="sidebar-label" style="padding:0 0 4px">현재 섹터</div>
+    <div id="sector-name">로딩 중...</div>
+    <div id="sector-phase">—</div>
+    <div class="progress-track"><div class="progress-fill" id="sector-progress-fill" style="width:0%"></div></div>
+    <div id="sector-stocks"></div>
   </div>
-  <div class="sidebar-section">
+
+  <div style="padding-top:12px">
     <div class="sidebar-label">Members</div>
     <div id="member-list"></div>
   </div>
-  <div id="market-ticker"><span class="live">● Loading market...</span></div>
+  <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
 </div>
 
 <div id="main">
   <div id="chat-header">
     <div>
       <h2># war-room</h2>
-      <span class="sub" id="round-label"></span>
+      <span class="sub" id="round-label">AI 투자 토론방</span>
     </div>
     <div class="btn-group">
-      <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ Resume</button>
-      <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ Pause</button>
-      <button class="btn btn-primary" onclick="scrollToBottom()">↓ Latest</button>
-      <button class="btn btn-ghost" onclick="startAnalysis()" title="Phase 분석 시작">🔍 분석</button>
-      <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()" title="최근 대화 요약을 알림으로 받기">📋 요약</button>
-      <button class="btn btn-guard" id="btn-guard" onclick="toggleGuard()" title="크레딧 소진 시 대화 자동 정지">🛡 크레딧 정지</button>
+      <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ 재개</button>
+      <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ 일시정지</button>
+      <button class="btn btn-ghost" onclick="scrollToBottom()">↓ 최신</button>
+      <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
     </div>
   </div>
   <div id="messages"></div>
-  <div id="typing">
-    <span class="typing-dots" id="typing-text">Agents are responding...</span>
-  </div>
-  <div id="user-mode-banner" style="display:none;background:#1e2a1e;border-top:1px solid #166534;padding:6px 16px;font-size:11px;color:#86efac;flex-shrink:0;">💬 사용자 응답 대기 중 — 5분 무응답 시 AI 자율 대화 자동 재개.</div>
+  <div id="typing"><span class="typing-dots" id="typing-text">분석 중...</span></div>
   <div id="input-area">
-    <input id="msg-input" placeholder="Message #war-room..." onkeydown="if(event.key==='Enter')sendMessage()" />
-    <button onclick="sendMessage()">Send</button>
-  </div>
-</div>
-
-<div id="profile-modal" onclick="if(event.target===this)closeProfile()">
-  <div id="profile-box">
-    <button id="profile-close" onclick="closeProfile()">✕</button>
-    <h3 id="p-name"></h3>
-    <div class="p-desc" id="p-desc"></div>
-    <div class="p-label">투자 철학</div>
-    <div class="p-section" id="p-beliefs"></div>
-    <div class="p-label">모델</div>
-    <div class="p-section" id="p-model"></div>
-    <div class="p-label">관점 변화</div>
-    <div class="p-section" id="p-evolution"></div>
+    <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" />
+    <button onclick="sendMessage()">전송</button>
   </div>
 </div>
 
 <div id="memo-panel">
-  <div id="memo-header">
-    <h3>📌 합의 메모</h3>
-    <p>3라운드마다 분석 · 자동 업데이트</p>
+  <div class="panel-header">
+    <h3>📌 섹터 합의</h3>
+    <p>섹터 토론 완료 시 자동 저장</p>
   </div>
   <div id="memo-list">
-    <div id="memo-empty">아직 합의된 결론이<br>없습니다.<br><br>대화가 쌓이면<br>자동으로 채워집니다.</div>
+    <div id="memo-empty">아직 합의된 내용이 없습니다.<br><br>섹터 토론 3라운드 후<br>자동으로 채워집니다.</div>
   </div>
 </div>
 
-<div id="portfolio-panel" style="width:220px;background:#1a1d21;border-left:1px solid #2a2d31;display:flex;flex-direction:column;flex-shrink:0">
-  <div style="padding:14px 14px 10px;border-bottom:1px solid #2a2d31">
-    <h3 style="font-size:13px;font-weight:700;color:#e2e8f0">💼 가상 포트폴리오</h3>
-    <p style="font-size:10px;color:#9d9d9d;margin-top:2px">봇별 수익률 추적</p>
+<div id="portfolio-panel">
+  <div class="panel-header">
+    <h3>💼 가상 포트폴리오</h3>
+    <p id="market-status-label">시작 잔액 ₩100,000,000</p>
   </div>
-  <div id="portfolio-list" style="flex:1;overflow-y:auto"></div>
+  <div class="pf-summary">
+    <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
+    <div class="pf-row"><span class="pf-label">투자 중</span><span class="pf-value pf-neu" id="pf-invested">—</span></div>
+    <div class="pf-row"><span class="pf-label">총 손익</span><span class="pf-value pf-neu" id="pf-pnl">—</span></div>
+    <div class="pf-row"><span class="pf-label">수익률</span><span class="pf-value pf-neu" id="pf-return">—</span></div>
+    <div class="pf-row"><span class="pf-label">승/패</span><span class="pf-value pf-neu" id="pf-record">—</span></div>
+  </div>
+  <div id="pf-positions"></div>
 </div>
 
 <script>
-const COLORS = {
-  '데이터허브': '#a78bfa', '밸류에이터': '#fbbf24',
-  '컨텍스트': '#38bdf8', '회의론자': '#f87171',
-  User: '#fbbf24', System: '#6366f1'
+const BOT_COLORS = {
+  황소:'#ef4444', 곰돌이:'#3b82f6', 퀀트:'#8b5cf6',
+  매크로:'#f59e0b', 모멘텀:'#10b981',
+  원칙:'#f97316', 사냥꾼:'#06b6d4',
+  User:'#388bfd', System:'#6e7681'
 };
-
-let lastId = 0;
-let agents = {};
+let lastId = 0, agents = {};
 
 function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 }
-
-function timeStr() {
-  return new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+function highlight(s) {
+  return esc(s)
+    .replace(/\[결정\]\s*매수/g,'<span class="decision-buy">[결정] 매수</span>')
+    .replace(/\[결정\]\s*매도/g,'<span class="decision-sell">[결정] 매도</span>')
+    .replace(/\[결정\]\s*관망/g,'<span class="decision-hold">[결정] 관망</span>');
 }
-
-function avatar(name) {
-  const color = COLORS[name] || '#9d9d9d';
-  return `<div class="avatar" style="color:${color};background:${color}22;border-color:${color}">${name[0]}</div>`;
+function timeStr() { return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
+function avatar(name, color) {
+  return `<div class="avatar" style="color:${color};background:${color}18;border-color:${color}55">${name[0]}</div>`;
 }
 
 function renderMessage(msg) {
   const el = document.createElement('div');
+  const color = BOT_COLORS[msg.agent_name] || '#8b949e';
   if (msg.agent_name === 'System') {
     el.className = 'msg-system';
     el.innerHTML = `<span>${esc(msg.content)}</span>`;
   } else if (msg.agent_name === 'User') {
-    const color = COLORS['User'];
     el.className = 'msg user-msg';
-    el.innerHTML = `${avatar('User')}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">You</span><span>${timeStr()}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
+    el.innerHTML = `${avatar('나',color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">나</span><span>${timeStr()}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
   } else {
-    const color = COLORS[msg.agent_name] || '#9d9d9d';
     const sub = agents[msg.agent_name]?.description || '';
     el.className = 'msg';
-    el.innerHTML = `${avatar(msg.agent_name)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#9d9d9d;font-size:10px">${esc(sub)}</span><span>${timeStr()}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
+    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span><span>${timeStr()}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
   }
   return el;
 }
 
-function scrollToBottom() {
-  const el = document.getElementById('messages');
-  el.scrollTop = el.scrollHeight;
-}
+function scrollToBottom() { const el=document.getElementById('messages'); el.scrollTop=el.scrollHeight; }
 
 async function poll() {
   try {
     const res = await fetch(`/api/messages?since=${lastId}`);
     if (!res.ok) return;
     const msgs = await res.json();
-    if (msgs.length) {
-      const container = document.getElementById('messages');
-      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-      msgs.forEach(m => {
-        container.appendChild(renderMessage(m));
-        if (m.id > lastId) lastId = m.id;
-      });
-      if (atBottom) scrollToBottom();
-    }
+    if (!msgs.length) return;
+    const c = document.getElementById('messages');
+    const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 100;
+    msgs.forEach(m => { c.appendChild(renderMessage(m)); if(m.id>lastId) lastId=m.id; });
+    if (atBottom) scrollToBottom();
   } catch(e) {}
-}
-
-const BELIEFS = {
-  '데이터허브': ['뉴스·수급·어닝 가장 먼저 발견', '공급망 체인으로 종목 연결', '팩트 중심 정보 공유'],
-  '밸류에이터': ['지금 이 주가가 싼가 비싼가', 'PER/FCF/매출성장률로 판단', '재무 이상 신호 조기 감지'],
-  '컨텍스트': ['글로벌 이벤트→국내 종목 연결', '산업 사이클과 금리 환경', '배경 맥락 전문가'],
-  '회의론자': ['모두 좋다 할 때 망할 이유 탐색', '데이터로 반박, 근거 없는 비관 없음', '핵심에서만 끼어들기'],
-};
-
-function openProfile(name) {
-  const a = agents[name];
-  if (!a) return;
-  const color = COLORS[name] || '#9d9d9d';
-  document.getElementById('p-name').textContent = name;
-  document.getElementById('p-name').style.color = color;
-  document.getElementById('p-desc').textContent = a.description + ' · ' + a.model_provider;
-  const beliefs = BELIEFS[name] || [];
-  document.getElementById('p-beliefs').innerHTML = beliefs.map(b => `• ${b}`).join('<br>');
-  document.getElementById('p-model').textContent = a.model_provider + ' — ' + (a.description || '');
-  document.getElementById('p-evolution').textContent = a.evolution_notes || '아직 관점 변화 없음.';
-  document.getElementById('profile-modal').classList.add('open');
-}
-function closeProfile() {
-  document.getElementById('profile-modal').classList.remove('open');
 }
 
 async function loadAgents() {
@@ -249,36 +223,20 @@ async function loadAgents() {
     el.innerHTML = '';
     list.forEach(a => {
       agents[a.name] = a;
-
+      const color = BOT_COLORS[a.name] || '#8b949e';
       const row = document.createElement('div');
-      row.className = 'member member-row';
-      row.style.cssText = 'padding:5px 12px;';
-      row.onclick = () => openProfile(a.name);
-
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.style.background = a.color;
-
-      const nameEl = document.createElement('span');
-      nameEl.className = 'member-name';
-      nameEl.style.color = a.color;
-      nameEl.textContent = a.name;
-
-      row.appendChild(dot);
-      row.appendChild(nameEl);
-
+      row.className = 'member';
+      row.innerHTML = `<span class="dot" style="background:${color}"></span><span class="member-name" style="color:${color}">${a.name}</span>`;
+      el.appendChild(row);
       const sub = document.createElement('div');
       sub.className = 'member-sub';
-      sub.textContent = `${a.description} · ${a.model_provider}`;
-
-      el.appendChild(row);
+      sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
       el.appendChild(sub);
     });
-
     const youRow = document.createElement('div');
     youRow.className = 'member';
     youRow.style.marginTop = '6px';
-    youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">You</span>`;
+    youRow.innerHTML = `<span class="dot" style="background:#388bfd"></span><span class="member-name" style="color:#388bfd">나 (관찰자)</span>`;
     el.appendChild(youRow);
   } catch(e) {}
 }
@@ -290,54 +248,68 @@ async function loadMarket() {
     if (snap && snap.data) {
       const d = JSON.parse(snap.data);
       const md = d.data || {};
-      const lines = Object.entries(md).slice(0,3).map(([k,v]) => {
-        if (v.price === null || v.change_pct === null) return '';
-        const arrow = v.change_pct >= 0 ? '▲' : '▼';
-        const col = v.change_pct >= 0 ? '#2bac76' : '#f87171';
-        return `<span style="color:${col}">${k} ${arrow}${Math.abs(v.change_pct).toFixed(1)}%</span>`;
+      const lines = Object.entries(md).slice(0,4).map(([k,v]) => {
+        if (!v || v.price==null) return '';
+        const arrow = (v.change_pct||0)>=0 ? '▲' : '▼';
+        const col   = (v.change_pct||0)>=0 ? '#3fb950' : '#f85149';
+        return `<span style="color:${col}">${k} ${arrow}${Math.abs(v.change_pct||0).toFixed(1)}%</span>`;
       }).filter(Boolean);
-      document.getElementById('market-ticker').innerHTML = `<span class="live">● Live Market</span><br>${lines.join(' · ')}`;
+      document.getElementById('market-ticker').innerHTML = `<span class="live">● Live</span> ${lines.join(' &nbsp; ')}`;
     }
   } catch(e) {}
 }
 
-async function sendMessage() {
-  const input = document.getElementById('msg-input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  input.disabled = true;
-  document.getElementById('typing').style.display = 'flex';
+let _sectors = [];
+async function loadState() {
   try {
-    await fetch('/api/user-message', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({content: text})
-    });
+    if (!_sectors.length) {
+      const sr = await fetch('/api/sectors');
+      _sectors = await sr.json();
+    }
+    const res = await fetch('/api/state');
+    const s = await res.json();
+
+    document.getElementById('sector-name').textContent = s.sector || '—';
+    let phaseText = '';
+    if (s.phase === 'sector_discussion') {
+      phaseText = `섹터 토론 ${s.discussion_round||0}/3 라운드`;
+    } else {
+      phaseText = `종목 분석 ${(s.stock_idx||0)+1}/${s.stocks_total||3} — ${s.stock||''}`;
+    }
+    document.getElementById('sector-phase').textContent = phaseText;
+
+    const pct = s.phase === 'stock_analysis'
+      ? Math.round(((s.stock_idx||0)/(s.stocks_total||3))*100)
+      : Math.round(((s.discussion_round||0)/3)*100);
+    document.getElementById('sector-progress-fill').style.width = pct+'%';
+
+    const sec = _sectors[s.sector_idx||0];
+    if (sec) {
+      document.getElementById('sector-stocks').innerHTML = sec.stocks.map((name,i) => {
+        let cls = 'stock-badge';
+        if (s.phase==='stock_analysis') {
+          if (i < (s.stock_idx||0)) cls += ' done';
+          else if (i === (s.stock_idx||0)) cls += ' current';
+        }
+        return `<span class="${cls}">${name}</span>`;
+      }).join('');
+    }
+    document.getElementById('round-label').textContent =
+      `${s.sector} · ${s.phase==='sector_discussion' ? '섹터 토론' : '종목 분석'}`;
   } catch(e) {}
-  input.disabled = false;
-  document.getElementById('typing').style.display = 'none';
-  input.focus();
 }
 
 let isPlaying = false;
-
 async function togglePlay() {
-  if (isPlaying) {
-    await fetch('/api/conversation/stop', {method: 'POST'});
-  } else {
-    await fetch('/api/conversation/start', {method: 'POST'});
-  }
+  await fetch(isPlaying ? '/api/conversation/stop' : '/api/conversation/start', {method:'POST'});
   await syncPlayStatus();
 }
-
 async function syncPlayStatus() {
   try {
-    const res = await fetch('/api/conversation/status');
-    const {running} = await res.json();
+    const {running} = await (await fetch('/api/conversation/status')).json();
     if (running === isPlaying) return;
     isPlaying = running;
-    document.getElementById('btn-play').style.display  = running ? 'none'  : 'inline-block';
+    document.getElementById('btn-play').style.display  = running ? 'none' : 'inline-block';
     document.getElementById('btn-pause').style.display = running ? 'inline-block' : 'none';
     document.getElementById('typing').style.display = running ? 'flex' : 'none';
   } catch(e) {}
@@ -345,164 +317,107 @@ async function syncPlayStatus() {
 
 async function loadConsensus() {
   try {
-    const res = await fetch('/api/consensus');
-    const notes = await res.json();
+    const notes = await (await fetch('/api/consensus')).json();
     const list = document.getElementById('memo-list');
     const empty = document.getElementById('memo-empty');
     if (!notes.length) { if(empty) empty.style.display='block'; return; }
     if(empty) empty.style.display='none';
     list.innerHTML = '';
-    notes.forEach((n, i) => {
+    notes.forEach(n => {
       const d = document.createElement('div');
       d.className = 'memo-card';
-      const t = new Date(n.created_at + 'Z').toLocaleString('ko-KR', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      const t = new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
       d.innerHTML = `<div class="memo-time">${t}</div><div class="memo-body">${esc(n.content)}</div>`;
       list.appendChild(d);
     });
   } catch(e) {}
 }
 
-loadAgents();
-loadMarket();
-poll();
-syncPlayStatus();
-loadConsensus();
-setInterval(poll, 3000);
-setInterval(loadMarket, 60000);
-setInterval(syncPlayStatus, 5000);
-
-async function syncUserMode() {
-  try {
-    const res = await fetch("/api/user/active");
-    const {active} = await res.json();
-    const banner = document.getElementById("user-mode-banner");
-    if (banner) banner.style.display = active ? "block" : "none";
-  } catch(e) {}
-}
-syncUserMode();
-setInterval(syncUserMode, 10000);
-
-let guardOn = false;
-async function toggleGuard() {
-  const btn = document.getElementById('btn-guard');
-  const endpoint = guardOn ? '/api/stop-on-credit/off' : '/api/stop-on-credit/on';
-  const res = await fetch(endpoint, {method:'POST'});
-  const {enabled} = await res.json();
-  guardOn = enabled;
-  btn.textContent = enabled ? '🛡 크레딧 정지 ON' : '🛡 크레딧 정지';
-  btn.classList.toggle('active', enabled);
-}
-async function syncGuard() {
-  try {
-    const res = await fetch('/api/stop-on-credit');
-    const {enabled} = await res.json();
-    if (enabled !== guardOn) {
-      guardOn = enabled;
-      const btn = document.getElementById('btn-guard');
-      btn.textContent = enabled ? '🛡 크레딧 정지 ON' : '🛡 크레딧 정지';
-      btn.classList.toggle('active', enabled);
-    }
-  } catch(e) {}
-}
-syncGuard();
-setInterval(syncGuard, 10000);
-
-async function requestSummary() {
-  const btn = document.getElementById('btn-summary');
-  btn.disabled = true;
-  btn.textContent = '⏳ 요약 중...';
-  try {
-    await fetch('/api/summary/request', {method: 'POST'});
-    btn.textContent = '✅ 알림 발송됨';
-    setTimeout(() => { btn.textContent = '📋 요약'; btn.disabled = false; }, 3000);
-  } catch(e) {
-    btn.textContent = '📋 요약';
-    btn.disabled = false;
-  }
-}
-
-async function startAnalysis() {
-  const topic = prompt('분석할 종목/섹터를 입력하세요 (비워두면 자동):', '');
-  if (topic === null) return;
-  document.getElementById('typing').style.display = 'flex';
-  document.getElementById('typing-text').textContent = '3-Phase 분석 진행 중...';
-  try {
-    await fetch('/api/analysis/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({topic})});
-  } catch(e) {}
-}
-
-// 공유 포트폴리오 — 단일 계좌
-
 async function loadPortfolio() {
   try {
-    const res = await fetch('/api/shared-portfolio');
-    const pf = await res.json();
-    const panel = document.getElementById('portfolio-list');
-    if (!panel) return;
-
-    // 시장 상태 업데이트
-    const msEl = document.getElementById('market-status');
-    if (msEl) {
-      const ms = pf.market_status;
-      const msColor = ms === 'KRX' ? '#2bac76' : ms === 'US' ? '#60a5fa' : '#475569';
-      const msText = ms === 'KRX' ? '🟢 국장 장중' : ms === 'US' ? '🔵 미장 장중' : '⚪ 장외 시간 — 토론 중';
-      msEl.style.color = msColor;
-      msEl.textContent = msText;
-    }
-
-    // 잔액 & 수익
+    const pf = await (await fetch('/api/portfolio')).json();
+    const INITIAL = pf.initial_balance || 100_000_000;
+    const balance = pf.balance || 0;
+    const invested = pf.invested || 0;
     const pnl = pf.total_pnl || 0;
-    const pnlColor = pnl > 0 ? '#2bac76' : pnl < 0 ? '#f87171' : '#9d9d9d';
-    const rate = pf.win_count + pf.loss_count > 0
-      ? Math.round(pf.win_count / (pf.win_count + pf.loss_count) * 100) : 0;
-    const retPct = ((pf.balance - 30000000) / 30000000 * 100).toFixed(1);
+    const retPct = (balance + invested - INITIAL) / INITIAL * 100;
+    const rate = pf.win_count+pf.loss_count > 0
+      ? Math.round(pf.win_count/(pf.win_count+pf.loss_count)*100) : 0;
 
-    let h = `<div style="padding:10px;border-bottom:1px solid #1e293b">
-      <div style="display:flex;justify-content:space-between">
-        <span style="color:#e2e8f0;font-size:12px;font-weight:600">잔액</span>
-        <span style="color:#e2e8f0;font-size:12px">₩${Math.round(pf.balance).toLocaleString()}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px">
-        <span style="color:#9d9d9d;font-size:11px">총 수익</span>
-        <span style="color:${pnlColor};font-size:11px">${pnl>=0?'+':''}₩${Math.round(pnl).toLocaleString()} (${retPct}%)</span>
-      </div>
-      <div style="color:#475569;font-size:10px;margin-top:4px">승률 ${rate}% · ${pf.win_count}승 ${pf.loss_count}패</div>
-    </div>`;
+    const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
+    document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
+    document.getElementById('pf-balance').className = `pf-value ${pc(balance-INITIAL)}`;
+    document.getElementById('pf-invested').textContent = invested > 0 ? `₩${Math.round(invested).toLocaleString()}` : '없음';
+    document.getElementById('pf-pnl').textContent = `${pnl>=0?'+':''}₩${Math.round(pnl).toLocaleString()}`;
+    document.getElementById('pf-pnl').className = `pf-value ${pc(pnl)}`;
+    document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
+    document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
+    document.getElementById('pf-record').textContent = `${pf.win_count}승 ${pf.loss_count}패 (${rate}%)`;
 
-    // 오픈 포지션
-    const open = (pf.positions || []).filter(p => p.status === 'open');
+    const ms = pf.market_status;
+    document.getElementById('market-status-label').textContent =
+      ms==='KRX' ? '🟢 국장 장중' : ms==='US' ? '🔵 미장 장중' : '⚫ 장외 시간';
+
+    const positions = pf.positions || [];
+    const open   = positions.filter(p => p.status==='open');
+    const closed = positions.filter(p => p.status==='closed').slice(0,5);
+    let html = '';
+
     if (open.length) {
-      h += `<div style="padding:6px 10px;font-size:10px;color:#6366f1;font-weight:600;letter-spacing:.5px">● OPEN (${open.length})</div>`;
+      html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
       open.forEach(p => {
-        const c = COLORS[p.agent_name] || '#9d9d9d';
-        const entry = p.entry_price > 0 ? p.entry_price.toLocaleString() : '확인중';
-        h += `<div style="padding:6px 10px;font-size:11px;border-bottom:1px solid #1e293b">
-          <div><span style="color:#e2e8f0">${p.symbol}</span> <span style="color:${p.direction==='매수'?'#2bac76':'#f87171'}">${p.direction}</span> <span style="color:#475569;font-size:10px">by ${p.agent_name}</span></div>
-          <div style="color:#475569;font-size:10px;margin-top:2px">진입 ${entry} · ${p.target_date||'?'}까지</div>
+        html += `<div class="pos-item">
+          <div><span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
+               <span style="color:#3fb950;margin-left:6px;font-size:10px">매수</span></div>
+          <div class="pos-meta">₩${(p.entry_price||0).toLocaleString()} · ₩${Math.round(p.amount||0).toLocaleString()}</div>
         </div>`;
       });
     } else {
-      h += `<div style="padding:12px;color:#475569;font-size:11px;text-align:center">오픈 포지션 없음</div>`;
+      html += `<div style="padding:12px;color:#6e7681;font-size:11px;text-align:center">보유 종목 없음</div>`;
     }
-
-    // 최근 청산
-    const closed = (pf.positions || []).filter(p => p.status === 'closed').slice(0,3);
     if (closed.length) {
-      h += `<div style="padding:6px 10px;font-size:10px;color:#475569;font-weight:600">최근 청산</div>`;
+      html += `<div class="pos-section-label">최근 청산</div>`;
       closed.forEach(p => {
-        const win = p.pnl >= 0;
-        h += `<div style="padding:5px 10px;font-size:10px;color:${win?'#2bac76':'#f87171'};border-bottom:1px solid #1e293b">
-          ${win?'✅':'❌'} ${p.symbol} ${(p.pnl_pct||0).toFixed(1)}%
+        const win = (p.pnl||0)>=0;
+        html += `<div class="pos-item">
+          <span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
+          <span style="color:${win?'#3fb950':'#f85149'};margin-left:6px;font-size:10px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span>
+          <div class="pos-meta">${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()}</div>
         </div>`;
       });
     }
-
-    panel.innerHTML = h;
-  } catch(e) { console.error('portfolio', e); }
+    document.getElementById('pf-positions').innerHTML = html;
+  } catch(e) { console.error('pf',e); }
 }
-loadPortfolio();
-setInterval(loadPortfolio, 30000);
-setInterval(loadConsensus, 30000);
+
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ''; input.disabled = true;
+  try {
+    await fetch('/api/user-message', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:text})});
+  } catch(e) {}
+  input.disabled = false; input.focus();
+}
+
+async function requestSummary() {
+  const btn = document.getElementById('btn-summary');
+  btn.disabled = true; btn.textContent = '⏳...';
+  try {
+    await fetch('/api/summary/request', {method:'POST'});
+    btn.textContent = '✅ 발송';
+    setTimeout(() => { btn.textContent = '📋 요약'; btn.disabled = false; }, 3000);
+  } catch(e) { btn.textContent = '📋 요약'; btn.disabled = false; }
+}
+
+loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); poll(); syncPlayStatus();
+setInterval(poll, 3000);
+setInterval(loadState, 10000);
+setInterval(loadMarket, 60000);
+setInterval(syncPlayStatus, 5000);
+setInterval(loadConsensus, 20000);
+setInterval(loadPortfolio, 15000);
 </script>
 </body>
 </html>

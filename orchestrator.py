@@ -1,76 +1,168 @@
+"""
+AI 투자 토론 그룹 — 섹터 라운드 시스템
+섹터 토론(3라운드) → 종목 분석(5봇 결정) → 포트폴리오 실행
+"""
 import json
 import logging
+import re
 import threading
 import time
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("investchat")
+
 from db import (
     create_round, complete_round, save_message, get_recent_messages,
-    get_agent_state, save_agent_state, save_market_snapshot,
-    get_latest_market_snapshot, save_consensus,
-    save_prediction, get_unverified_predictions, mark_prediction_verified,
-    open_position, get_open_positions, close_position, complete_position,
-    get_portfolio, get_shared_portfolio, update_shared_portfolio
+    get_latest_market_snapshot, save_market_snapshot, save_consensus,
+    get_consensus_notes, buy_shared_position, sell_shared_position,
+    get_shared_portfolio, get_open_positions_by_symbol,
 )
 from agents import call_agent
 from prompts import (
-    AGENT_ORDER, build_system_prompt, format_history,
-    format_history_compact, build_round_prompt, build_user_response_prompt,
-    build_summary_prompt, build_evolution_prompt, build_position_summary,
-    build_summarize_prompt, is_investment_impossible,
-    build_phase1_prompt, build_phase2_momentum_prompt, build_phase2_macro_prompt,
-    build_phase3_risk_prompt, build_final_summary_prompt
+    AGENT_ORDER, AGENT_PROFILES,
+    format_history_compact,
+    build_sector_discussion_prompt,
+    build_stock_analysis_prompt,
+    build_user_response_prompt,
+    build_feedback_prompt,
+    build_summarize_prompt,
 )
-from fetchers import fetch_market_data, fetch_news, fetch_technical_analysis, build_market_summary, fetch_stock_price
-from discovery import discover_events
+from fetchers import (
+    fetch_market_data, fetch_news, fetch_technical_analysis,
+    build_market_summary, fetch_stock_data, format_stock_data,
+)
 from notifier import notify, is_credit_error, is_rate_limit
 
-SUMMARY_ROTATION = list(AGENT_ORDER)
+# ── 섹터 + 종목 설정 ────────────────────────────────────
+SECTORS = [
+    {
+        "name": "반도체",
+        "description": "메모리·파운드리·반도체 장비",
+        "stocks": [
+            {"name": "삼성전자",   "code": "005930", "yf": "005930.KS"},
+            {"name": "SK하이닉스", "code": "000660", "yf": "000660.KS"},
+            {"name": "한미반도체", "code": "042700", "yf": "042700.KS"},
+        ],
+    },
+    {
+        "name": "2차전지",
+        "description": "EV·ESS 배터리 셀·소재",
+        "stocks": [
+            {"name": "LG에너지솔루션", "code": "373220", "yf": "373220.KS"},
+            {"name": "삼성SDI",        "code": "006400", "yf": "006400.KS"},
+            {"name": "에코프로비엠",   "code": "247540", "yf": "247540.KS"},
+        ],
+    },
+    {
+        "name": "바이오·헬스케어",
+        "description": "신약개발·의료기기·CMO",
+        "stocks": [
+            {"name": "셀트리온",         "code": "068270", "yf": "068270.KS"},
+            {"name": "삼성바이오로직스", "code": "207940", "yf": "207940.KS"},
+            {"name": "유한양행",         "code": "000100", "yf": "000100.KS"},
+        ],
+    },
+    {
+        "name": "방산·우주",
+        "description": "국방·항공우주·방위산업",
+        "stocks": [
+            {"name": "한화에어로스페이스", "code": "012450", "yf": "012450.KS"},
+            {"name": "LIG넥스원",         "code": "079550", "yf": "079550.KS"},
+            {"name": "현대로템",           "code": "064350", "yf": "064350.KS"},
+        ],
+    },
+    {
+        "name": "자동차·모빌리티",
+        "description": "완성차·부품·자율주행",
+        "stocks": [
+            {"name": "현대차",   "code": "005380", "yf": "005380.KS"},
+            {"name": "기아",     "code": "000270", "yf": "000270.KS"},
+            {"name": "현대모비스", "code": "012330", "yf": "012330.KS"},
+        ],
+    },
+]
+
+# ── 라운드 설정 ──────────────────────────────────────────
+SECTOR_DISCUSSION_ROUNDS = 3   # 섹터 토론 라운드 수
+BUY_MAJORITY = 4               # 매수 결정에 필요한 최소 투표 수 (7봇 중 과반)
+SELL_MAJORITY = 4              # 매도 결정에 필요한 최소 투표 수
+DEFAULT_BUY_PCT = 10           # 기본 매수 비중 (잔액의 %)
+MAX_BUY_PCT = 20               # 최대 매수 비중
+MARKET_REFRESH_HOURS = 2
+
+# ── 상태 ─────────────────────────────────────────────────
+_sector_idx: int = 0
+_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis"
+_stock_idx: int = 0
+_discussion_round: int = 0
+_user_active_until: float = 0.0
+_stop_on_credit: bool = False
+_agent_fail_count: dict = {}
+USER_IDLE_SECONDS = 300
+
+_state_lock = threading.Lock()
+
+
+def is_user_active() -> bool:
+    return time.time() < _user_active_until
+
 
 def is_market_open() -> str:
-    """현재 어느 시장이 열려있는지. 'KRX' | 'US' | 'NONE'"""
-    from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
-    weekday = now.weekday()  # 0=월 6=일
-    if weekday >= 5:
+    if now.weekday() >= 5:
         return "NONE"
     h, m = now.hour, now.minute
-    # 국장: 9:00~15:30 KST
     if 9 <= h < 15 or (h == 15 and m <= 30):
         return "KRX"
-    # 미장: 22:30~05:00 KST (다음날)
-    if h >= 22 and m >= 30:
-        return "US"
-    if h < 5:
+    if (h == 22 and m >= 30) or h > 22 or h < 5:
         return "US"
     return "NONE"
-MARKET_REFRESH_HOURS = 2
-CONSENSUS_EVERY_N_ROUNDS = 3
-USER_IDLE_SECONDS = 300   # 사용자 5분 무응답 → 루프 재개
-_round_counter = 0
-_recent_speakers: list[str] = []
-_devil_silence = 0
-DEVIL_MIN_SILENCE = 4
-DEVIL_MAX_SILENCE = 8
-_user_active_until: float = 0.0
-_agent_fail_count: dict = {}      # {agent_name: consecutive_fail_count}
-AGENT_FAIL_ALERT = 3              # N번 연속 실패 시 알림
-_pending_topic_shift = False
-_stop_on_credit = False        # 크레딧 소진 시 전체 대화 정지 모드
-_last_consensus = ""           # 마지막으로 합의된 내용 (새 주제 안내에 사용)
 
-def _get_summary_agent(index):
-    return SUMMARY_ROTATION[index % len(SUMMARY_ROTATION)]
 
+def get_current_state() -> dict:
+    sector = SECTORS[_sector_idx]
+    stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" else None
+    return {
+        "sector_idx": _sector_idx,
+        "sector": sector["name"],
+        "sector_desc": sector["description"],
+        "phase": _phase,
+        "discussion_round": _discussion_round,
+        "stock_idx": _stock_idx,
+        "stock": stock["name"] if stock else None,
+        "stocks_total": len(sector["stocks"]),
+        "market_status": is_market_open(),
+    }
+
+
+# ── 시황 데이터 ───────────────────────────────────────────
+def _get_or_refresh_market_summary():
+    snap = get_latest_market_snapshot()
+    if snap:
+        created = datetime.fromisoformat(snap["created_at"].replace(" ", "T"))
+        age_hours = (datetime.utcnow() - created).total_seconds() / 3600
+        if age_hours < MARKET_REFRESH_HOURS:
+            d = json.loads(snap["data"])
+            return build_market_summary(d.get("data", {}), d.get("news", []), d.get("ta")), False
+    data = fetch_market_data()
+    news = fetch_news(max_items=8)
+    try:
+        ta = fetch_technical_analysis()
+    except Exception:
+        ta = {}
+    summary = build_market_summary(data, news, ta)
+    save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta}))
+    return summary, True
+
+
+# ── 메시지 저장 + 요약 ────────────────────────────────────
 def _do_summarize(msg_id: int, agent_name: str, content: str):
-    """백그라운드: Haiku로 요약 생성 후 DB 업데이트."""
     try:
         summary = call_agent(
-            "모멘텀 헌터",
-            "투자 발언을 1-2문장으로 요약하는 전문가입니다. 종목/섹터, 투자 방향, 핵심 근거만. 한국어로.",
+            "황소",
+            "투자 발언을 1문장으로 요약. 종목/방향/근거만. 한국어.",
             build_summarize_prompt(agent_name, content),
         )
         with __import__("db")._conn() as con:
@@ -78,676 +170,326 @@ def _do_summarize(msg_id: int, agent_name: str, content: str):
     except Exception:
         pass
 
-def _save_with_summary(round_id, agent_name, content):
-    """메시지 저장 후 백그라운드 요약 생성."""
-    from db import save_message as _save
-    import threading
-    msg_id = _save(round_id, agent_name, None, content)
+
+def _save_msg(round_id, agent_name, content):
+    msg_id = save_message(round_id, agent_name, None, content)
     if content and not content.startswith("["):
-        threading.Thread(
-            target=_do_summarize, args=(msg_id, agent_name, content), daemon=True
-        ).start()
+        threading.Thread(target=_do_summarize, args=(msg_id, agent_name, content), daemon=True).start()
     return msg_id
 
-def _get_or_refresh_market_summary():
-    """2시간 이내 시황은 재사용. 갱신 여부도 반환."""
-    snap = get_latest_market_snapshot()
-    if snap:
-        created = datetime.fromisoformat(snap["created_at"].replace(" ", "T"))
-        age_hours = (datetime.utcnow() - created).total_seconds() / 3600
-        if age_hours < MARKET_REFRESH_HOURS:
-            d = json.loads(snap["data"])
-            return build_market_summary(d.get("data", {}), d.get("news", []), d.get("ta")), False  # False = 캐시 사용
 
-    data = fetch_market_data()
-    news = fetch_news()
-    ta_data = fetch_technical_analysis()
+# ── 결정 파싱 ─────────────────────────────────────────────
+def _parse_decision(text: str) -> tuple[str, int]:
+    """봇 응답에서 [결정] 파싱. (decision, weight_pct) 반환."""
+    m = re.search(r'\[결정\]\s*(매수|관망|매도)', text)
+    if not m:
+        return "관망", DEFAULT_BUY_PCT
+    decision = m.group(1)
+    weight_m = re.search(r'제안비중[:\s]*(\d+)%', text)
+    weight = int(weight_m.group(1)) if weight_m else DEFAULT_BUY_PCT
+    weight = min(weight, MAX_BUY_PCT)
+    return decision, weight
 
-    # 데이터 품질 체크 → 실패 시 알림
-    price_ok = any(v.get("price") for v in data.values() if v)
-    ta_ok = any(v is not None for v in ta_data.values())
-    news_ok = len(news) > 0
 
-    if not price_ok:
-        notify("⚠️ 주가 데이터 없음",
-               "Yahoo Finance 연결 실패 — 모든 종목 가격 수신 불가. 퀀트 판단 데이터 부족.",
-               priority="high")
-    if not ta_ok:
-        notify("⚠️ TradingView 차트 데이터 없음",
-               "RSI·MACD·이평선 수신 실패 — 트레이더·퀀트의 기술적 분석 데이터 부족.",
-               priority="high")
-    if not news_ok:
-        notify("⚠️ 뉴스 수신 실패",
-               "RSS 피드 연결 실패 — 최신 뉴스 없이 대화 진행 중.",
-               priority="default")
+def _tally_votes(decisions: list[tuple[str, int]]) -> tuple[str, float]:
+    """(final_decision, avg_weight_pct)"""
+    buy_votes  = [(d, w) for d, w in decisions if d == "매수"]
+    sell_votes = [(d, w) for d, w in decisions if d == "매도"]
+    if len(buy_votes) >= BUY_MAJORITY:
+        avg_w = sum(w for _, w in buy_votes) / len(buy_votes)
+        return "매수", avg_w
+    if len(sell_votes) >= SELL_MAJORITY:
+        return "매도", 0.0
+    return "관망", 0.0
 
-    save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta_data}))
-    threading.Thread(target=verify_predictions, daemon=True).start()
-    return build_market_summary(data, news, ta_data), True
 
-_skeptic_silence = 0   # 회의론자 침묵 카운터
-SKEPTIC_SPEAK_PROB = 0.3   # 3라운드 지나면 30% 확률로 등장
-SKEPTIC_MAX_SILENCE = 6    # 6라운드 침묵하면 강제 등장
+# ── 매수/매도 실행 ────────────────────────────────────────
+def _execute_buy(stock: dict, price: float, weight_pct: float, reasoning: str, round_id: int):
+    pf = get_shared_portfolio()
+    balance = pf["balance"]
+    amount = round(balance * (weight_pct / 100))
+    if amount < 100_000:
+        _save_msg(round_id, "System", f"⚠️ 잔액 부족으로 {stock['name']} 매수 건너뜀 (잔액: ₩{balance:,.0f})")
+        return
 
-def _pick_speakers() -> list[str]:
-    """3명 선택. 회의론자는 별도 침묵 규칙 (4라운드에 1번꼴)."""
-    global _recent_speakers, _skeptic_silence
+    pos_id, err = buy_shared_position(
+        symbol=stock["name"],
+        code=stock["code"],
+        entry_price=price,
+        amount=amount,
+        reasoning=reasoning,
+    )
+    if err:
+        _save_msg(round_id, "System", f"⚠️ 매수 실패: {err}")
+        return
 
-    # 핵심 3봇만 기본 풀
-    core = [a for a in AGENT_ORDER if a != "회의론자"]
-    counts = {a: _recent_speakers.count(a) for a in core}
-    max_count = max(counts.values()) if counts else 0
-    weights = {a: (max_count - counts[a] + 1) for a in core}
+    msg = (f"🟢 매수 체결: {stock['name']} ({stock['code']})\n"
+           f"가격: ₩{price:,.0f} | 투자금: ₩{amount:,.0f} ({weight_pct:.0f}%)\n"
+           f"근거: {reasoning}")
+    _save_msg(round_id, "System", msg)
+    notify(f"🟢 매수: {stock['name']}", f"₩{price:,.0f} | ₩{amount:,.0f} 투자\n{reasoning}", priority="high", cooldown=0)
 
-    pool = core[:]
-    chosen = []
-    for _ in range(min(3, len(pool))):
-        total = sum(weights[a] for a in pool)
-        r = random.uniform(0, total)
-        cumul = 0
-        for a in pool:
-            cumul += weights[a]
-            if r <= cumul:
-                chosen.append(a)
-                pool.remove(a)
-                break
 
-    # 회의론자: 최소 3라운드 침묵, 6라운드 초과 시 강제 등장
-    if _skeptic_silence >= SKEPTIC_MAX_SILENCE:
-        chosen.append("회의론자")
-        _skeptic_silence = 0
-    elif _skeptic_silence >= 3 and random.random() < SKEPTIC_SPEAK_PROB:
-        chosen.append("회의론자")
-        _skeptic_silence = 0
-    else:
-        _skeptic_silence += 1
+def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int):
+    positions = get_open_positions_by_symbol(stock["name"])
+    if not positions:
+        _save_msg(round_id, "System", f"ℹ️ {stock['name']} — 보유 중인 포지션 없음. 매도 건너뜀.")
+        return
 
-    random.shuffle(chosen)
-    _recent_speakers.extend(chosen)
-    _recent_speakers = _recent_speakers[-30:]
-    return chosen
+    total_pnl = 0.0
+    for pos in positions:
+        pnl, err = sell_shared_position(pos["id"], price)
+        if pnl is not None:
+            total_pnl += pnl
 
-def is_user_active() -> bool:
-    return time.time() < _user_active_until
+    direction = "이익" if total_pnl >= 0 else "손실"
+    msg = (f"🔴 매도 체결: {stock['name']} ({stock['code']})\n"
+           f"가격: ₩{price:,.0f} | {direction}: ₩{abs(total_pnl):,.0f}\n"
+           f"근거: {reasoning}")
+    _save_msg(round_id, "System", msg)
+    notify(f"🔴 매도: {stock['name']}", f"₩{price:,.0f} | {direction} ₩{abs(total_pnl):,.0f}", priority="high", cooldown=0)
 
+    # 피드백 라운드
+    threading.Thread(target=_run_feedback_round, args=(stock["name"], total_pnl, reasoning), daemon=True).start()
+
+
+def _run_feedback_round(stock_name: str, pnl: float, trade_summary: str):
+    pnl_pct = 0.0
+    try:
+        round_id = create_round(f"피드백: {stock_name}")
+        prompt = build_feedback_prompt(stock_name, pnl, pnl_pct, trade_summary)
+        for agent_name in AGENT_ORDER[:3]:
+            try:
+                system = AGENT_PROFILES[agent_name]["system"]
+                resp = call_agent(agent_name, system, prompt)
+                _save_msg(round_id, agent_name, resp)
+                time.sleep(0.5)
+            except Exception:
+                pass
+        complete_round(round_id)
+    except Exception as e:
+        logger.error(f"피드백 오류: {e}")
+
+
+# ── 섹터 토론 라운드 ──────────────────────────────────────
+def _run_sector_discussion_round(round_id: int, market_summary: str):
+    global _discussion_round
+    sector = SECTORS[_sector_idx]
+    _discussion_round += 1
+
+    if _discussion_round == 1:
+        _save_msg(round_id, "System",
+                  f"📂 [{sector['name']}] 섹터 분석 시작\n"
+                  f"{sector['description']}\n"
+                  f"종목: {', '.join(s['name'] for s in sector['stocks'])}\n"
+                  f"3라운드 토론 후 종목별 분석으로 이어집니다.")
+
+    history = get_recent_messages(15)
+    history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
+
+    for agent_name in AGENT_ORDER:
+        system = AGENT_PROFILES[agent_name]["system"]
+        prompt = build_sector_discussion_prompt(
+            sector["name"], sector["description"],
+            market_summary, history_text, agent_name, _discussion_round,
+        )
+        try:
+            resp = call_agent(agent_name, system, prompt)
+        except Exception as e:
+            _handle_agent_error(agent_name, e)
+            resp = f"[{agent_name} 응답 오류]"
+        _save_msg(round_id, agent_name, resp)
+        history = get_recent_messages(15)
+        history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
+        time.sleep(random.uniform(0.2, 0.5))
+
+    # 3라운드 완료 → 합의 추출 + 종목 분석으로 전환
+    if _discussion_round >= SECTOR_DISCUSSION_ROUNDS:
+        _extract_sector_consensus(round_id, sector, market_summary)
+
+
+def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
+    global _phase, _stock_idx, _discussion_round
+    try:
+        recent = get_recent_messages(30)
+        convo = "\n".join(
+            f"{m['agent_name']}: {m['content'][:150]}"
+            for m in recent if m["agent_name"] not in ("System", "User")
+        )
+        summary_prompt = (
+            f"{sector['name']} 섹터 토론 내용:\n{convo}\n\n"
+            f"위 토론을 바탕으로 섹터 합의를 3줄 이내로 요약하세요.\n"
+            f"형식: 전망(긍정/부정/중립) | 핵심 이유 | 주의 사항\n한국어."
+        )
+        consensus = call_agent("황소", AGENT_PROFILES["황소"]["system"], summary_prompt)
+        save_consensus(round_id, f"[{sector['name']} 섹터]\n{consensus}")
+        _save_msg(round_id, "System",
+                  f"📊 [{sector['name']}] 섹터 토론 완료\n{consensus}\n\n"
+                  f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
+    except Exception as e:
+        logger.error(f"합의 추출 오류: {e}")
+        _save_msg(round_id, "System",
+                  f"📊 [{sector['name']}] 섹터 토론 완료 → 종목 분석 시작")
+
+    with _state_lock:
+        _phase = "stock_analysis"
+        _stock_idx = 0
+        _discussion_round = 0
+
+
+# ── 종목 분석 라운드 ──────────────────────────────────────
+def _run_stock_analysis_round(round_id: int, market_summary: str):
+    global _phase, _stock_idx, _sector_idx, _discussion_round
+
+    sector = SECTORS[_sector_idx]
+    stock = sector["stocks"][_stock_idx]
+
+    # 종목 데이터 페치
+    _save_msg(round_id, "System", f"🔍 {stock['name']} ({stock['code']}) 데이터 수집 중...")
+    try:
+        stock_data = fetch_stock_data(stock["code"], stock["yf"], stock["name"])
+        stock_data_text = format_stock_data(stock_data)
+        current_price = stock_data.get("price", 0) or 0
+    except Exception as e:
+        logger.error(f"종목 데이터 오류 {stock['name']}: {e}")
+        stock_data_text = f"=== {stock['name']} ({stock['code']}) ===\n데이터 수집 실패"
+        current_price = 0
+
+    _save_msg(round_id, "System",
+              f"📌 [{sector['name']}] {stock['name']} 분석\n{stock_data_text}\n\n각자 매수/관망/매도 의견을 주세요.")
+
+    decisions: list[tuple[str, int]] = []
+    decision_summary: list[str] = []
+
+    history = get_recent_messages(10)
+    history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
+
+    for agent_name in AGENT_ORDER:
+        system = AGENT_PROFILES[agent_name]["system"]
+        prompt = build_stock_analysis_prompt(
+            stock_data_text, sector["name"], market_summary, history_text, agent_name
+        )
+        try:
+            resp = call_agent(agent_name, system, prompt)
+        except Exception as e:
+            _handle_agent_error(agent_name, e)
+            resp = f"[{agent_name} 응답 오류]"
+
+        _save_msg(round_id, agent_name, resp)
+        decision, weight = _parse_decision(resp)
+        decisions.append((decision, weight))
+        decision_summary.append(f"{agent_name}: {decision}")
+
+        history = get_recent_messages(10)
+        history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
+        time.sleep(random.uniform(0.2, 0.5))
+
+    # 투표 결과
+    final_decision, avg_weight = _tally_votes(decisions)
+    vote_text = " | ".join(decision_summary)
+    _save_msg(round_id, "System",
+              f"🗳 투표 결과: {vote_text}\n→ 최종: {final_decision}")
+
+    # 실행
+    if final_decision == "매수" and current_price > 0:
+        buy_reasoning = " / ".join(
+            f"{AGENT_ORDER[i]}: {decisions[i][0]}" for i in range(len(decisions)) if decisions[i][0] == "매수"
+        )
+        _execute_buy(stock, current_price, avg_weight, buy_reasoning, round_id)
+    elif final_decision == "매도":
+        sell_reasoning = " / ".join(
+            f"{AGENT_ORDER[i]}: {decisions[i][0]}" for i in range(len(decisions)) if decisions[i][0] == "매도"
+        )
+        _execute_sell(stock, current_price, sell_reasoning, round_id)
+
+    # 다음 종목 or 다음 섹터로
+    with _state_lock:
+        _stock_idx += 1
+        if _stock_idx >= len(sector["stocks"]):
+            _save_msg(round_id, "System",
+                      f"✅ [{sector['name']}] 섹터 모든 종목 분석 완료!\n"
+                      f"다음 섹터: {SECTORS[(_sector_idx + 1) % len(SECTORS)]['name']}")
+            _sector_idx = (_sector_idx + 1) % len(SECTORS)
+            _phase = "sector_discussion"
+            _stock_idx = 0
+            _discussion_round = 0
+        else:
+            next_stock = sector["stocks"][_stock_idx]["name"]
+            _save_msg(round_id, "System",
+                      f"다음 종목 → {next_stock}")
+
+
+# ── 오류 처리 ─────────────────────────────────────────────
+def _handle_agent_error(agent_name: str, e: Exception):
+    count = _agent_fail_count.get(agent_name, 0) + 1
+    _agent_fail_count[agent_name] = count
+    if is_credit_error(e):
+        notify(f"⚠️ {agent_name} 크레딧 소진", str(e)[:100], priority="high")
+    elif is_rate_limit(e):
+        notify(f"🔄 {agent_name} API 한도", str(e)[:80], priority="default")
+    if count % 3 == 0:
+        notify(f"🚨 {agent_name} {count}회 연속 오류", f"{type(e).__name__}", priority="high", cooldown=0)
+
+
+# ── 메인 루프 ─────────────────────────────────────────────
 def run_round(market_summary=None):
-    global _round_counter, _pending_topic_shift
-    # 사용자가 최근 5분 내 발언했으면 이번 라운드 건너뜀
     if is_user_active():
         return
-    market_refreshed = False
+
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()
-
-    round_id = create_round(market_summary[:200])
-    if market_refreshed:
-        save_message(round_id, "System", None, f"📊 {market_summary}")
-
-    # 합의 후 주제 전환 — 이 라운드에서만 topic_shift=True
-    this_round_is_shift = False
-    if _pending_topic_shift:
-        _pending_topic_shift = False
-        this_round_is_shift = True
-        save_message(round_id, "System", None,
-                     "📌 합의 완료. 이제 다른 섹터·종목·테마로 논의를 전환합니다.")
-
-    all_history = get_recent_messages(20)
-    if this_round_is_shift:
-        recent_history = []
-        position_summary = ""
-        recent_text = ""
     else:
-        recent_history = all_history[-5:]
-        position_summary = build_position_summary(all_history)
-        recent_text = format_history_compact(recent_history)
+        market_refreshed = False
 
-    # Discovery 이벤트 (버그 수정: 항상 초기화 후 할당)
-    event_text = ""
+    round_id = create_round(f"{SECTORS[_sector_idx]['name']} — {_phase}")
+
+    if market_refreshed:
+        save_message(round_id, "System", None, f"📊 시황 업데이트\n{market_summary[:500]}")
+
     try:
-        event_text = discover_events(n=2) or ""
-        if event_text and not market_refreshed:
-            import random as _rand
-            if _rand.random() > 0.5:
-                event_text = ""
-    except Exception:
-        event_text = ""
-
-    speakers = _pick_speakers()
-
-    for i, agent_name in enumerate(speakers):
-        state = get_agent_state(agent_name)
-        system = build_system_prompt(agent_name, state["evolution_notes"])
-        # 자기 최근 발언 3개 — 반복 방지
-        self_recent = "\n---\n".join(
-            m["content"][:100] for m in all_history
-            if m["agent_name"] == agent_name
-        )[-3*100:]
-        prompt = build_round_prompt(market_summary, position_summary, recent_text, agent_name,
-                                    topic_shift=(i == 0 and this_round_is_shift),
-                                    self_recent=self_recent,
-                                    event_text=event_text if i == 0 else "")
-        try:
-            response = call_agent(agent_name, system, prompt)
-        except Exception as e:
-            if is_credit_error(e):
-                notify(f"⚠️ {agent_name} 크레딧 소진",
-                       f"{agent_name} API 크레딧 부족. 충전 후 계속됩니다.", priority="high")
-                if _stop_on_credit:
-                    import main as _main
-                    with _main._loop_lock:
-                        _main._loop_running = False
-                    notify("🛑 크레딧 소진으로 대화 정지",
-                           f"{agent_name} 크레딧 부족 — 정지 모드 활성화로 대화를 멈췄습니다.", priority="high", cooldown=0)
-            elif is_rate_limit(e):
-                notify(f"🔄 {agent_name} API 한도 초과",
-                       f"분당 요청/토큰 한도 초과. 잠시 후 자동 재개.", priority="default")
-            # 연속 실패 카운트
-            count = _agent_fail_count.get(agent_name, 0) + 1
-            _agent_fail_count[agent_name] = count
-            # 3번째, 이후 10번 단위마다 알림 (쿨다운 없이)
-            if count == AGENT_FAIL_ALERT or (count > AGENT_FAIL_ALERT and count % 10 == 0):
-                notify(f"🚨 {agent_name} {count}회 연속 오류",
-                       f"{agent_name}이 {count}번 연속 응답 실패.\n({type(e).__name__})",
-                       priority="high", cooldown=0)
-            response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
-        else:
-            _agent_fail_count[agent_name] = 0  # 성공 시 카운트 초기화
-        _save_with_summary(round_id, agent_name, response)
-        # 발언 후 포지션 요약 갱신 (compact 버전 사용)
-        all_history = get_recent_messages(20)
-        recent_history = all_history[-5:]
-        position_summary = build_position_summary(all_history)
-        recent_text = format_history_compact(recent_history)
-        time.sleep(random.uniform(0.2, 0.6))
+        if _phase == "sector_discussion":
+            _run_sector_discussion_round(round_id, market_summary)
+        elif _phase == "stock_analysis":
+            _run_stock_analysis_round(round_id, market_summary)
+    except Exception as e:
+        logger.error(f"[run_round] {type(e).__name__}: {e}")
+        save_message(round_id, "System", None, f"⚠️ 라운드 오류: {type(e).__name__}")
 
     complete_round(round_id)
-    _round_counter += 1
-    if _round_counter % CONSENSUS_EVERY_N_ROUNDS == 0:
-        _detect_consensus(round_id)
-    threading.Thread(target=_extract_predictions, args=(round_id,), daemon=True).start()
-    _maybe_update_evolution(round_id)
 
-def handle_user_message(user_text):
+
+# ── 사용자 메시지 처리 ─────────────────────────────────────
+def handle_user_message(user_text: str):
     global _user_active_until
-    # 사용자 발언 → 5분간 AI 자율 대화 정지
     _user_active_until = time.time() + USER_IDLE_SECONDS
-    save_message(round_id=0, agent_name="User", model=None, content=user_text)
 
-    all_history = get_recent_messages(20)
-    history_text = format_history(all_history[-5:])
+    round_id = create_round("user-message")
+    save_message(round_id, "User", None, user_text)
 
-    summary_agent = _get_summary_agent(len(all_history))
-    state = get_agent_state(summary_agent)
-    system = build_system_prompt(summary_agent, state["evolution_notes"])
-    try:
-        summary = call_agent(summary_agent, system, build_summary_prompt(history_text, user_text))
-    except Exception as e:
-        summary = f"[요약 오류: {type(e).__name__}]"
-    save_message(round_id=0, agent_name=summary_agent, model=None, content=summary)
+    history = get_recent_messages(15)
+    history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
-    all_history = get_recent_messages(20)
-    history_text = format_history(all_history[-5:])
-
-    for agent_name in AGENT_ORDER:
-        state = get_agent_state(agent_name)
-        system = build_system_prompt(agent_name, state["evolution_notes"])
+    # 3봇만 응답 (빠른 반응)
+    responders = random.sample(AGENT_ORDER, 3)
+    for agent_name in responders:
+        system = AGENT_PROFILES[agent_name]["system"]
         prompt = build_user_response_prompt(user_text, history_text, agent_name)
         try:
-            response = call_agent(agent_name, system, prompt)
+            resp = call_agent(agent_name, system, prompt)
         except Exception as e:
-            response = f"[{agent_name} 응답 오류: {type(e).__name__}]"
-        _save_with_summary(0, agent_name, response)
-        all_history = get_recent_messages(20)
-        history_text = format_history_compact(all_history[-5:])
-        time.sleep(1)
+            _handle_agent_error(agent_name, e)
+            resp = f"[{agent_name} 응답 오류]"
+        _save_msg(round_id, agent_name, resp)
+        time.sleep(random.uniform(0.2, 0.5))
 
-def _execute_shared_trade(consensus_note: str, round_id: int):
-    """합의점 도달 시 공유 계좌에서 포지션 실행."""
-    import re as _re
-    # 추천종목 추출
-    m = _re.search(r'추천종목[:]\s*(.+)', consensus_note)
-    if not m:
-        m2 = _re.search(r'\U0001f4cc\s*([^\n]+)', consensus_note)
-        if not m2:
-            return
-        symbol = m2.group(1).strip()
-    else:
-        symbols = [s.strip() for s in _re.split(r'[,、·]', m.group(1)) if s.strip()]
-        symbol = symbols[0] if symbols else ""
-
-    if not symbol:
-        return
-
-    # 공유 계좌 잔액의 20% 투입
-    from db import get_shared_portfolio
-    pf = get_shared_portfolio()
-    amount = pf["balance"] * 0.20
-
-    # 현재 가격 조회
-    entry = fetch_stock_price(symbol) or 0.0
-
-    # 목표 기간: 1개월 기본
-    from datetime import datetime as _dt2, timedelta as _td2
-    target_date = (_dt2.now() + _td2(days=30)).strftime('%Y-%m-%d')
-    target_price = round(entry * 1.15, 2) if entry else 0  # 15% 목표
-    stop_loss   = round(entry * 0.92, 2) if entry else 0   # 8% 손절
-
-    pos_id = open_position(
-        agent_name="공유계좌",
-        symbol=symbol,
-        direction="매수",
-        entry_price=entry,
-        amount=amount,
-        target_price=target_price,
-        stop_loss=stop_loss,
-        target_date=target_date,
-        reasoning=f"합의 매수: {consensus_note[:200]}",
-    )
-    save_message(round_id, "System", None,
-                 f"💰 공유계좌 매수 실행: {symbol} | ₩{amount:,.0f} | 목표 {target_date}")
-    logger.info(f"[SHARED TRADE] {symbol} ₩{amount:,.0f} pos_id={pos_id}")
-
-
-def _detect_consensus(round_id):
-    history = get_recent_messages(80)
-    agent_msgs = [m for m in history if m["agent_name"] not in ("System", "User")]
-    if len(agent_msgs) < 5:
-        return
-    conversation = "\n".join(f"{m['agent_name']}: {m['content']}" for m in agent_msgs[-30:])
-    prompt = f"""다음은 투자 분석가들의 대화입니다:
-
-{conversation}
-
-실제 투자에 활용할 수 있는 **매수/관심 합의**를 찾으세요.
-
-우선순위:
-1. **3명 이상**이 긍정적으로 언급한 섹터·종목·테마 (매수, 비중확대, 유망, 주목할 만하다)
-2. 위가 없으면 2명이 강하게 동의한 경우만 포함 (단순 언급 아닌 확실한 방향성)
-
-매도 의견은 📌 형식이 아닌 ⚠️ 한 줄로만 (선택사항, 매우 강한 합의일 때만):
-⚠️ 주의: [섹터/종목] — [이유 한 줄]
-
-매수 합의가 있다면:
-📌 [섹터/종목/테마]
-동의: [닉네임들]
-근거: [왜 지금 주목해야 하는지 1-2줄]
-리스크: [한 줄, 없으면 생략]
-
-매수 합의도 없고 강한 매도 합의도 없으면 반드시 "합의 없음"만 출력.
-최대 2개. 반드시 한국어로."""
-
-    try:
-        result = call_agent(
-            "Scout",
-            "당신은 투자 대화에서 매수 관점의 합의를 추출하는 애널리스트입니다. 실제로 투자에 활용 가능한 아이디어만 기록하세요.",
-            prompt
-        )
-        if result and "합의 없음" not in result and "📌" in result:
-            content = result.strip()
-            save_consensus(round_id, content)
-            notify("📌 InvestChat 합의 메모", content, priority="default")
-            global _pending_topic_shift, _last_consensus
-            _pending_topic_shift = True
-            _last_consensus = content
-    except Exception:
-        pass
-
-def _extract_predictions(round_id):
-    """라운드 직후 각 에이전트 발언에서 종목·방향 예측을 추출해 저장."""
-    history = get_recent_messages(20)
-    round_msgs = [m for m in history if m.get("round_id") == round_id
-                  and m["agent_name"] not in ("System", "User")]
-    if not round_msgs:
-        return
-
-    snap = get_latest_market_snapshot()
-    prices = {}
-    if snap:
-        try:
-            d = json.loads(snap["data"])
-            for name, info in d.get("data", {}).items():
-                if info and info.get("price"):
-                    prices[name] = info["price"]
-        except Exception:
-            pass
-
-    for msg in round_msgs:
-        prompt = f"""다음 발언에서 특정 종목·지수·섹터에 대한 명확한 방향성 예측이 있으면 추출하세요.
-없으면 "없음"만 출력.
-
-발언: {msg['content']}
-
-있으면 아래 형식으로만:
-종목: [NVDA/KOSPI/반도체섹터 등]
-방향: [상승/하락/중립]
-근거: [한 줄]"""
-        try:
-            result = call_agent(
-                "퀀트",
-                "투자 발언에서 예측을 구조화 추출하는 시스템입니다.",
-                prompt
-            )
-            if result and "없음" not in result and "종목:" in result:
-                lines = {l.split(":")[0].strip(): ":".join(l.split(":")[1:]).strip()
-                         for l in result.strip().split("\n") if ":" in l}
-                symbol = lines.get("종목", "")
-                direction = lines.get("방향", "")
-                basis = lines.get("근거", "")
-                if symbol and direction in ("상승", "하락", "중립"):
-                    price = prices.get(symbol)
-                    save_prediction(msg["agent_name"], symbol, direction, price, basis)
-        except Exception:
-            pass
-
-def verify_predictions():
-    """미검증 예측을 현재 주가와 비교해 맞았는지 확인 후 evolution notes 반영."""
-    preds = get_unverified_predictions()
-    if not preds:
-        return
-
-    snap = get_latest_market_snapshot()
-    if not snap:
-        return
-    try:
-        d = json.loads(snap["data"])
-        current_prices = {k: v["price"] for k, v in d.get("data", {}).items()
-                          if v and v.get("price")}
-    except Exception:
-        return
-
-    # 종목명 유사 매칭 (NVDA주가 → NVDA 등)
-    def _match_price(symbol):
-        if symbol in current_prices:
-            return current_prices[symbol]
-        for key in current_prices:
-            if key in symbol or symbol in key:
-                return current_prices[key]
-        return None
-
-    for pred in preds:
-        symbol = pred["symbol"]
-        current = _match_price(symbol)
-        if current is None:
-            continue
-        try:
-            past = float(pred["price_at"])
-        except Exception:
-            continue
-
-        change = (current - past) / past * 100
-        if abs(change) < 1.5:  # ±1.5% 이내는 중립 처리
-            continue
-
-        actual = "상승" if change > 0 else "하락"
-        correct = actual == pred["direction"]
-        result = f"{'✅' if correct else '❌'} {pred['direction']} 예측 → 실제 {actual} ({change:+.1f}%)"
-        mark_prediction_verified(pred["id"], result)
-
-        # evolution notes에 피드백 반영
-        state = get_agent_state(pred["agent_name"])
-        feedback_line = f"[예측피드백] {pred['symbol']} {result} (근거: {pred['basis']})"
-        notes = state["evolution_notes"]
-        # 최근 피드백 5개만 유지
-        existing = [l for l in notes.split("\n") if l.startswith("[예측피드백]")]
-        existing.append(feedback_line)
-        existing = existing[-5:]
-        non_feedback = [l for l in notes.split("\n") if not l.startswith("[예측피드백]")]
-        new_notes = "\n".join(non_feedback + existing).strip()
-        save_agent_state(pred["agent_name"], new_notes, state["round_count"])
-
-        # 알림
-        notify(
-            f"{'✅' if correct else '❌'} {pred['agent_name']} 예측 {'적중' if correct else '빗나감'}",
-            f"{pred['symbol']}: {result}",
-            priority="default"
-        )
-
-def _maybe_update_evolution(round_id):
-    for agent_name in AGENT_ORDER:
-        state = get_agent_state(agent_name)
-        new_count = state["round_count"] + 1
-        if new_count % 10 == 0:
-            try:
-                history = get_recent_messages(15)  # evolution도 30개로 제한
-                history_text = format_history(history)
-                system = build_system_prompt(agent_name, state["evolution_notes"])
-                new_notes = call_agent(
-                    agent_name, system,
-                    build_evolution_prompt(agent_name, history_text, state["evolution_notes"])
-                )
-                save_agent_state(agent_name, new_notes, new_count)
-            except Exception as e:
-                logger.error(f"[evolution] {agent_name} 오류: {type(e).__name__}: {e}")
-                save_agent_state(agent_name, state["evolution_notes"], new_count)
-        else:
-            save_agent_state(agent_name, state["evolution_notes"], new_count)
-
-# ── 트레이드 파싱 ──────────────────────────────────────────
-import re as _re
-from datetime import datetime as _dt, timedelta as _td
-
-def _parse_trade(agent_name: str, text: str, current_prices: dict):
-    """발언에서 [TRADE] 블록을 파싱해 가상 포지션을 생성."""
-    m = _re.search(r'\[TRADE\](.*?)(?:\n|$)', text, _re.DOTALL)
-    if not m:
-        return
-    raw = m.group(1)
-    def _field(key):
-        fm = _re.search(rf'{key}:\s*([^\|]+)', raw)
-        return fm.group(1).strip() if fm else ''
-
-    symbol    = _field('종목') or _field('섹터')
-    direction = _field('방향')
-    period_s  = _field('목표기간')
-    target_s  = _field('목표가')
-    stop_s    = _field('손절가')
-    ratio_s   = _field('비중')
-
-    if not symbol or not direction:
-        return
-
-    # 현재 가격 조회
-    entry = None
-    for k, v in current_prices.items():
-        if k.upper() in symbol.upper() or symbol.upper() in k.upper():
-            entry = v
-            break
-    if entry is None or entry == 0:
-        # 스냅샷에서 다시 한번 시도 (대소문자 무관)
-        sym_upper = symbol.upper()
-        for k, v in current_prices.items():
-            if sym_upper in k.upper() or k.upper() in sym_upper:
-                entry = v
-                break
-    if entry is None:
-        entry = 0.0
-
-    # 목표 기간 → 날짜
-    weeks = _re.search(r'(\d+)\s*주', period_s)
-    months = _re.search(r'(\d+)\s*개월', period_s)
-    if weeks:
-        target_date = (_dt.now() + _td(weeks=int(weeks.group(1)))).strftime('%Y-%m-%d')
-    elif months:
-        target_date = (_dt.now() + _td(days=int(months.group(1))*30)).strftime('%Y-%m-%d')
-    else:
-        target_date = (_dt.now() + _td(days=30)).strftime('%Y-%m-%d')
-
-    # 금액 (비중 % 기반, 포트폴리오 ₩10,000,000 기준)
-    ratio = float(_re.search(r'[\d.]+', ratio_s).group()) / 100 if _re.search(r'[\d.]+', ratio_s) else 0.1
-    amount = 10_000_000 * min(ratio, 0.3)  # 최대 30%
-
-    def _to_float(s):
-        n = _re.search(r'[\d,.]+', s.replace(',', ''))
-        return float(n.group().replace(',', '')) if n else 0.0
-
-    open_position(
-        agent_name=agent_name,
-        symbol=symbol,
-        direction=direction,
-        entry_price=entry,
-        amount=amount,
-        target_price=_to_float(target_s),
-        stop_loss=_to_float(stop_s),
-        target_date=target_date,
-        reasoning=raw.strip(),
-    )
-    logger.info(f"[TRADE] {agent_name} → {symbol} {direction} ₩{amount:,.0f} until {target_date}")
-
-
-def run_analysis(topic: str = None):
-    """3-Phase 구조적 분석 — 특정 종목/섹터 분석 시 호출."""
-    market_summary, _ = _get_or_refresh_market_summary()
-    if not topic:
-        # 토픽 없으면 최근 뉴스에서 주제 자동 추출
-        snap = get_latest_market_snapshot()
-        if snap:
-            import json as _json
-            d = _json.loads(snap["data"])
-            news = d.get("news", [])
-            topic = news[0]["title"] if news else "오늘의 시장 전반"
-        else:
-            topic = "오늘의 시장 전반"
-
-    # 현재 가격 사전
-    current_prices = {}
-    try:
-        snap = get_latest_market_snapshot()
-        if snap:
-            import json as _json
-            d = _json.loads(snap["data"])
-            for k, v in d.get("data", {}).items():
-                if v and v.get("price"):
-                    current_prices[k] = v["price"]
-    except Exception:
-        pass
-
-    round_id = create_round(f"[분석] {topic[:100]}")
-    save_message(round_id, "System", None, f"🔍 분석 시작: {topic}")
-
-    # ── Phase 1: 펀더멘털 가디언 ─────────────────────────
-    guardian = get_agent_state("펀더멘털 가디언")
-    sys1 = build_system_prompt("펀더멘털 가디언", guardian["evolution_notes"])
-    g_resp = call_agent("펀더멘털 가디언", sys1, build_phase1_prompt(market_summary, topic))
-    _save_with_summary(round_id, "펀더멘털 가디언", g_resp)
-    _parse_trade("펀더멘털 가디언", g_resp, current_prices)
-
-    if is_investment_impossible(g_resp):
-        save_message(round_id, "System", None, "🚫 투자 불가 판정으로 분석을 종료합니다.")
-        complete_round(round_id)
-        notify("🚫 투자불가 판정", f"[{topic}]\n{g_resp[:200]}", priority="default")
-        return
-
-    time.sleep(0.5)
-
-    # ── Phase 2: 모멘텀 헌터 + 매크로 워처 ──────────────
-    # 모멘텀 헌터 최근 발언 추출 (반복 방지용)
-    all_msgs = get_recent_messages(30)
-    recent_momentum = [m["content"][:120] for m in all_msgs
-                       if m["agent_name"] == "모멘텀 헌터"][-3:]
-    recent_momentum_str = "\n---\n".join(recent_momentum)
-
-    m_state = get_agent_state("모멘텀 헌터")
-    sys_m = build_system_prompt("모멘텀 헌터", m_state["evolution_notes"])
-    m_resp = call_agent("모멘텀 헌터", sys_m,
-                        build_phase2_momentum_prompt(market_summary, topic, g_resp, recent_momentum_str))
-    _save_with_summary(round_id, "모멘텀 헌터", m_resp)
-    _parse_trade("모멘텀 헌터", m_resp, current_prices)
-    time.sleep(0.5)
-
-    mac_state = get_agent_state("매크로 워처")
-    sys_mac = build_system_prompt("매크로 워처", mac_state["evolution_notes"])
-    mac_resp = call_agent("매크로 워처", sys_mac, build_phase2_macro_prompt(market_summary, topic, g_resp))
-    _save_with_summary(round_id, "매크로 워처", mac_resp)
-    _parse_trade("매크로 워처", mac_resp, current_prices)
-    time.sleep(0.5)
-
-    # ── Phase 3: 리스크 어드바이저 + 최종 요약 ──────────
-    r_state = get_agent_state("리스크 어드바이저")
-    sys_r = build_system_prompt("리스크 어드바이저", r_state["evolution_notes"])
-    r_resp = call_agent("리스크 어드바이저", sys_r,
-                        build_phase3_risk_prompt(topic, g_resp, m_resp, mac_resp))
-    _save_with_summary(round_id, "리스크 어드바이저", r_resp)
-    time.sleep(0.5)
-
-    # 최종 요약 테이블 (GPT-4o-mini로 저렴하게)
-    summary_resp = call_agent("모멘텀 헌터",
-                              "당신은 투자 분석 요약 전문가입니다. 표 형식으로 정리하세요.",
-                              build_final_summary_prompt(topic, g_resp, m_resp, mac_resp, r_resp))
-    save_message(round_id, "System", None, f"📊 분석 결과\n\n{summary_resp}")
     complete_round(round_id)
-    notify("📊 분석 완료", f"[{topic}]\n{summary_resp[:300]}", priority="default")
 
 
+# ── 포지션 평가 (외부 호출 가능) ──────────────────────────
 def evaluate_positions():
-    """목표 기간 도달 또는 손절가 터치 포지션을 청산하고 evolution notes에 반영."""
-    open_pos = get_open_positions()
-    if not open_pos:
-        return
-
-    snap = get_latest_market_snapshot()
-    if not snap:
-        return
-    try:
-        import json as _json
-        d = _json.loads(snap["data"])
-        prices = {k: v["price"] for k, v in d.get("data", {}).items() if v and v.get("price")}
-    except Exception:
-        prices = {}
-
-    today = _dt.now().strftime('%Y-%m-%d')
-
-    for pos in open_pos:
-        symbol = pos["symbol"]
-        # 스냅샷에서 먼저 찾기
-        current = None
-        for k, v in prices.items():
-            if k.upper() in symbol.upper() or symbol.upper() in k.upper():
-                current = v
-                break
-        # 스냅샷에 없으면 실시간 조회
-        if current is None:
-            current = fetch_stock_price(symbol)
-        if current is None:
-            continue
-        # 진입가 0이면 현재가로 업데이트
-        if pos["entry_price"] == 0:
-            from db import _conn
-            with _conn() as con:
-                con.execute("UPDATE virtual_positions SET entry_price=? WHERE id=?",
-                           (current, pos["id"]))
-            continue
-
-        target_date_reached = pos["target_date"] and today >= pos["target_date"]
-        stop_hit = (pos["stop_loss"] and pos["direction"] == "매수" and current <= pos["stop_loss"]) or \
-                   (pos["stop_loss"] and pos["direction"] == "공매도" and current >= pos["stop_loss"])
-
-        if not target_date_reached and not stop_hit:
-            continue
-
-        reason = "목표 기간 도달" if target_date_reached else "손절가 도달"
-        result = close_position(pos["id"], current, reason)
-        if not result:
-            continue
-
-        pnl = result["pnl"]
-        pnl_pct = result["pnl_pct"]
-        win = pnl >= 0
-        emoji = "✅" if win else "❌"
-
-        feedback = (f"[포지션 결과] {pos['symbol']} {pos['direction']} | "
-                    f"{emoji} {pnl_pct:+.1f}% (₩{pnl:+,.0f}) | {reason}")
-
-        # evolution notes에 피드백 추가
-        state = get_agent_state(pos["agent_name"])
-        notes = state["evolution_notes"] or ""
-        feedback_lines = [l for l in notes.split("\n") if l.startswith("[포지션 결과]")]
-        feedback_lines.append(feedback)
-        feedback_lines = feedback_lines[-5:]  # 최근 5개만
-        other_lines = [l for l in notes.split("\n") if not l.startswith("[포지션 결과]")]
-        new_notes = "\n".join(other_lines + feedback_lines).strip()
-        save_agent_state(pos["agent_name"], new_notes, state["round_count"])
-
-        notify(f"{emoji} {pos['agent_name']} 포지션 청산",
-               f"{pos['symbol']} {pos['direction']}\n{pnl_pct:+.1f}% (₩{pnl:+,.0f})\n{reason}",
-               priority="high" if not win else "default", cooldown=0)
-        logger.info(f"[POSITION] {pos['agent_name']} {symbol} closed: {pnl_pct:+.1f}%")
+    """보유 종목 현재가로 재평가 알림."""
+    from db import get_open_positions_by_symbol
+    import fetchers
+    round_id = create_round("position-eval")
+    save_message(round_id, "System", None, "📊 보유 포지션 현재가 평가 중...")
+    complete_round(round_id)
