@@ -171,14 +171,14 @@ SELL_MAJORITY = 4              # 매도 결정에 필요한 최소 투표 수
 DEFAULT_BUY_PCT = 10           # 기본 매수 비중 (잔액의 %)
 MAX_BUY_PCT = 20               # 최대 매수 비중
 MARKET_REFRESH_HOURS = 2
-SECTOR_COOLDOWN_HOURS = 20     # 한 섹터 완료 후 다음 섹터까지 대기 (하루 1섹터)
+CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
 # ── 상태 ─────────────────────────────────────────────────
 _sector_idx: int = 0
-_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis" | "cooldown"
+_phase: str = "sector_discussion"   # "sector_discussion" | "stock_analysis" | "cycle_rest"
 _stock_idx: int = 0
 _discussion_round: int = 0
-_sector_done_at: float = 0.0        # 섹터 완료 시각 (cooldown 계산용)
+_cycle_done_at: float = 0.0         # 전체 사이클 완료 시각
 _user_active_until: float = 0.0
 _stop_on_credit: bool = False
 _agent_fail_count: dict = {}
@@ -208,8 +208,8 @@ def get_current_state() -> dict:
     sector = SECTORS[_sector_idx]
     stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" and _stock_idx < len(sector["stocks"]) else None
     cooldown_remaining_h = 0.0
-    if _phase == "cooldown" and _sector_done_at:
-        cooldown_remaining_h = max(0.0, round(SECTOR_COOLDOWN_HOURS - (time.time() - _sector_done_at) / 3600, 1))
+    if _phase == "cycle_rest" and _cycle_done_at:
+        cooldown_remaining_h = max(0.0, round(CYCLE_REST_HOURS - (time.time() - _cycle_done_at) / 3600, 1))
     return {
         "sector_idx": _sector_idx,
         "sector": sector["name"],
@@ -530,15 +530,28 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     with _state_lock:
         globals()["_stock_idx"] += 1
         if _stock_idx >= len(sector["stocks"]):
-            next_name = SECTORS[(_sector_idx + 1) % len(SECTORS)]["name"]
-            _save_msg(round_id, "System",
-                      f"✅ [{sector['name']}] 섹터 모든 종목 분석 완료!\n"
-                      f"내일 다음 섹터 분석 예정: {next_name}")
-            globals()["_sector_idx"] = (_sector_idx + 1) % len(SECTORS)
-            globals()["_phase"] = "cooldown"
+            next_sector_idx = _sector_idx + 1
+            is_last = next_sector_idx >= len(SECTORS)
+
+            if is_last:
+                # 전체 사이클 완료 → 휴식
+                _save_msg(round_id, "System",
+                          f"✅ [{sector['name']}] 섹터 완료\n\n"
+                          f"🎉 오늘 전체 {len(SECTORS)}개 섹터 분석 완료!\n"
+                          f"봇들이 {CYCLE_REST_HOURS}시간 휴식 후 내일 다시 반도체 섹터부터 시작합니다.")
+                globals()["_sector_idx"] = 0
+                globals()["_phase"] = "cycle_rest"
+                globals()["_cycle_done_at"] = time.time()
+            else:
+                # 다음 섹터로
+                next_name = SECTORS[next_sector_idx]["name"]
+                _save_msg(round_id, "System",
+                          f"✅ [{sector['name']}] 섹터 완료 → 다음: {next_name}")
+                globals()["_sector_idx"] = next_sector_idx
+                globals()["_phase"] = "sector_discussion"
+
             globals()["_stock_idx"] = 0
             globals()["_discussion_round"] = 0
-            globals()["_sector_done_at"] = time.time()
         else:
             next_stock = sector["stocks"][_stock_idx]["name"]
             _save_msg(round_id, "System",
@@ -562,15 +575,16 @@ def run_round(market_summary=None):
     if is_user_active():
         return
 
-    # 섹터 완료 후 쿨다운 — 하루 1섹터 페이스
-    if _phase == "cooldown":
-        elapsed = (time.time() - _sector_done_at) / 3600
-        remaining = SECTOR_COOLDOWN_HOURS - elapsed
-        if remaining > 0:
-            return  # 아직 대기 중
-        # 쿨다운 끝 → 다음 섹터 시작
+    # 전체 사이클 완료 후 휴식 — 20시간 후 다시 시작
+    if _phase == "cycle_rest":
+        elapsed = (time.time() - _cycle_done_at) / 3600
+        if elapsed < CYCLE_REST_HOURS:
+            return
+        # 휴식 끝 → 첫 섹터부터 다시
         with _state_lock:
             globals()["_phase"] = "sector_discussion"
+            globals()["_sector_idx"] = 0
+            globals()["_discussion_round"] = 0
 
     if market_summary is None:
         market_summary, market_refreshed = _get_or_refresh_market_summary()

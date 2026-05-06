@@ -271,8 +271,8 @@ async function loadState() {
 
     document.getElementById('sector-name').textContent = s.sector || '—';
     let phaseText = '';
-    if (s.phase === 'cooldown') {
-      phaseText = `오늘 완료 ⏳ ${s.cooldown_remaining_h||0}h 후 다음 섹터`;
+    if (s.phase === 'cycle_rest') {
+      phaseText = `오늘 분석 완료 😴 ${s.cooldown_remaining_h||0}h 후 재시작`;
     } else if (s.phase === 'sector_discussion') {
       phaseText = `섹터 토론 ${s.discussion_round||0}/3 라운드`;
     } else {
