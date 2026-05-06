@@ -212,36 +212,42 @@ def format_history_compact(messages):
     return "\n".join(lines)
 
 
-def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, history_text, agent_name, round_num):
+def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, history_text,
+                                    agent_name, round_num, tg_context: str = ""):
     intro = f"[{sector_name} 섹터 토론 — {round_num}라운드]" if round_num > 1 else f"[{sector_name} 섹터 토론 시작]"
+    tg_section = f"\n{tg_context}\n" if tg_context else ""
     return f"""{intro}
 섹터: {sector_name} ({sector_desc})
 
 시황:
 {market_summary}
-
+{tg_section}
 [지금까지 대화]
 {history_text or "(첫 번째 발언)"}
 
 {agent_name}, {sector_name} 섹터에 대한 당신의 시각을 공유하세요.
 - 지금 이 섹터가 앞으로 어떨 것 같은지
 - 긍정 요인과 우려 요인
+- 텔레그램 방 여론도 참고하되, 비판적으로 수용하세요
 - 다른 봇 의견에 동의/반박/보완
 2-3문장. 반드시 한국어."""
 
 
-def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, history_text, agent_name):
+def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, history_text,
+                                 agent_name, tg_context: str = ""):
+    tg_section = f"\n{tg_context}\n" if tg_context else ""
     return f"""[{sector_name} 섹터 — 종목 분석]
 
 {stock_data_text}
 
 시황 요약: {market_summary[:300]}
-
+{tg_section}
 [이전 의견]
 {history_text or "(첫 번째 의견)"}
 
 {agent_name}, 위 데이터를 바탕으로 이 종목에 대한 투자 판단을 내려주세요.
 - 본인 관점(낙관/비관/수치/매크로/차트)에서 핵심 근거 제시
+- 텔레그램 방 여론이 있다면 참고하되, 맹목적으로 따르지 마세요
 - 반드시 [결정] 형식으로 마무리 (매수/관망/매도)
 2-3문장. 반드시 한국어."""
 

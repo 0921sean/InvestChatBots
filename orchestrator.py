@@ -32,6 +32,7 @@ from fetchers import (
     fetch_market_data, fetch_news, fetch_technical_analysis,
     build_market_summary, fetch_stock_data, format_stock_data,
 )
+from telegram_fetcher import fetch_telegram_messages, get_cached_context
 from notifier import notify, is_credit_error, is_rate_limit
 
 # ── 섹터 + 종목 설정 ────────────────────────────────────
@@ -278,6 +279,10 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     _discussion_round += 1
 
     if _discussion_round == 1:
+        # 섹터 시작 시 텔레그램 메시지 갱신
+        threading.Thread(
+            target=fetch_telegram_messages, kwargs={"force": True}, daemon=True
+        ).start()
         _save_msg(round_id, "System",
                   f"📂 [{sector['name']}] 섹터 분석 시작\n"
                   f"{sector['description']}\n"
@@ -287,11 +292,15 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
 
-    for agent_name in AGENT_ORDER:
+    # 텔레그램 여론 컨텍스트 (첫 봇에만 포함, 이후는 대화 히스토리로 전파됨)
+    tg_context = get_cached_context(max_msgs=20)
+
+    for i, agent_name in enumerate(AGENT_ORDER):
         system = AGENT_PROFILES[agent_name]["system"]
         prompt = build_sector_discussion_prompt(
             sector["name"], sector["description"],
             market_summary, history_text, agent_name, _discussion_round,
+            tg_context=tg_context if i == 0 else "",
         )
         try:
             resp = call_agent(agent_name, system, prompt)
@@ -355,6 +364,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         stock_data_text = f"=== {stock['name']} ({stock['code']}) ===\n데이터 수집 실패"
         current_price = 0
 
+    tg_context = get_cached_context(max_msgs=15)
     _save_msg(round_id, "System",
               f"📌 [{sector['name']}] {stock['name']} 분석\n{stock_data_text}\n\n각자 매수/관망/매도 의견을 주세요.")
 
@@ -364,10 +374,11 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     history = get_recent_messages(10)
     history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
 
-    for agent_name in AGENT_ORDER:
+    for i, agent_name in enumerate(AGENT_ORDER):
         system = AGENT_PROFILES[agent_name]["system"]
         prompt = build_stock_analysis_prompt(
-            stock_data_text, sector["name"], market_summary, history_text, agent_name
+            stock_data_text, sector["name"], market_summary, history_text, agent_name,
+            tg_context=tg_context if i == 0 else "",
         )
         try:
             resp = call_agent(agent_name, system, prompt)
