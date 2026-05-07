@@ -42,6 +42,16 @@ def init_db():
             status TEXT DEFAULT 'running',
             started_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS blog_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blog_id TEXT NOT NULL,
+            log_no TEXT NOT NULL,
+            title TEXT,
+            post_date TEXT,
+            content TEXT,
+            fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(blog_id, log_no)
+        );
         CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT,
@@ -338,6 +348,46 @@ def get_today_analyzed_stocks() -> list[tuple[str, str]]:
             (today,)
         ).fetchall()
     return [(r[0], r[1]) for r in rows]
+
+
+def save_blog_post(blog_id: str, log_no: str, title: str, post_date: str, content: str):
+    with _conn() as con:
+        try:
+            con.execute("""
+                INSERT OR IGNORE INTO blog_posts (blog_id, log_no, title, post_date, content)
+                VALUES (?, ?, ?, ?, ?)
+            """, (blog_id, log_no, title, post_date, content))
+        except Exception:
+            pass
+
+
+def blog_post_exists(blog_id: str, log_no: str) -> bool:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT 1 FROM blog_posts WHERE blog_id=? AND log_no=?", (blog_id, log_no)
+        ).fetchone()
+    return row is not None
+
+
+def get_recent_blog_posts(since: str, limit: int = 30) -> list[dict]:
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT blog_id, log_no, title, post_date, content
+            FROM blog_posts
+            WHERE post_date >= ?
+            ORDER BY post_date DESC, id DESC
+            LIMIT ?
+        """, (since, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_blog_post_count(blog_id: str) -> int:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT COUNT(*) FROM blog_posts WHERE blog_id=?", (blog_id,)
+        ).fetchone()
+    return row[0] if row else 0
 
 
 def get_evolution_notes(agent_name: str) -> str:
