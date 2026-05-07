@@ -36,7 +36,8 @@ from fetchers import (
     build_market_summary, fetch_stock_data, format_stock_data,
 )
 from telegram_fetcher import fetch_telegram_messages, get_cached_context
-from blog_fetcher import get_recent_blog_context, refresh_all_blogs
+from blog_fetcher import (get_recent_blog_context, refresh_all_blogs,
+                           extract_signals_for_stock, format_historical_signals)
 from notifier import notify, is_credit_error, is_rate_limit
 
 # ── 섹터 + 종목 설정 ────────────────────────────────────
@@ -624,7 +625,19 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
 
     tg_context = get_cached_context(max_msgs=15)
     blog_context = get_recent_blog_context(days=14, max_posts=5)
-    extra_context = "\n\n".join(filter(None, [tg_context, blog_context]))
+
+    # 과거 유사 구간 신호 — 백그라운드 추출 후 주입
+    historical_context = ""
+    if current_price > 0:
+        try:
+            signals = extract_signals_for_stock(
+                stock["name"], stock.get("code", ""), current_price
+            )
+            historical_context = format_historical_signals(signals, stock["name"], current_price)
+        except Exception as e:
+            logger.debug(f"신호 추출 오류: {e}")
+
+    extra_context = "\n\n".join(filter(None, [tg_context, blog_context, historical_context]))
     _save_msg(round_id, "System",
               f"📌 [{sector['name']}] {stock['name']} 분석\n{stock_data_text}\n\n각자 매수/관망/매도 의견을 주세요.")
 

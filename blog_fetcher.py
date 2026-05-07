@@ -195,3 +195,99 @@ def refresh_all_blogs():
             fetch_blog_rss(blog_id)
         except Exception as e:
             logger.warning(f"블로그 업데이트 실패 {blog_id}: {e}")
+
+
+# ── 신호 추출 ─────────────────────────────────────────────
+def extract_signals_for_stock(stock_name: str, stock_code: str,
+                               current_price: float) -> list[dict]:
+    """
+    stock_name을 언급한 블로그 글들에서 (언급가격, 판단) 추출.
+    추출 결과는 DB에 캐시 → 이미 추출된 글은 재처리 안 함.
+    """
+    from db import (get_posts_mentioning, save_blog_signal,
+                    signal_already_extracted, get_matching_signals)
+    import os
+
+    posts = get_posts_mentioning(stock_name, limit=30)
+    if not posts:
+        return get_matching_signals(stock_name, current_price)
+
+    # AI 추출 — Anthropic API 직접 호출 (저렴한 Haiku 사용)
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return get_matching_signals(stock_name, current_price)
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+
+    new_extractions = 0
+    for post in posts:
+        if signal_already_extracted(post["blog_id"], post["log_no"], stock_name):
+            continue
+        if new_extractions >= 10:  # 한 번에 최대 10개 처리
+            break
+
+        content = post.get("content", "")[:1500]
+        if not content:
+            continue
+
+        prompt = f"""다음 블로그 글에서 '{stock_name}' 관련 투자 정보를 추출하세요.
+
+블로그 글 (날짜: {post['post_date']}):
+{content}
+
+아래 JSON 형식으로만 답하세요. 정보가 없으면 null:
+{{
+  "mentioned_price": <언급된 가격(숫자, 원 단위) 또는 null>,
+  "judgment": <"매수"|"관망"|"매도"|"주목"|"중립" 또는 null>,
+  "excerpt": <핵심 문장 1개 (50자 이내) 또는 null>
+}}"""
+
+        try:
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=15.0,
+            )
+            text = resp.content[0].text.strip()
+            # JSON 파싱
+            import json, re
+            m = re.search(r'\{.*\}', text, re.DOTALL)
+            if not m:
+                continue
+            data = json.loads(m.group())
+            price = data.get("mentioned_price")
+            judgment = data.get("judgment")
+            excerpt = data.get("excerpt") or ""
+
+            if price and judgment:
+                save_blog_signal(
+                    post["blog_id"], post["log_no"], post["post_date"],
+                    stock_name, stock_code, float(price), judgment,
+                    f"{post['title']} | {excerpt}"
+                )
+                new_extractions += 1
+        except Exception as e:
+            logger.debug(f"신호 추출 오류 {post['log_no']}: {e}")
+        time.sleep(0.3)
+
+    return get_matching_signals(stock_name, current_price)
+
+
+def format_historical_signals(signals: list[dict], stock_name: str,
+                               current_price: float) -> str:
+    """과거 유사 구간 신호를 프롬프트용 텍스트로 포맷."""
+    if not signals:
+        return ""
+
+    lines = [f"=== {stock_name} 유사 구간 블로거 과거 판단 (현재가 ₩{current_price:,.0f} 기준 ±15%) ==="]
+    judgment_emoji = {"매수": "🟢", "관망": "🟡", "주목": "🔵", "매도": "🔴", "중립": "⚪"}
+    for s in signals:
+        emoji = judgment_emoji.get(s["judgment"], "•")
+        price_str = f"₩{s['mentioned_price']:,.0f}" if s["mentioned_price"] else "?"
+        lines.append(
+            f"{emoji} [{s['post_date']}][{s['blog_id']}] {s['judgment']} "
+            f"(당시가 {price_str})\n  {s['excerpt']}"
+        )
+    return "\n".join(lines)
