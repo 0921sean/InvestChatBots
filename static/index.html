@@ -368,10 +368,13 @@ async function loadPortfolio() {
     if (open.length) {
       html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
       open.forEach(p => {
+        const isUS = p.market === 'US';
+        const priceStr = isUS ? `$${(p.entry_price||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : `₩${(p.entry_price||0).toLocaleString()}`;
         html += `<div class="pos-item">
           <div><span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
-               <span style="color:#3fb950;margin-left:6px;font-size:10px">매수</span></div>
-          <div class="pos-meta">₩${(p.entry_price||0).toLocaleString()} · ₩${Math.round(p.amount||0).toLocaleString()}</div>
+               <span style="color:#3fb950;margin-left:6px;font-size:10px">매수</span>
+               ${isUS ? '<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>' : ''}</div>
+          <div class="pos-meta">${priceStr} · ₩${Math.round(p.amount||0).toLocaleString()}</div>
         </div>`;
       });
     } else {

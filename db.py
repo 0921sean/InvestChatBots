@@ -15,6 +15,7 @@ def _migrate():
             "ALTER TABLE messages ADD COLUMN summary TEXT",
             "ALTER TABLE messages ADD COLUMN translation TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN code TEXT",
+            "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
         ]:
             try:
                 con.execute(sql)
@@ -215,7 +216,8 @@ def get_shared_portfolio():
         }
 
 
-def buy_shared_position(symbol: str, code: str, entry_price: float, amount: float, reasoning: str):
+def buy_shared_position(symbol: str, code: str, entry_price: float, amount: float,
+                        reasoning: str, market: str = "KRX"):
     """잔액에서 amount 차감 후 포지션 오픈. (pos_id, error) 반환."""
     with _conn() as con:
         con.row_factory = sqlite3.Row
@@ -225,9 +227,9 @@ def buy_shared_position(symbol: str, code: str, entry_price: float, amount: floa
 
         quantity = round(amount / entry_price, 4) if entry_price else 0
         cur = con.execute("""
-            INSERT INTO virtual_positions (symbol, code, direction, entry_price, quantity, amount, reasoning)
-            VALUES (?, ?, '매수', ?, ?, ?, ?)
-        """, (symbol, code, entry_price, quantity, amount, reasoning))
+            INSERT INTO virtual_positions (symbol, code, direction, entry_price, quantity, amount, reasoning, market)
+            VALUES (?, ?, '매수', ?, ?, ?, ?, ?)
+        """, (symbol, code, entry_price, quantity, amount, reasoning, market))
 
         con.execute("""
             UPDATE shared_portfolio SET

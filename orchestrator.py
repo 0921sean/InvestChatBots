@@ -361,6 +361,7 @@ def _execute_buy(stock: dict, price: float, weight_pct: float,
         entry_price=price,
         amount=amount,
         reasoning=reasoning_summary,
+        market=stock.get("market", "KRX"),
     )
     if err:
         _save_msg(round_id, "System", f"⚠️ 매수 실패: {err}")
@@ -601,6 +602,9 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         _advance_stock(round_id, sector)
         return
 
+    # 분석 시작 즉시 기록 (매수 실행 전) — 서버 재시작해도 중복 분석 방지
+    log_stock_analyzed(sector["name"], stock["name"])
+
     # 종목 데이터 페치
     _save_msg(round_id, "System", f"🔍 {stock['name']} ({stock['code']}) 데이터 수집 중...")
     try:
@@ -668,7 +672,6 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         )
         _execute_sell(stock, current_price, sell_reasoning, round_id)
 
-    log_stock_analyzed(sector["name"], stock["name"])
     _advance_stock(round_id, sector)
 
 
