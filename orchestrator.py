@@ -36,6 +36,7 @@ from fetchers import (
     build_market_summary, fetch_stock_data, format_stock_data,
 )
 from telegram_fetcher import fetch_telegram_messages, get_cached_context
+from blog_fetcher import get_recent_blog_context, refresh_all_blogs
 from notifier import notify, is_credit_error, is_rate_limit
 
 # ── 섹터 + 종목 설정 ────────────────────────────────────
@@ -491,10 +492,9 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     _discussion_round += 1
 
     if _discussion_round == 1:
-        # 섹터 시작 시 텔레그램 메시지 갱신
-        threading.Thread(
-            target=fetch_telegram_messages, kwargs={"force": True}, daemon=True
-        ).start()
+        # 섹터 시작 시 텔레그램 + 블로그 갱신
+        threading.Thread(target=fetch_telegram_messages, kwargs={"force": True}, daemon=True).start()
+        threading.Thread(target=refresh_all_blogs, daemon=True).start()
         _save_msg(round_id, "System",
                   f"📂 [{sector['name']}] 섹터 분석 시작\n"
                   f"{sector['description']}\n"
@@ -504,15 +504,17 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] not in ("System",)])
 
-    # 텔레그램 여론 컨텍스트 (첫 봇에만 포함, 이후는 대화 히스토리로 전파됨)
+    # 텔레그램 + 블로그 컨텍스트 (첫 봇에만 포함)
     tg_context = get_cached_context(max_msgs=20)
+    blog_context = get_recent_blog_context(days=30, max_posts=10)
+    extra_context = "\n\n".join(filter(None, [tg_context, blog_context]))
 
     for i, agent_name in enumerate(AGENT_ORDER):
         system = _build_system(agent_name)
         prompt = build_sector_discussion_prompt(
             sector["name"], sector["description"],
             market_summary, history_text, agent_name, _discussion_round,
-            tg_context=tg_context if i == 0 else "",
+            tg_context=extra_context if i == 0 else "",
         )
         try:
             resp = call_agent(agent_name, system, prompt)
@@ -621,6 +623,8 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         current_price = 0
 
     tg_context = get_cached_context(max_msgs=15)
+    blog_context = get_recent_blog_context(days=14, max_posts=5)
+    extra_context = "\n\n".join(filter(None, [tg_context, blog_context]))
     _save_msg(round_id, "System",
               f"📌 [{sector['name']}] {stock['name']} 분석\n{stock_data_text}\n\n각자 매수/관망/매도 의견을 주세요.")
 
@@ -635,7 +639,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         system = _build_system(agent_name)
         prompt = build_stock_analysis_prompt(
             stock_data_text, sector["name"], market_summary, history_text, agent_name,
-            tg_context=tg_context if i == 0 else "",
+            tg_context=extra_context if i == 0 else "",
         )
         try:
             resp = call_agent(agent_name, system, prompt)
