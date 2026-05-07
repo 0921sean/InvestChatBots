@@ -42,6 +42,18 @@ def init_db():
             status TEXT DEFAULT 'running',
             started_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS blog_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blog_id TEXT NOT NULL,
+            log_no TEXT NOT NULL,
+            post_date TEXT,
+            stock_name TEXT,
+            stock_code TEXT,
+            mentioned_price REAL,
+            judgment TEXT,
+            excerpt TEXT,
+            extracted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS blog_posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             blog_id TEXT NOT NULL,
@@ -348,6 +360,58 @@ def get_today_analyzed_stocks() -> list[tuple[str, str]]:
             (today,)
         ).fetchall()
     return [(r[0], r[1]) for r in rows]
+
+
+def save_blog_signal(blog_id: str, log_no: str, post_date: str,
+                     stock_name: str, stock_code: str,
+                     mentioned_price: float, judgment: str, excerpt: str):
+    with _conn() as con:
+        con.execute("""
+            INSERT OR IGNORE INTO blog_signals
+            (blog_id, log_no, post_date, stock_name, stock_code, mentioned_price, judgment, excerpt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (blog_id, log_no, post_date, stock_name, stock_code,
+              mentioned_price, judgment, excerpt))
+
+
+def get_matching_signals(stock_name: str, current_price: float,
+                         tolerance: float = 0.15, limit: int = 5) -> list[dict]:
+    """현재가 ±tolerance 범위 내 과거 블로그 신호."""
+    low  = current_price * (1 - tolerance)
+    high = current_price * (1 + tolerance)
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT * FROM blog_signals
+            WHERE stock_name = ?
+              AND mentioned_price BETWEEN ? AND ?
+            ORDER BY post_date DESC
+            LIMIT ?
+        """, (stock_name, low, high, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def signal_already_extracted(blog_id: str, log_no: str, stock_name: str) -> bool:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT 1 FROM blog_signals WHERE blog_id=? AND log_no=? AND stock_name=?",
+            (blog_id, log_no, stock_name)
+        ).fetchone()
+    return row is not None
+
+
+def get_posts_mentioning(stock_name: str, limit: int = 20) -> list[dict]:
+    """종목명이 제목이나 본문에 언급된 블로그 글."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT * FROM blog_posts
+            WHERE (title LIKE ? OR content LIKE ?)
+              AND content != ''
+            ORDER BY post_date DESC
+            LIMIT ?
+        """, (f"%{stock_name}%", f"%{stock_name}%", limit)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_blog_post(blog_id: str, log_no: str, title: str, post_date: str, content: str):
