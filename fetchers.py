@@ -357,6 +357,96 @@ def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
     return result
 
 
+def _try_fetch_us_stock(ticker: str) -> dict | None:
+    """US 티커 데이터 시도. TradingView → yfinance 폴백. 실패 시 None."""
+    data: dict = {"name": ticker, "code": ticker, "market": "US"}
+
+    # 1) TradingView TA
+    for exchange in ("NASDAQ", "NYSE", "NYSE ARCA", "AMEX"):
+        try:
+            h = TA_Handler(symbol=ticker, screener="america",
+                           exchange=exchange, interval=Interval.INTERVAL_1_DAY)
+            a = h.get_analysis()
+            close = a.indicators.get("close") or a.indicators.get("Close")
+            if not close:
+                continue
+            data.update({
+                "price": round(float(close), 2),
+                "rsi": round(float(a.indicators.get("RSI") or 0), 1),
+                "recommendation": a.summary.get("RECOMMENDATION", "NEUTRAL"),
+                "buy_signals": a.summary.get("BUY", 0),
+                "sell_signals": a.summary.get("SELL", 0),
+            })
+            break
+        except Exception:
+            continue
+
+    # 2) yfinance — 가격 폴백 + 펀더멘털
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        if not data.get("price"):
+            price, _ = _yf_price(ticker)
+            if price:
+                data["price"] = price
+        for key, attr in [("per", "trailingPE"), ("eps", "trailingEps"),
+                           ("52w_high", "fiftyTwoWeekHigh"), ("52w_low", "fiftyTwoWeekLow"),
+                           ("market_cap", "marketCap"), ("roe", "returnOnEquity")]:
+            val = info.get(attr)
+            if val and not (isinstance(val, float) and math.isnan(val)):
+                data[key] = val
+        # 회사 이름이 있으면 표시명으로 사용
+        name = info.get("shortName") or info.get("longName")
+        if name:
+            data["name"] = name
+    except Exception:
+        pass
+
+    return data if data.get("price") else None
+
+
+def detect_and_fetch_stocks(message: str) -> str:
+    """
+    메시지에서 US 티커 후보 감지 → TradingView 데이터 페치 → 포맷 문자열 반환.
+    감지 못하거나 데이터 없으면 빈 문자열.
+    """
+    import re
+    # \b가 한글 앞에서 작동 안 해 → 공백/시작/끝/한글 경계로 대체
+    pat = r'(?<![A-Za-z])([A-Z]{2,5}|[A-Z][a-z]{2,9})(?![A-Za-z])'
+    raw = re.findall(pat, message)
+    candidates = list(dict.fromkeys(c.upper() for c in raw))
+
+    SKIP = {"NTM", "EPS", "PER", "ROE", "RSI", "ETF", "IPO", "GDP", "FED",
+            "AI", "US", "IT", "OK", "TV", "ID", "KRX", "FOR", "AND", "THE",
+            "NOT", "ARE", "NMF", "TTM", "YOY", "QOQ", "FCF", "DCF", "NAV",
+            "THIS", "THAT", "WITH", "FROM", "HAVE", "BEEN", "WILL", "WHAT",
+            "WHEN", "WHERE", "NOKIA", "APPLE", "TESLA"}  # 회사명은 직접 처리
+    # 알려진 회사명 → 티커 매핑
+    NAME_MAP = {
+        "NOKIA": "NOK", "NOKIA": "NOK",
+        "APPLE": "AAPL", "TESLA": "TSLA", "GOOGLE": "GOOGL",
+        "AMAZON": "AMZN", "MICROSOFT": "MSFT", "META": "META",
+    }
+    mapped = []
+    for c in dict.fromkeys(candidates):
+        if c in NAME_MAP:
+            mapped.append(NAME_MAP[c])
+        elif c not in SKIP:
+            mapped.append(c)
+    candidates = mapped
+    if not candidates:
+        return ""
+
+    results = []
+    for ticker in candidates[:4]:  # 최대 4개
+        data = _try_fetch_us_stock(ticker)
+        if data:
+            results.append(format_stock_data(data))
+            time.sleep(0.3)
+
+    return "\n\n".join(results)
+
+
 def fetch_stock_price(symbol: str) -> float | None:
     """단일 종목 현재가."""
     try:

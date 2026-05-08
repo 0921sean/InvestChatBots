@@ -253,8 +253,9 @@ def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, hi
 2-3문장. 반드시 한국어."""
 
 
-def build_user_response_prompt(user_message, history_text, agent_name):
-    return f"""대화 맥락:\n{history_text}\n\n사용자: "{user_message}"\n\n{agent_name}로서 답변. 구체적 근거 포함. 한국어."""
+def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = ""):
+    stock_section = f"\n\n[자동 조회된 종목 데이터]\n{stock_context}" if stock_context else ""
+    return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{agent_name}로서 답변. 종목 데이터가 있으면 반드시 활용해서 구체적 수치와 근거 포함. 한국어."""
 
 
 def build_feedback_prompt(stock_name, pnl, pnl_pct, history_summary):

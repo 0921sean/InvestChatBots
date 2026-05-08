@@ -35,6 +35,7 @@ from prompts import (
 from fetchers import (
     fetch_market_data, fetch_news, fetch_technical_analysis,
     build_market_summary, fetch_stock_data, format_stock_data,
+    detect_and_fetch_stocks,
 )
 from telegram_fetcher import fetch_telegram_messages, get_cached_context
 from blog_fetcher import (get_recent_blog_context, refresh_all_blogs,
@@ -751,17 +752,31 @@ def handle_user_message(user_text: str):
     round_id = create_round("user-message")
     save_message(round_id, "User", None, user_text)
 
+    # 메시지에서 종목 감지 → TradingView 데이터 자동 페치
+    stock_data_text = ""
+    try:
+        stock_data_text = detect_and_fetch_stocks(user_text)
+        if stock_data_text:
+            _save_msg(round_id, "System", f"📊 종목 데이터 자동 조회\n{stock_data_text}")
+    except Exception as e:
+        logger.debug(f"종목 감지 오류: {e}")
+
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
-    # 3봇 응답 — 퀀트 봇 중 1명은 반드시 포함
-    quant_pool = [a for a in AGENT_ORDER if a in QUANT_BOTS]
-    other_pool  = [a for a in AGENT_ORDER if a not in QUANT_BOTS]
-    guaranteed  = [random.choice(quant_pool)]
-    responders  = guaranteed + random.sample([a for a in other_pool if a not in guaranteed], 2)
+    # 종목 데이터 있으면 전원 응답, 없으면 3봇 (퀀트 1명 보장)
+    if stock_data_text:
+        responders = list(AGENT_ORDER)
+    else:
+        quant_pool = [a for a in AGENT_ORDER if a in QUANT_BOTS]
+        other_pool = [a for a in AGENT_ORDER if a not in QUANT_BOTS]
+        guaranteed = [random.choice(quant_pool)]
+        responders = guaranteed + random.sample([a for a in other_pool if a not in guaranteed], 2)
+
     for agent_name in responders:
         system = _build_system(agent_name)
-        prompt = build_user_response_prompt(user_text, history_text, agent_name)
+        prompt = build_user_response_prompt(user_text, history_text, agent_name,
+                                            stock_context=stock_data_text)
         try:
             resp = call_agent(agent_name, system, prompt)
         except Exception as e:
