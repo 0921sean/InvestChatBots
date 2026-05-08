@@ -348,12 +348,26 @@ async function togglePlay() {
 }
 async function syncPlayStatus() {
   try {
-    const {running} = await (await fetch('/api/conversation/status')).json();
-    if (running === isPlaying) return;
+    const [{running}, state] = await Promise.all([
+      (await fetch('/api/conversation/status')).json(),
+      (await fetch('/api/state')).json(),
+    ]);
+    const actuallyWorking = running && state.phase !== 'cycle_rest';
+    if (running === isPlaying) {
+      // cycle_rest 상태면 버튼 텍스트만 업데이트
+      const pauseBtn = document.getElementById('btn-pause');
+      if (running && state.phase === 'cycle_rest') {
+        pauseBtn.textContent = `😴 휴식 중 (${state.cooldown_remaining_h}h 남음)`;
+      } else if (running) {
+        pauseBtn.textContent = '⏸ 일시정지';
+      }
+      document.getElementById('typing').style.display = actuallyWorking ? 'flex' : 'none';
+      return;
+    }
     isPlaying = running;
     document.getElementById('btn-play').style.display  = running ? 'none' : 'inline-block';
     document.getElementById('btn-pause').style.display = running ? 'inline-block' : 'none';
-    document.getElementById('typing').style.display = running ? 'flex' : 'none';
+    document.getElementById('typing').style.display = actuallyWorking ? 'flex' : 'none';
   } catch(e) {}
 }
 
