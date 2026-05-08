@@ -199,7 +199,15 @@ function highlight(s) {
     .replace(/\[결정\]\s*매도/g,'<span class="decision-sell">[결정] 매도</span>')
     .replace(/\[결정\]\s*관망/g,'<span class="decision-hold">[결정] 관망</span>');
 }
-function timeStr() { return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
+function timeStr(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.includes('T') ? ts : ts.replace(' ','T')+'Z');
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  return isToday
+    ? d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})
+    : d.toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
 function avatar(name, color) {
   return `<div class="avatar" style="color:${color};background:${color}18;border-color:${color}55">${name[0]}</div>`;
 }
@@ -212,11 +220,11 @@ function renderMessage(msg) {
     el.innerHTML = `<span>${esc(msg.content)}</span>`;
   } else if (msg.agent_name === 'User') {
     el.className = 'msg user-msg';
-    el.innerHTML = `${avatar('나',color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">나</span><span>${timeStr()}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
+    el.innerHTML = `${avatar('나',color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">나</span><span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
   } else {
     const sub = agents[msg.agent_name]?.description || '';
     el.className = 'msg';
-    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span><span>${timeStr()}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
+    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span><span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
   }
   return el;
 }
