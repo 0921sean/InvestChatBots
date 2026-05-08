@@ -20,6 +20,7 @@ from db import (
     save_cycle_state, load_cycle_state,
     log_stock_analyzed, was_stock_analyzed_today,
     get_evolution_notes, save_evolution_notes,
+    get_active_lecture_notes,
 )
 from agents import call_agent
 from prompts import (
@@ -179,14 +180,13 @@ MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
 # ── 상태 ─────────────────────────────────────────────────
+QUANT_BOTS = {"퀀트", "원칙", "사냥꾼"}
+
 def _build_system(agent_name: str) -> str:
     """봇 시스템 프롬프트에 누적 학습 메모 주입."""
     base = AGENT_PROFILES[agent_name]["system"]
     notes = get_evolution_notes(agent_name)
-    if notes:
-        injection = f"\n\n[나의 투자 학습 메모 — 과거 매매에서 얻은 교훈]\n{notes}"
-    else:
-        injection = ""
+    injection = f"\n\n[나의 투자 학습 메모 — 과거 매매에서 얻은 교훈]\n{notes}" if notes else ""
     return base.replace("{evolution_notes}", injection)
 
 
@@ -754,8 +754,11 @@ def handle_user_message(user_text: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
-    # 3봇만 응답 (빠른 반응)
-    responders = random.sample(AGENT_ORDER, 3)
+    # 3봇 응답 — 퀀트 봇 중 1명은 반드시 포함
+    quant_pool = [a for a in AGENT_ORDER if a in QUANT_BOTS]
+    other_pool  = [a for a in AGENT_ORDER if a not in QUANT_BOTS]
+    guaranteed  = [random.choice(quant_pool)]
+    responders  = guaranteed + random.sample([a for a in other_pool if a not in guaranteed], 2)
     for agent_name in responders:
         system = _build_system(agent_name)
         prompt = build_user_response_prompt(user_text, history_text, agent_name)
