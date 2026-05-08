@@ -220,7 +220,22 @@ function renderMessage(msg) {
   return el;
 }
 
-function scrollToBottom() { const el=document.getElementById('messages'); el.scrollTop=el.scrollHeight; }
+const MAX_DOM_MESSAGES = 300;  // DOM에 유지할 최대 메시지 수
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  // 렌더 완료 후 스크롤 (requestAnimationFrame 두 번으로 보장)
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.scrollTop = el.scrollHeight;
+  }));
+}
+
+function trimMessages() {
+  const c = document.getElementById('messages');
+  while (c.children.length > MAX_DOM_MESSAGES) {
+    c.removeChild(c.firstChild);
+  }
+}
 
 async function poll() {
   try {
@@ -229,8 +244,9 @@ async function poll() {
     const msgs = await res.json();
     if (!msgs.length) return;
     const c = document.getElementById('messages');
-    const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 100;
+    const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 120;
     msgs.forEach(m => { c.appendChild(renderMessage(m)); if(m.id>lastId) lastId=m.id; });
+    trimMessages();
     if (atBottom) scrollToBottom();
   } catch(e) {}
 }
