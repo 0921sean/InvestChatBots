@@ -764,14 +764,8 @@ def handle_user_message(user_text: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
-    # 종목 데이터 있으면 전원 응답, 없으면 3봇 (퀀트 1명 보장)
-    if stock_data_text:
-        responders = list(AGENT_ORDER)
-    else:
-        quant_pool = [a for a in AGENT_ORDER if a in QUANT_BOTS]
-        other_pool = [a for a in AGENT_ORDER if a not in QUANT_BOTS]
-        guaranteed = [random.choice(quant_pool)]
-        responders = guaranteed + random.sample([a for a in other_pool if a not in guaranteed], 2)
+    # 항상 7봇 전원 응답
+    responders = list(AGENT_ORDER)
 
     for agent_name in responders:
         system = _build_system(agent_name)
