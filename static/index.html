@@ -245,7 +245,26 @@ function trimMessages() {
   }
 }
 
+let _initialLoaded = false;
+
+async function initialLoad() {
+  try {
+    const res = await fetch('/api/messages/latest?n=200');
+    if (!res.ok) return;
+    const msgs = await res.json();
+    const c = document.getElementById('messages');
+    const anchor = document.getElementById('msg-anchor');
+    msgs.forEach(m => {
+      c.insertBefore(renderMessage(m), anchor);
+      if (m.id > lastId) lastId = m.id;
+    });
+    _initialLoaded = true;
+    scrollToBottom();
+  } catch(e) { _initialLoaded = true; }
+}
+
 async function poll() {
+  if (!_initialLoaded) return;
   try {
     const res = await fetch(`/api/messages?since=${lastId}`);
     if (!res.ok) return;
@@ -255,7 +274,7 @@ async function poll() {
     const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 120;
     const anchor = document.getElementById('msg-anchor');
     msgs.forEach(m => {
-      c.insertBefore(renderMessage(m), anchor);  // 앵커 바로 앞에 삽입
+      c.insertBefore(renderMessage(m), anchor);
       if(m.id>lastId) lastId=m.id;
     });
     trimMessages();
@@ -506,7 +525,8 @@ function closeReason() {
 }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeReason(); });
 
-loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); poll(); syncPlayStatus();
+loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus();
+initialLoad();  // 최근 200개 한 번에 로드 → 맨 아래로 이동
 setInterval(poll, 3000);
 setInterval(loadState, 10000);
 setInterval(loadMarket, 60000);

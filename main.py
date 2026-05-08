@@ -73,8 +73,15 @@ def root():
 
 
 @app.get("/api/messages")
-def api_messages(since: int = 0):
-    return get_messages_since(since)
+def api_messages(since: int = 0, limit: int = 100):
+    return get_messages_since(since, limit=limit)
+
+
+@app.get("/api/messages/latest")
+def api_messages_latest(n: int = 200):
+    """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
+    from db import get_recent_messages
+    return list(reversed(get_recent_messages(n)))
 
 
 @app.get("/api/market")
