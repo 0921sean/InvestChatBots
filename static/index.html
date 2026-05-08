@@ -43,7 +43,8 @@
   .btn-play.playing { background: #b62324; color: #fff; }
   .btn-group { display: flex; gap: 6px; }
 
-  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow-anchor: none; }
+  #msg-anchor { height: 1px; flex-shrink: 0; }
   .msg-system { text-align: center; }
   .msg-system span { background: #1c2128; border: 1px solid #30363d; color: #8b949e; font-size: 11px; padding: 3px 14px; border-radius: 10px; }
   .msg { display: flex; gap: 10px; align-items: flex-start; }
@@ -138,7 +139,7 @@
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
     </div>
   </div>
-  <div id="messages"></div>
+  <div id="messages"><div id="msg-anchor"></div></div>
   <div id="typing"><span class="typing-dots" id="typing-text">분석 중...</span></div>
   <div id="input-area">
     <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" />
@@ -223,16 +224,15 @@ function renderMessage(msg) {
 const MAX_DOM_MESSAGES = 300;  // DOM에 유지할 최대 메시지 수
 
 function scrollToBottom() {
-  const el = document.getElementById('messages');
-  // 렌더 완료 후 스크롤 (requestAnimationFrame 두 번으로 보장)
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    el.scrollTop = el.scrollHeight;
-  }));
+  // 앵커 엘리먼트로 스크롤 — scrollHeight보다 훨씬 안정적
+  const anchor = document.getElementById('msg-anchor');
+  if (anchor) anchor.scrollIntoView({ block: 'end', behavior: 'instant' });
 }
 
 function trimMessages() {
   const c = document.getElementById('messages');
-  while (c.children.length > MAX_DOM_MESSAGES) {
+  // children.length - 1 은 앵커 엘리먼트
+  while (c.children.length - 1 > MAX_DOM_MESSAGES) {
     c.removeChild(c.firstChild);
   }
 }
@@ -245,7 +245,11 @@ async function poll() {
     if (!msgs.length) return;
     const c = document.getElementById('messages');
     const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 120;
-    msgs.forEach(m => { c.appendChild(renderMessage(m)); if(m.id>lastId) lastId=m.id; });
+    const anchor = document.getElementById('msg-anchor');
+    msgs.forEach(m => {
+      c.insertBefore(renderMessage(m), anchor);  // 앵커 바로 앞에 삽입
+      if(m.id>lastId) lastId=m.id;
+    });
     trimMessages();
     if (atBottom) scrollToBottom();
   } catch(e) {}
