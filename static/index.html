@@ -92,6 +92,17 @@
   .pos-section-label { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #6e7681; text-transform: uppercase; }
   .pos-item { padding: 6px 10px; border-bottom: 1px solid #0d1117; font-size: 11px; }
   .pos-meta { font-size: 10px; color: #6e7681; margin-top: 2px; }
+  .pos-item { cursor: pointer; transition: background .15s; }
+  .pos-item:hover { background: rgba(255,255,255,0.04); }
+
+  /* 매수 이유 모달 */
+  #reason-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; }
+  #reason-modal.open { display:flex; }
+  #reason-box { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:22px 24px; max-width:420px; width:90%; position:relative; }
+  #reason-box h3 { font-size:15px; font-weight:700; margin-bottom:4px; }
+  #reason-box .r-meta { font-size:11px; color:#6e7681; margin-bottom:16px; }
+  #reason-box .r-body { font-size:13px; line-height:1.8; color:#c9d1d9; white-space:pre-wrap; }
+  #reason-close { position:absolute; top:12px; right:14px; background:none; border:none; color:#6e7681; font-size:18px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -158,6 +169,15 @@
     <div class="pf-row"><span class="pf-label">승/패</span><span class="pf-value pf-neu" id="pf-record">—</span></div>
   </div>
   <div id="pf-positions"></div>
+</div>
+
+<div id="reason-modal" onclick="if(event.target===this)closeReason()">
+  <div id="reason-box">
+    <button id="reason-close" onclick="closeReason()">✕</button>
+    <h3 id="r-symbol"></h3>
+    <div class="r-meta" id="r-meta"></div>
+    <div class="r-body" id="r-body"></div>
+  </div>
 </div>
 
 <script>
@@ -380,7 +400,8 @@ async function loadPortfolio() {
         const upnlStr = upnl !== 0
           ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
           : '';
-        html += `<div class="pos-item">
+        const reasoning = (p.reasoning||'').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+        html += `<div class="pos-item" onclick="showReason('${p.symbol}','${p.opened_at||''}','${reasoning}','${isUS?'US':'KRX'}')">
           <div style="display:flex;justify-content:space-between;align-items:baseline">
             <span style="font-weight:600;color:#e2e8f0">${p.symbol}${isUS?'<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>':''}</span>
             ${upnlStr}
@@ -388,7 +409,7 @@ async function loadPortfolio() {
           <div class="pos-meta">
             진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span>
           </div>
-          <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()}</div>
+          <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수 이유 보기</span></div>
         </div>`;
       });
     } else {
@@ -429,6 +450,19 @@ async function requestSummary() {
     setTimeout(() => { btn.textContent = '📋 요약'; btn.disabled = false; }, 3000);
   } catch(e) { btn.textContent = '📋 요약'; btn.disabled = false; }
 }
+
+function showReason(symbol, openedAt, reasoning, market) {
+  const date = openedAt ? new Date(openedAt+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+  document.getElementById('r-symbol').textContent = symbol + (market==='US' ? ' (US)' : '');
+  document.getElementById('r-meta').textContent = date ? `매수 시각: ${date}` : '';
+  const body = reasoning ? reasoning.replace(/\\n/g,'\n') : '매수 이유 정보 없음';
+  document.getElementById('r-body').textContent = body;
+  document.getElementById('reason-modal').classList.add('open');
+}
+function closeReason() {
+  document.getElementById('reason-modal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeReason(); });
 
 loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); poll(); syncPlayStatus();
 setInterval(poll, 3000);
