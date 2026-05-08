@@ -5,3 +5,4 @@
 .worktrees/
 __pycache__/
 venv/
+.gstack/
