@@ -64,6 +64,11 @@ def init_db():
             fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(blog_id, log_no)
         );
+        CREATE TABLE IF NOT EXISTS lecture_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT,
@@ -360,6 +365,28 @@ def get_today_analyzed_stocks() -> list[tuple[str, str]]:
             (today,)
         ).fetchall()
     return [(r[0], r[1]) for r in rows]
+
+
+def add_lecture_note(content: str):
+    with _conn() as con:
+        con.execute("INSERT INTO lecture_notes (content) VALUES (?)", (content,))
+
+
+def get_active_lecture_notes(hours: int = 48) -> list[dict]:
+    """최근 N시간 강의 노트 반환."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT * FROM lecture_notes
+            WHERE created_at >= datetime('now', ?, 'localtime')
+            ORDER BY created_at ASC
+        """, (f'-{hours} hours',)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_lecture_notes():
+    with _conn() as con:
+        con.execute("DELETE FROM lecture_notes")
 
 
 def save_blog_signal(blog_id: str, log_no: str, post_date: str,

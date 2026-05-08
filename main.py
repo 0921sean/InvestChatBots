@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from db import (
     init_db, get_messages_since, get_latest_market_snapshot,
     get_consensus_notes, get_shared_portfolio, get_all_positions, get_open_positions,
+    add_lecture_note, get_active_lecture_notes, clear_lecture_notes,
 )
 import time as _time_module
 from orchestrator import (
@@ -264,6 +265,25 @@ def api_stop_on_credit_off():
     _orch._stop_on_credit = False
     return {"enabled": False}
 
+
+class LectureNote(BaseModel):
+    content: str
+
+@app.post("/api/lecture-note")
+def api_add_lecture_note(body: LectureNote):
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Empty note")
+    add_lecture_note(body.content.strip())
+    return {"ok": True}
+
+@app.get("/api/lecture-notes")
+def api_get_lecture_notes():
+    return get_active_lecture_notes()
+
+@app.delete("/api/lecture-notes")
+def api_clear_lecture_notes():
+    clear_lecture_notes()
+    return {"ok": True}
 
 @app.get("/api/user/active")
 def api_user_active():
