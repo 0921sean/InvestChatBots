@@ -316,6 +316,47 @@ def format_stock_news(stock_name: str, news_items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
+    """
+    보유 포지션 현재가 일괄 조회.
+    {symbol: current_price} 반환. 무료 (tradingview-ta + yfinance).
+    """
+    result = {}
+    for pos in positions:
+        code   = pos.get("code") or ""
+        symbol = pos.get("symbol", "")
+        market = pos.get("market", "KRX")
+        key    = symbol
+
+        try:
+            if market == "US":
+                price, _ = _yf_price(code or symbol)
+                if price:
+                    result[key] = price
+            else:
+                # KRX: tradingview-ta 우선, 실패 시 yfinance
+                try:
+                    h = TA_Handler(symbol=code, screener="korea", exchange="KRX",
+                                   interval=Interval.INTERVAL_1_DAY)
+                    a = h.get_analysis()
+                    close = a.indicators.get("close") or a.indicators.get("Close")
+                    if close:
+                        result[key] = float(close)
+                        continue
+                except Exception:
+                    pass
+                yf_ticker = code + ".KS" if code else ""
+                if yf_ticker:
+                    price, _ = _yf_price(yf_ticker)
+                    if price:
+                        result[key] = price
+        except Exception as e:
+            logger.debug(f"현재가 조회 실패 {symbol}: {e}")
+        time.sleep(0.2)
+
+    return result
+
+
 def fetch_stock_price(symbol: str) -> float | None:
     """단일 종목 현재가."""
     try:
