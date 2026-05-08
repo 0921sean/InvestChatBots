@@ -369,12 +369,26 @@ async function loadPortfolio() {
       html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
       open.forEach(p => {
         const isUS = p.market === 'US';
-        const priceStr = isUS ? `$${(p.entry_price||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : `₩${(p.entry_price||0).toLocaleString()}`;
+        const fmt = (v, us) => us
+          ? `$${Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+          : `₩${Math.round(v).toLocaleString()}`;
+        const entryStr   = fmt(p.entry_price||0, isUS);
+        const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
+        const upnl  = p.unrealized_pnl || 0;
+        const upnlP = p.unrealized_pnl_pct || 0;
+        const upnlColor = upnl > 0 ? '#3fb950' : upnl < 0 ? '#f85149' : '#8b949e';
+        const upnlStr = upnl !== 0
+          ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
+          : '';
         html += `<div class="pos-item">
-          <div><span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
-               <span style="color:#3fb950;margin-left:6px;font-size:10px">매수</span>
-               ${isUS ? '<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>' : ''}</div>
-          <div class="pos-meta">${priceStr} · ₩${Math.round(p.amount||0).toLocaleString()}</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span style="font-weight:600;color:#e2e8f0">${p.symbol}${isUS?'<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>':''}</span>
+            ${upnlStr}
+          </div>
+          <div class="pos-meta">
+            진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span>
+          </div>
+          <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()}</div>
         </div>`;
       });
     } else {

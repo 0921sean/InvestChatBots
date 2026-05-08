@@ -14,6 +14,7 @@ from db import (
     init_db, get_messages_since, get_latest_market_snapshot,
     get_consensus_notes, get_shared_portfolio, get_all_positions, get_open_positions,
 )
+import time as _time_module
 from orchestrator import (
     run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS,
     is_market_open, get_current_state, evaluate_positions,
@@ -157,12 +158,47 @@ def api_user_message(body: UserMessage):
     return {"ok": True}
 
 
+_price_cache: dict = {}          # {symbol: price}
+_price_cache_at: float = 0.0
+_PRICE_CACHE_TTL = 180           # 3분 캐시
+
+def _refresh_prices_bg():
+    """백그라운드에서 현재가 갱신."""
+    global _price_cache, _price_cache_at
+    from fetchers import fetch_position_prices
+    open_pos = [p for p in get_open_positions() if p["status"] == "open"]
+    if not open_pos:
+        return
+    prices = fetch_position_prices(open_pos)
+    _price_cache = prices
+    _price_cache_at = time.time()
+
+
 @app.get("/api/portfolio")
 def api_portfolio():
+    global _price_cache, _price_cache_at
     pf = get_shared_portfolio()
     pf["market_status"] = is_market_open()
-    pf["positions"] = get_all_positions(30)
     pf["initial_balance"] = 100_000_000
+
+    positions = get_all_positions(30)
+
+    # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
+    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
+
+    # 캐시된 현재가 적용
+    for p in positions:
+        if p["status"] == "open" and p["symbol"] in _price_cache:
+            current = _price_cache[p["symbol"]]
+            entry   = p.get("entry_price") or 0
+            qty     = p.get("quantity") or 0
+            p["current_price"] = current
+            if entry and qty:
+                p["unrealized_pnl"]     = round((current - entry) * qty, 0)
+                p["unrealized_pnl_pct"] = round((current - entry) / entry * 100, 2)
+
+    pf["positions"] = positions
     return pf
 
 
