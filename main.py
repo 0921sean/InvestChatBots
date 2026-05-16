@@ -19,7 +19,7 @@ import time as _time_module
 from orchestrator import (
     run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS,
     is_market_open, get_current_state, evaluate_positions,
-    SECTORS,
+    SECTORS, request_pause, clear_pause,
 )
 import orchestrator as _orch
 from prompts import AGENT_ORDER, AGENT_PROFILES
@@ -31,18 +31,49 @@ init_db()
 _loop_running = False
 _loop_thread: threading.Thread | None = None
 _loop_lock = threading.Lock()
+_round_lock = threading.Lock()  # 동시에 라운드 하나만 실행
 
 
 def _conversation_loop():
     global _loop_running
+    from agents import is_claude_token_exhausted, ClaudeTokenExhausted
+    from agents import _call_claude_cli
+    from notifier import notify
+    _token_notified = False
+
     while True:
         with _loop_lock:
             if not _loop_running:
                 break
+
+        # 토큰 소진 → 복구될 때까지 1분마다 재시도
+        if is_claude_token_exhausted():
+            if not _token_notified:
+                notify("⏸ Claude 토큰 소진", "자동 재시도 중. 복구 시 자동 재개됩니다.", priority="high", cooldown=0)
+                _token_notified = True
+            try:
+                _call_claude_cli("test", "ping")  # 토큰 복구 확인
+                _token_notified = False
+                notify("▶ Claude 토큰 복구", "분석을 자동 재개합니다.", priority="default", cooldown=0)
+                # 복구 즉시 워치리스트도 재실행
+                try:
+                    from orchestrator import run_telegram_watchlist
+                    threading.Thread(target=run_telegram_watchlist, daemon=True).start()
+                except Exception:
+                    pass
+            except Exception:
+                time.sleep(60)
+                continue
+
+        if not _round_lock.acquire(blocking=False):
+            time.sleep(1)
+            continue
         try:
             run_round()
         except Exception as e:
             logger.error(f"[loop] {type(e).__name__}: {e}")
+        finally:
+            _round_lock.release()
         for _ in range(2):
             with _loop_lock:
                 if not _loop_running:
@@ -53,6 +84,12 @@ def _conversation_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _loop_running, _loop_thread
+    # 서버 재시작 시 걸린 라운드 자동 정리
+    from db import _conn as db_conn
+    with db_conn() as con:
+        cleaned = con.execute("UPDATE rounds SET status='complete' WHERE status='running'").rowcount
+        if cleaned:
+            logger.info(f"시작 시 미완료 라운드 {cleaned}개 정리")
     scheduler = start_scheduler()
     _loop_running = True
     _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
@@ -81,7 +118,7 @@ def api_messages(since: int = 0, limit: int = 100):
 def api_messages_latest(n: int = 200):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
-    return list(reversed(get_recent_messages(n)))
+    return get_recent_messages(n)
 
 
 @app.get("/api/market")
@@ -96,17 +133,22 @@ def api_agents():
         "claude-sonnet-4-6": "Claude Sonnet",
         "claude-haiku-4-5-20251001": "Claude Haiku",
         "gemini-2.5-flash": "Gemini Flash",
+        "gemini-2.5-pro": "Gemini Pro",
+        "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o mini",
     }
     result = []
     for name in AGENT_ORDER:
         profile = AGENT_PROFILES[name]
+        # system 프롬프트에서 {evolution_notes} 플레이스홀더 제거 후 전달
+        system_clean = profile["system"].replace("{evolution_notes}", "").strip()
         result.append({
             "name": name,
             "description": profile["description"],
             "color": profile["color"],
             "model_provider": profile["model_provider"],
             "model_label": MODEL_LABEL.get(profile["model_id"], profile["model_id"]),
+            "system": system_clean,
         })
     return result
 
@@ -137,6 +179,7 @@ def api_conversation_status():
 @app.post("/api/conversation/start")
 def api_conversation_start():
     global _loop_running, _loop_thread
+    clear_pause()  # 일시정지 플래그 해제
     with _loop_lock:
         if _loop_running:
             return {"ok": True, "running": True}
@@ -151,6 +194,7 @@ def api_conversation_stop():
     global _loop_running
     with _loop_lock:
         _loop_running = False
+    request_pause()  # 현재 실행 중인 에이전트 루프도 즉시 중단
     return {"ok": True, "running": False}
 
 
@@ -240,8 +284,8 @@ def _generate_summary():
     try:
         from prompts import AGENT_PROFILES
         result = call_agent(
-            "황소",
-            AGENT_PROFILES["황소"]["system"],
+            "드가자",
+            AGENT_PROFILES["드가자"]["system"],
             f"""다음은 AI 투자 그룹의 최근 대화입니다:\n\n{conversation}\n\n
 5줄 이내로 요약:
 📌 현재 섹터/종목:
@@ -271,6 +315,22 @@ def api_stop_on_credit_on():
 def api_stop_on_credit_off():
     _orch._stop_on_credit = False
     return {"enabled": False}
+
+
+@app.post("/api/cycle/reset")
+def api_cycle_reset():
+    """사이클 상태 강제 리셋 — 첫 섹터부터 다시 시작."""
+    import threading
+    with _orch._state_lock:
+        _orch.__dict__  # touch
+    # globals 직접 수정
+    _orch_globals = vars(_orch)
+    _orch_globals["_phase"] = "sector_discussion"
+    _orch_globals["_sector_idx"] = 0
+    _orch_globals["_discussion_round"] = 0
+    _orch_globals["_cycle_done_at"] = 0.0
+    _orch._persist_state()
+    return {"ok": True, "phase": "sector_discussion"}
 
 
 class LectureNote(BaseModel):

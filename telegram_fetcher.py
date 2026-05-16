@@ -95,7 +95,7 @@ def _fetch_one(client, group: str, force: bool) -> list[dict]:
                 "group_name": group_name,
                 "sender": sender,
                 "text": text[:300],
-                "time": msg.date.strftime("%H:%M"),
+                "time": msg.date.isoformat(),
             })
         messages.reverse()
         _cache[group] = {"messages": messages, "fetched_at": time.time()}
@@ -170,3 +170,76 @@ def get_cached_context(max_msgs: int = 25) -> str:
 
     all_messages.sort(key=lambda m: m["time"])
     return format_telegram_context(all_messages, max_msgs)
+
+
+def extract_mentioned_tickers(hours: int = 48) -> list[dict]:
+    """최근 N시간 텔레그램 메시지에서 언급된 종목 추출.
+
+    반환: [{"name": "삼성전자", "code": "005930", "market": "KR"}, ...]
+    """
+    import re
+    from datetime import datetime, timezone, timedelta
+
+    groups = _get_groups()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # 알려진 종목 매핑 (이름 → code, market)
+    KNOWN_KR = {
+        "삼성전자": ("005930", "KR"), "SK하이닉스": ("000660", "KR"),
+        "한화에어로스페이스": ("012450", "KR"), "LIG넥스원": ("079550", "KR"),
+        "현대로템": ("064350", "KR"), "LG에너지솔루션": ("373220", "KR"),
+        "현대차": ("005380", "KR"), "기아": ("000270", "KR"),
+        "셀트리온": ("068270", "KR"), "삼성바이오로직스": ("207940", "KR"),
+        "유한양행": ("000100", "KR"), "에코프로비엠": ("247540", "KR"),
+        "에코프로": ("086520", "KR"), "포스코홀딩스": ("005490", "KR"),
+        "POSCO홀딩스": ("005490", "KR"), "삼성중공업": ("010140", "KR"),
+        "한화오션": ("042660", "KR"), "HD현대중공업": ("329180", "KR"),
+        "대한전선": ("001440", "KR"), "LS머트리얼즈": ("417200", "KR"),
+        "인텔리안테크": ("189300", "KR"), "지엔씨에너지": ("119500", "KR"),
+        "에스에이엠티": ("031330", "KR"), "코어위브": ("CRWV", "US"),
+    }
+    KNOWN_US = {
+        "NVDA": ("NVDA", "US"), "AAPL": ("AAPL", "US"),
+        "MSFT": ("MSFT", "US"), "TSLA": ("TSLA", "US"),
+        "AMZN": ("AMZN", "US"), "META": ("META", "US"),
+        "GOOGL": ("GOOGL", "US"), "AMD": ("AMD", "US"),
+        "INTC": ("INTC", "US"), "TSM": ("TSM", "US"),
+        "엔비디아": ("NVDA", "US"), "애플": ("AAPL", "US"),
+        "마이크로소프트": ("MSFT", "US"), "테슬라": ("TSLA", "US"),
+        "세레브라스": ("CRWV", "US"),
+    }
+    ALL_KNOWN = {**KNOWN_KR, **KNOWN_US}
+
+    all_messages = []
+    for g in groups:
+        all_messages.extend(_cache.get(g, {}).get("messages", []))
+
+    found = {}
+    for m in all_messages:
+        try:
+            msg_time = datetime.fromisoformat(m["time"]).replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if msg_time < cutoff:
+            continue
+        text = m.get("text", "")
+        for name, (code, market) in ALL_KNOWN.items():
+            if name in text and code not in found:
+                found[code] = {"name": name, "code": code, "market": market}
+
+        # US 티커 패턴 (대문자 2-5자) — 일반 단어/경제용어 제외
+        SKIP_TICKERS = {
+            "AI", "US", "ETF", "IPO", "GDP", "CEO", "FED", "CPI", "MOU",
+            "EPS", "PER", "ROE", "RSI", "MA", "HBM", "IT", "OK", "TV",
+            "BTC", "ETH", "USD", "KRW", "EUR", "JPY", "USDT", "USDC",
+            "CAPEX", "EBITA", "EBITDA", "DCF", "FCF", "NAV", "NTM", "TTM",
+            "YOY", "QOQ", "FY", "LNG", "ESG", "IDC", "EV", "AR", "VR",
+            "KB", "SK", "LG", "KT", "GS", "CJ", "SG", "DM", "DF",
+            "IMF", "WTO", "ECB", "BOK", "BIS", "OPEC", "NATO", "IAEA",
+            "KORU", "FV", "IEA", "POW", "REV", "NET", "TAX", "ADD",
+        }
+        for ticker in re.findall(r'\b([A-Z]{2,5})\b', text):
+            if ticker not in found and ticker not in SKIP_TICKERS and len(ticker) >= 3:
+                found[ticker] = {"name": ticker, "code": ticker, "market": "US"}
+
+    return list(found.values())
