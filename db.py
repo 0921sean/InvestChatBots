@@ -136,6 +136,15 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO cycle_state (id) VALUES (1);
+        CREATE TABLE IF NOT EXISTS member_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            group_id TEXT,
+            messages_collected INTEGER DEFAULT 0,
+            profile TEXT,
+            notified INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """)
 
 
@@ -166,6 +175,16 @@ def get_recent_messages(n=30):
             "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (n,)
         ).fetchall()
         return list(reversed([dict(r) for r in rows]))
+
+
+def get_messages_for_round(round_id: int) -> list[dict]:
+    """현재 round_id의 메시지만 반환 — 이전 토론 컨텍스트 오염 방지."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM messages WHERE round_id=? ORDER BY id", (round_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def create_round(topic):

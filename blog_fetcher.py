@@ -8,6 +8,7 @@
 import os
 import re
 import time
+import random
 import logging
 import urllib.parse
 import urllib.request
@@ -16,16 +17,33 @@ from datetime import datetime, timedelta, timezone, date
 
 logger = logging.getLogger("investchat.blog")
 
-BLOG_URLS_ENV = "BLOG_URLS"          # 쉼표 구분 블로그 URL 목록
-CONTENT_MONTHS = 6                    # 본문 가져올 기간 (최근 N개월)
-MAX_CONTENT_POSTS = 300               # 본문 최대 수집 수 (첫 크롤링)
-CRAWL_DELAY = 0.5                     # 요청 간 딜레이 (초)
+BLOG_URLS_ENV = "BLOG_URLS"
+CRAWL_DELAY_MIN = 2.5                 # 요청 간 최소 딜레이 (초)
+CRAWL_DELAY_MAX = 5.0                 # 요청 간 최대 딜레이 (초)
+BATCH_SIZE = 30                       # N개마다 긴 휴식
+BATCH_PAUSE_MIN = 20                  # 배치 휴식 최소 (초)
+BATCH_PAUSE_MAX = 40                  # 배치 휴식 최대 (초)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-    "Accept-Language": "ko-KR,ko;q=0.9",
-}
+# User-Agent 풀 — 랜덤 로테이션으로 패턴 탐지 방지
+_USER_AGENTS = [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/19H349",
+]
+
+def _headers(referer: str = "https://m.blog.naver.com/") -> dict:
+    return {
+        "User-Agent": random.choice(_USER_AGENTS),
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": referer,
+        "Connection": "keep-alive",
+    }
+
+def _sleep(min_s: float = CRAWL_DELAY_MIN, max_s: float = CRAWL_DELAY_MAX):
+    time.sleep(random.uniform(min_s, max_s))
 
 
 def _extract_blog_id(url: str) -> str:
@@ -39,46 +57,69 @@ def get_blog_ids() -> list[str]:
     return [_extract_blog_id(u.strip()) for u in raw.split(",") if u.strip()]
 
 
+def _safe_json(raw: str) -> dict:
+    """네이버 API의 잘못된 이스케이프 시퀀스를 수정 후 JSON 파싱."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # \x (x=non-standard) 형태 이스케이프 제거 후 재시도
+        cleaned = re.sub(r'\\([^"\\/bfnrtu0-9])', r'\1', raw)
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            return {}
+
+
 def _fetch_post_list(blog_id: str, page: int = 1, count: int = 30) -> dict:
-    """네이버 블로그 글 목록 API."""
+    """네이버 블로그 글 목록 API — 실패 시 최대 3회 재시도."""
     url = (f"https://blog.naver.com/PostTitleListAsync.naver"
            f"?blogId={blog_id}&currentPage={page}&countPerPage={count}&categoryNo=0")
-    try:
-        req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        logger.debug(f"포스트 목록 오류 {blog_id} p{page}: {e}")
-        return {}
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=_headers("https://blog.naver.com/"))
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8")
+                return _safe_json(raw)
+        except Exception as e:
+            logger.debug(f"포스트 목록 오류 {blog_id} p{page} (시도{attempt+1}): {e}")
+            if attempt < 2:
+                time.sleep(random.uniform(5, 10))
+    return {}
 
 
 def _fetch_post_content(blog_id: str, log_no: str) -> str:
-    """모바일 URL로 본문 텍스트 추출."""
+    """모바일 URL로 본문 텍스트 추출 — 실패 시 최대 3회 재시도."""
     url = f"https://m.blog.naver.com/{blog_id}/{log_no}"
-    try:
-        req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        # se-main-container 또는 postViewArea 에서 텍스트 추출
-        for pattern in [
-            r'<div[^>]*class="[^"]*se-main-container[^"]*"[^>]*>(.*?)</div>\s*</div>',
-            r'<div[^>]*id="postViewArea"[^>]*>(.*?)</div>',
-            r'<div[^>]*class="[^"]*post_ct[^"]*"[^>]*>(.*?)</div>',
-        ]:
-            m = re.search(pattern, html, re.DOTALL)
-            if m:
-                raw = m.group(1)
-                text = re.sub(r'<[^>]+>', ' ', raw)
-                text = re.sub(r'\s+', ' ', text).strip()
-                if len(text) > 100:
-                    return text[:2000]
-        # 폴백: 전체 텍스트에서 태그 제거
-        text = re.sub(r'<[^>]+>', ' ', html)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text[500:2500] if len(text) > 500 else text
-    except Exception as e:
-        logger.debug(f"본문 오류 {blog_id}/{log_no}: {e}")
-        return ""
+    referer = f"https://m.blog.naver.com/{blog_id}"
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=_headers(referer))
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            # se-main-container 또는 postViewArea 에서 텍스트 추출
+            for pattern in [
+                r'<div[^>]*class="[^"]*se-main-container[^"]*"[^>]*>(.*?)</div>\s*</div>',
+                r'<div[^>]*id="postViewArea"[^>]*>(.*?)</div>',
+                r'<div[^>]*class="[^"]*post_ct[^"]*"[^>]*>(.*?)</div>',
+            ]:
+                m = re.search(pattern, html, re.DOTALL)
+                if m:
+                    raw = m.group(1)
+                    text = re.sub(r'<[^>]+>', ' ', raw)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    if len(text) > 100:
+                        return text[:3000]
+            # 폴백: 전체 텍스트에서 태그 제거
+            text = re.sub(r'<[^>]+>', ' ', html)
+            text = re.sub(r'\s+', ' ', text).strip()
+            result = text[500:3500] if len(text) > 500 else text
+            if len(result) > 50:
+                return result
+        except Exception as e:
+            logger.debug(f"본문 오류 {blog_id}/{log_no} (시도{attempt+1}): {e}")
+            if attempt < 2:
+                time.sleep(random.uniform(5, 12))
+    return ""
 
 
 def _parse_naver_date(date_str: str) -> str | None:
@@ -95,14 +136,16 @@ def _parse_naver_date(date_str: str) -> str | None:
     return date.today().isoformat()
 
 
-def crawl_blog_full(blog_id: str):
-    """블로그 전체 글 수집 — 최초 1회 실행용."""
+def crawl_blog_full(blog_id: str, fetch_all_content: bool = True):
+    """블로그 전체 글 수집 — 최초 1회 실행용.
+
+    fetch_all_content=True: 기간 제한 없이 모든 글 본문 수집 (느리지만 완전)
+    """
     from db import save_blog_post, blog_post_exists
 
-    logger.info(f"[{blog_id}] 전체 크롤링 시작...")
-    cutoff_date = (date.today() - timedelta(days=CONTENT_MONTHS * 30)).isoformat()
+    logger.info(f"[{blog_id}] 전체 크롤링 시작 (전체본문={fetch_all_content})...")
+    page, content_count, batch_count = 1, 0, 0
 
-    page, content_count = 1, 0
     while True:
         data = _fetch_post_list(blog_id, page=page, count=30)
         posts = data.get("postList", [])
@@ -110,7 +153,7 @@ def crawl_blog_full(blog_id: str):
             break
 
         total = int(data.get("totalCount", 0))
-        logger.info(f"  [{blog_id}] p{page} — {len(posts)}개 (총 {total}개)")
+        print(f"  [{blog_id}] p{page} — {len(posts)}개 처리 중 (총 {total}개, 본문수집 {content_count}개)")
 
         for post in posts:
             log_no = post.get("logNo", "")
@@ -120,20 +163,27 @@ def crawl_blog_full(blog_id: str):
             if blog_post_exists(blog_id, log_no):
                 continue
 
-            # 최근 N개월 + 최대 MAX_CONTENT_POSTS개는 본문 수집
             content = ""
-            if post_date >= cutoff_date and content_count < MAX_CONTENT_POSTS:
+            if fetch_all_content:
                 content = _fetch_post_content(blog_id, log_no)
                 content_count += 1
-                time.sleep(CRAWL_DELAY)
+                batch_count += 1
+                _sleep()  # 2.5~5초 랜덤 딜레이
+
+                # 30개마다 20~40초 긴 휴식 (차단 방지)
+                if batch_count % BATCH_SIZE == 0:
+                    pause = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
+                    print(f"  ⏸ {BATCH_SIZE}개 완료, {pause:.0f}초 휴식 중... (누적 {content_count}개)")
+                    time.sleep(pause)
 
             save_blog_post(blog_id, log_no, title, post_date, content)
 
         page += 1
         if page * 30 > total + 30:
             break
-        time.sleep(CRAWL_DELAY)
+        _sleep(1.5, 3.0)  # 페이지 전환 딜레이
 
+    print(f"[{blog_id}] ✅ 크롤링 완료 — 본문 {content_count}개 수집")
     logger.info(f"[{blog_id}] 크롤링 완료 — 본문 {content_count}개 수집")
 
 

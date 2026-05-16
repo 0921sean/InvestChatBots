@@ -19,6 +19,8 @@ logger = logging.getLogger("investchat")
 GLOBAL_TICKERS = {
     "NASDAQ": "^IXIC",
     "S&P500": "^GSPC",
+    "KOSPI":  "^KS11",
+    "KOSDAQ": "^KQ11",
     "NVDA":   "NVDA",
     "TSMC":   "TSM",
 }
@@ -407,38 +409,83 @@ def _try_fetch_us_stock(ticker: str) -> dict | None:
 
 def detect_and_fetch_stocks(message: str) -> str:
     """
-    메시지에서 US 티커 후보 감지 → TradingView 데이터 페치 → 포맷 문자열 반환.
-    감지 못하거나 데이터 없으면 빈 문자열.
+    메시지에서 종목 감지 → TradingView 데이터 페치 → 포맷 문자열 반환.
+    한글 종목명, 영문 회사명, US 티커 모두 인식.
     """
     import re
-    # \b가 한글 앞에서 작동 안 해 → 공백/시작/끝/한글 경계로 대체
-    pat = r'(?<![A-Za-z])([A-Z]{2,5}|[A-Z][a-z]{2,9})(?![A-Za-z])'
-    raw = re.findall(pat, message)
-    candidates = list(dict.fromkeys(c.upper() for c in raw))
 
+    # ── 한글/영문 회사명 → 티커 매핑 ──────────────────────
+    KR_NAME_MAP = {
+        # 미국 상장 (한글)
+        "온다스": ("ONDS", "US"), "엔비디아": ("NVDA", "US"), "애플": ("AAPL", "US"),
+        "마이크로소프트": ("MSFT", "US"), "테슬라": ("TSLA", "US"), "아마존": ("AMZN", "US"),
+        "구글": ("GOOGL", "US"), "알파벳": ("GOOGL", "US"), "메타": ("META", "US"),
+        "넷플릭스": ("NFLX", "US"), "AMD": ("AMD", "US"), "인텔": ("INTC", "US"),
+        "퀄컴": ("QCOM", "US"), "브로드컴": ("AVGO", "US"), "팔란티어": ("PLTR", "US"),
+        "세일즈포스": ("CRM", "US"), "오라클": ("ORCL", "US"), "IBM": ("IBM", "US"),
+        "비자": ("V", "US"), "마스터카드": ("MA", "US"), "버크셔": ("BRK-B", "US"),
+        "존슨앤존슨": ("JNJ", "US"), "화이자": ("PFE", "US"), "모더나": ("MRNA", "US"),
+        "코인베이스": ("COIN", "US"), "스포티파이": ("SPOT", "US"), "우버": ("UBER", "US"),
+        "에어비앤비": ("ABNB", "US"), "세레브라스": ("CRWV", "US"),
+        "TSMC": ("TSM", "US"),
+        # 한국 상장 (한글)
+        "삼성전자": ("005930", "KR"), "하이닉스": ("000660", "KR"), "SK하이닉스": ("000660", "KR"),
+        "삼성바이오": ("207940", "KR"), "삼성바이오로직스": ("207940", "KR"),
+        "셀트리온": ("068270", "KR"), "카카오": ("035720", "KR"), "네이버": ("035420", "KR"),
+        "현대차": ("005380", "KR"), "기아": ("000270", "KR"), "포스코": ("005490", "KR"),
+        "LG에너지솔루션": ("373220", "KR"), "에코프로비엠": ("247540", "KR"),
+        "에코프로": ("086520", "KR"), "한화에어로스페이스": ("012450", "KR"),
+        "LIG넥스원": ("079550", "KR"), "현대로템": ("064350", "KR"),
+        "HD한국조선해양": ("009540", "KR"), "한화오션": ("042660", "KR"),
+        "삼성SDI": ("006400", "KR"), "LG화학": ("051910", "KR"),
+    }
+    EN_NAME_MAP = {
+        "NOKIA": "NOK", "APPLE": "AAPL", "TESLA": "TSLA", "GOOGLE": "GOOGL",
+        "AMAZON": "AMZN", "MICROSOFT": "MSFT", "NVIDIA": "NVDA",
+    }
     SKIP = {"NTM", "EPS", "PER", "ROE", "RSI", "ETF", "IPO", "GDP", "FED",
             "AI", "US", "IT", "OK", "TV", "ID", "KRX", "FOR", "AND", "THE",
             "NOT", "ARE", "NMF", "TTM", "YOY", "QOQ", "FCF", "DCF", "NAV",
             "THIS", "THAT", "WITH", "FROM", "HAVE", "BEEN", "WILL", "WHAT",
-            "WHEN", "WHERE", "NOKIA", "APPLE", "TESLA"}  # 회사명은 직접 처리
-    # 알려진 회사명 → 티커 매핑
-    NAME_MAP = {
-        "NOKIA": "NOK", "NOKIA": "NOK",
-        "APPLE": "AAPL", "TESLA": "TSLA", "GOOGLE": "GOOGL",
-        "AMAZON": "AMZN", "MICROSOFT": "MSFT", "META": "META",
-    }
-    mapped = []
-    for c in dict.fromkeys(candidates):
-        if c in NAME_MAP:
-            mapped.append(NAME_MAP[c])
-        elif c not in SKIP:
-            mapped.append(c)
-    candidates = mapped
-    if not candidates:
-        return ""
+            "WHEN", "WHERE"}
+
+    candidates_us, candidates_kr = [], []
+
+    # 1) 한글 이름 매핑
+    for name, (ticker, market) in KR_NAME_MAP.items():
+        if name in message:
+            if market == "US":
+                candidates_us.append(ticker)
+            else:
+                candidates_kr.append(ticker)
+
+    # 2) 영문 대문자 티커/이름 감지
+    pat = r'(?<![A-Za-z])([A-Z]{2,5}|[A-Z][a-z]{2,9})(?![A-Za-z])'
+    for raw in re.findall(pat, message):
+        upper = raw.upper()
+        if upper in EN_NAME_MAP:
+            candidates_us.append(EN_NAME_MAP[upper])
+        elif upper not in SKIP and upper not in candidates_us:
+            candidates_us.append(upper)
+
+    # 중복 제거
+    candidates_us = list(dict.fromkeys(candidates_us))
+    candidates_kr = list(dict.fromkeys(candidates_kr))
 
     results = []
-    for ticker in candidates[:4]:  # 최대 4개
+
+    # KR 종목 조회
+    for code in candidates_kr[:2]:
+        try:
+            data = fetch_stock_data(code, f"{code}.KS", code, market="KRX", exchange="KRX")
+            if data:
+                results.append(format_stock_data(data))
+                time.sleep(0.3)
+        except Exception:
+            pass
+
+    # US 종목 조회
+    for ticker in candidates_us[:3]:
         data = _try_fetch_us_stock(ticker)
         if data:
             results.append(format_stock_data(data))
