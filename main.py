@@ -320,10 +320,6 @@ def api_stop_on_credit_off():
 @app.post("/api/cycle/reset")
 def api_cycle_reset():
     """사이클 상태 강제 리셋 — 첫 섹터부터 다시 시작."""
-    import threading
-    with _orch._state_lock:
-        _orch.__dict__  # touch
-    # globals 직접 수정
     _orch_globals = vars(_orch)
     _orch_globals["_phase"] = "sector_discussion"
     _orch_globals["_sector_idx"] = 0
@@ -331,6 +327,43 @@ def api_cycle_reset():
     _orch_globals["_cycle_done_at"] = 0.0
     _orch._persist_state()
     return {"ok": True, "phase": "sector_discussion"}
+
+
+@app.post("/api/main-cycle/run")
+def api_main_cycle_run():
+    """메인 프로세스 실행 버튼 — 오늘 이미 했으면 알리고, 안 했으면 시작."""
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    cycle_done_at = _orch._cycle_done_at
+    already_done = False
+    if cycle_done_at > 0:
+        done_date = datetime.fromtimestamp(cycle_done_at, tz=KST).date()
+        if done_date >= now.date():
+            already_done = True
+
+    if already_done:
+        return {"ok": True, "already_done": True,
+                "message": f"오늘 메인 프로세스는 이미 완료됐어요. ({datetime.fromtimestamp(cycle_done_at, tz=KST).strftime('%H:%M')} 완료)"}
+
+    # 현재 진행 중인 것 멈추고 메인 프로세스 시작
+    _orch.request_pause()
+    _time_module.sleep(1)
+    _orch.clear_pause()
+    _orch.reset_daily_cycle()
+
+    # 루프가 안 켜져 있으면 켜기
+    global _loop_running, _loop_thread
+    clear_pause()
+    with _loop_lock:
+        if not _loop_running:
+            _loop_running = True
+            _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
+            _loop_thread.start()
+
+    return {"ok": True, "already_done": False,
+            "message": "메인 프로세스를 시작합니다. 반도체 섹터부터 분석을 시작해요."}
 
 
 class LectureNote(BaseModel):
