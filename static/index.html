@@ -153,6 +153,7 @@
       <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ 일시정지</button>
       <button class="btn btn-ghost" onclick="scrollToBottom()">↓ 최신</button>
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
+      <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
     </div>
   </div>
   <div id="messages"><div id="msg-anchor"></div></div>
@@ -569,6 +570,28 @@ async function sendMessage() {
     await fetch('/api/user-message', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:text})});
   } catch(e) {}
   input.disabled = false; input.focus();
+}
+
+async function runMainCycle() {
+  const btn = document.getElementById('btn-main-run');
+  btn.disabled = true;
+  btn.textContent = '확인 중...';
+  try {
+    const res = await fetch('/api/main-cycle/run', {method:'POST'});
+    const data = await res.json();
+    if (data.already_done) {
+      alert('✅ ' + data.message);
+      btn.textContent = '▶ 메인 실행';
+    } else {
+      btn.textContent = '▶ 실행 중';
+      alert('🚀 ' + data.message);
+    }
+  } catch(e) {
+    btn.textContent = '▶ 메인 실행';
+    alert('오류: ' + e);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function requestSummary() {

@@ -807,10 +807,12 @@ def run_telegram_watchlist():
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
 
-    # 평일만, 메인 사이클 진행 중엔 안 함
+    # 주말엔 안 함
     if now.weekday() >= 5:
         return
-    if _phase != "cycle_rest":
+    # 메인 사이클이 실제로 진행 중인 시간대(오전 6시~오전 6시 이전)엔 막기
+    # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
+    if _phase != "cycle_rest" and now.hour >= 6:
         return
     if is_user_active() or _pause_requested:
         return
@@ -942,8 +944,12 @@ def run_round(market_summary=None):
     if now.weekday() >= 5:
         return
 
+    if now.hour < 6:
+        return
+
     if is_user_active():
         return
+
 
     # 사이클 휴식 중 → 아무것도 하지 않음
     if _phase == "cycle_rest":
@@ -1076,6 +1082,8 @@ def _run_stoploss_feedback(symbol: str):
                 resp = f"[{agent_name} 응답 오류]"
             save_message(feedback_round_id, agent_name, None, resp)
 
+        save_message(feedback_round_id, "System", None,
+                     f"✅ {symbol} 손절 피드백 완료 — 위 반성을 다음 투자에 반영합니다.")
         complete_round(feedback_round_id)
         logger.info(f"[{symbol}] 손절 피드백 완료")
     except Exception as e:
