@@ -850,13 +850,24 @@ def run_telegram_watchlist():
 
     source_label = "텔레그램+뉴스" if tg_available else "뉴스/공시"
 
-    # 메인 섹터 종목 이름 목록 (워치리스트에서 제외)
+    # 메인 섹터 종목 이름+코드 목록 (워치리스트에서 제외)
     main_stock_names = {s["name"] for sector in SECTORS for s in sector["stocks"]}
+    main_stock_codes = {s["code"] for sector in SECTORS for s in sector["stocks"]}
 
-    # 오늘 이미 분석했거나 메인 섹터 종목은 제외
+    # 오늘 이미 분석했거나 메인 섹터 종목은 제외 (이름 또는 코드로 체크)
     new_tickers = [t for t in tickers
                    if not was_stock_analyzed_today("워치리스트", t["name"])
-                   and t["name"] not in main_stock_names]
+                   and t["name"] not in main_stock_names
+                   and t.get("code", "") not in main_stock_codes]
+
+    # watched_stocks에서도 메인 종목 제거 (뉴스가 재추가한 경우 대비)
+    try:
+        from db import _conn as db_conn
+        with db_conn() as con:
+            ph = ",".join("?" * len(main_stock_names))
+            con.execute(f"DELETE FROM watched_stocks WHERE name IN ({ph})", list(main_stock_names))
+    except Exception:
+        pass
 
     # 스캔 결과 채팅에 기록
     scan_round_id = create_round(f"{source_label} 워치리스트 스캔")
