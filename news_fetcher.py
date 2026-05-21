@@ -160,10 +160,17 @@ def collect_all_news_stocks() -> str:
         all_stocks.extend(stocks)
         time.sleep(0.5)
 
+    # 메인 섹터 종목은 저장 안 함
+    try:
+        from orchestrator import SECTORS
+        main_names = {st["name"] for sec in SECTORS for st in sec["stocks"]}
+    except Exception:
+        main_names = set()
+
     # 중복 제거 후 DB 저장
     seen = set()
     for s in all_stocks:
-        if s["name"] not in seen:
+        if s["name"] not in seen and s["name"] not in main_names:
             seen.add(s["name"])
             upsert_watched_stock(s["name"], s.get("code"), s.get("market", "KR"), "뉴스")
             logger.info(f"관심 종목 추가: {s['name']}")
