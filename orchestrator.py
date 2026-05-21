@@ -869,7 +869,10 @@ def run_telegram_watchlist():
 
     market_summary, _ = _get_or_refresh_market_summary()
 
-    for ticker in new_tickers[:3]:  # 최대 3종목
+    analyzed_count = 0
+    for ticker in new_tickers:  # 가격 있는 종목 3개 찾을 때까지 순회
+        if analyzed_count >= 3:
+            break
         name = ticker["name"]
         code = ticker["code"]
         market = ticker.get("market", "KR")
@@ -953,6 +956,7 @@ def run_telegram_watchlist():
                 buy_votes = [(n, r) for (n, r) in bot_responses if _parse_decision(r)[0] == "매수"]
                 _execute_buy({"name": name, "code": code, "market": market}, current_price, buy_amount, buy_votes, round_id)
 
+        analyzed_count += 1
         complete_round(round_id)
         time.sleep(1)
 
