@@ -19,6 +19,31 @@ logger = logging.getLogger("investchat.news")
 
 KST = timezone(timedelta(hours=9))
 
+def _get_main_sector_names() -> set:
+    """순환 import 없이 메인 섹터 종목명 반환."""
+    try:
+        import importlib
+        orch = importlib.import_module("orchestrator")
+        return {s["name"] for sec in orch.SECTORS for s in sec["stocks"]}
+    except Exception:
+        # fallback: 하드코딩
+        return {
+            "삼성전자","SK하이닉스","한미반도체",
+            "LG에너지솔루션","삼성SDI","에코프로비엠",
+            "삼성바이오로직스","셀트리온","유한양행",
+            "한화에어로스페이스","LIG넥스원","현대로템",
+            "현대차","기아","현대모비스",
+            "HD한국조선해양","한화오션","HMM",
+            "NAVER","카카오","크래프톤",
+            "KB금융","신한지주","삼성화재",
+            "POSCO홀딩스","현대제철","LG화학",
+            "SK이노베이션","한국가스공사","한화솔루션",
+            "SK텔레콤","KT","LG유플러스",
+            "엔비디아","마이크로소프트","알파벳","메타","애플",
+            "TSMC","브로드컴","팔란티어","AMD",
+        }
+
+
 _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
@@ -160,12 +185,8 @@ def collect_all_news_stocks() -> str:
         all_stocks.extend(stocks)
         time.sleep(0.5)
 
-    # 메인 섹터 종목은 저장 안 함
-    try:
-        from orchestrator import SECTORS
-        main_names = {st["name"] for sec in SECTORS for st in sec["stocks"]}
-    except Exception:
-        main_names = set()
+    # 메인 섹터 종목은 저장 안 함 (워치리스트 중복 방지)
+    main_names = _get_main_sector_names()
 
     # 중복 제거 후 DB 저장
     seen = set()
