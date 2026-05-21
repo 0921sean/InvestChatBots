@@ -867,6 +867,12 @@ def run_telegram_watchlist():
         code = ticker["code"]
         market = ticker.get("market", "KR")
         log_stock_analyzed("워치리스트", name)
+        # 워치리스트에서 분석한 종목 영구 저장
+        try:
+            from db import upsert_watched_stock
+            upsert_watched_stock(name, code, "US" if market == "US" else "KR", source_label)
+        except Exception:
+            pass
 
         # 종목 데이터 수집
         try:
