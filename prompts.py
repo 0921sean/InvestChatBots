@@ -318,14 +318,8 @@ PER, ROE, EPS 성장률, 부채비율, 영업이익률 등 재무지표를 기�
     },
 }
 
-# 강세팀(4) 먼저 → 약세팀(4)이 반박하는 구조
-AGENT_ORDER = ["드가자", "경력직", "차트천재", "감독",      # 강세팀
-               "INTJ", "퀀트중독자", "원칙주의자", "빅픽처"] # 약세팀
+AGENT_ORDER = ["드가자", "INTJ", "퀀트중독자", "빅픽처", "차트천재", "원칙주의자", "경력직", "감독"]
 # 류, 알렉스 — 피델리티 데이터 더 쌓인 후 추가 예정
-
-# 팀 구분 (프롬프트에서 참조)
-BULL_TEAM = {"드가자", "경력직", "차트천재", "감독"}
-BEAR_TEAM = {"INTJ", "퀀트중독자", "원칙주의자", "빅픽처"}
 
 
 def format_history(messages):
@@ -359,18 +353,8 @@ def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, his
 
 def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, history_text,
                                  agent_name, tg_context: str = ""):
-    from prompts import BULL_TEAM, BEAR_TEAM
-    team = "강세팀" if agent_name in BULL_TEAM else "약세팀"
-    opposing = "약세팀" if agent_name in BULL_TEAM else "강세팀"
-    is_bear_turn = agent_name in BEAR_TEAM and history_text and len(history_text) > 50
-
-    debate_instruction = (
-        f"당신은 {team}입니다. "
-        + (f"{opposing}의 주장을 읽고 구체적으로 반박하거나 보완하세요. " if is_bear_turn else f"{opposing}이 곧 반박할 것입니다. 근거를 명확히 제시하세요. ")
-    )
-
     tg_section = f"\n{tg_context}\n" if tg_context else ""
-    return f"""[{sector_name} 섹터 — 종목 분석] ({team}: {agent_name})
+    return f"""[{sector_name} 섹터 — 종목 분석]
 
 {stock_data_text}
 
@@ -379,12 +363,11 @@ def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, hi
 [이전 의견]
 {history_text or "(첫 번째 의견)"}
 
-{debate_instruction}
 {agent_name}, 위 데이터를 바탕으로 투자 판단을 내려주세요.
-- 본인 관점(낙관/비관/수치/매크로/차트)에서 핵심 근거 제시
+- 본인 관점에서 핵심 근거 제시
 - 텔레그램·블로그 여론 참고하되 맹목적으로 따르지 마세요
 - 반드시 [결정] 형식으로 마무리 (매수/관망/매도)
-2-3문장. 반드시 한국어."""
+2-3문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
 
 
 def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = ""):
