@@ -750,6 +750,14 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         decision_summary.append(f"{agent_name}: {decision}")
         bot_responses.append((agent_name, resp))
 
+    # 전체 응답 오류 = 토큰 소진으로 판단
+    error_count = sum(1 for _, r in bot_responses if "응답 오류" in r)
+    if error_count == len(bot_responses) and len(bot_responses) > 0:
+        from agents import _set_token_exhausted
+        _set_token_exhausted()
+        _handle_agent_error("전체", Exception("모든 봇 응답 오류 — 토큰 소진으로 판단"))
+        return
+
     # 투표 결과
     final_decision, buy_amount = _tally_votes(decisions)
     vote_text = " | ".join(decision_summary)
@@ -997,6 +1005,14 @@ def run_telegram_watchlist():
                 bot_responses.append((agent_name, resp))
 
         if token_exhausted:
+            complete_round(round_id)
+            break
+
+        # 전체 응답 오류 = 토큰 소진으로 판단
+        err_cnt = sum(1 for _, r in bot_responses if "응답 오류" in r)
+        if err_cnt == len(bot_responses) and len(bot_responses) > 0:
+            from agents import _set_token_exhausted
+            _set_token_exhausted()
             complete_round(round_id)
             break
 
