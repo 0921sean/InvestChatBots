@@ -64,63 +64,37 @@ def _extract_kr_stocks(text: str) -> list[dict]:
 
 def fetch_naver_finance_news() -> tuple[str, list[dict]]:
     """네이버 금융 뉴스 RSS 수집."""
-    urls = [
-        "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
-        "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=259",
+    rss_urls = [
+        "https://finance.naver.com/news/news_list.naver?mode=LSD&mid=sec&sid1=101&sid2=258&date=",
+        "https://news.naver.com/main/rss/rss.naver?oid=015",   # 한국경제
+        "https://news.naver.com/main/rss/rss.naver?oid=009",   # 매일경제
     ]
+    # Google 뉴스로 네이버 금융 뉴스 대체
+    queries = ["코스피 오늘 주식", "한국 증시 종목 이슈", "어닝 서프라이즈 코스피"]
     all_titles = []
     all_stocks = []
 
-    for url in urls:
-        raw = _fetch(url)
-        if not raw:
-            continue
-        titles = re.findall(r'<title><!\[CDATA\[(.+?)\]\]></title>', raw)
-        if not titles:
-            titles = re.findall(r'class="articleSubject"[^>]*>([^<]+)', raw)
-        for t in titles[:10]:
-            t = t.strip()
-            if t and len(t) > 5 and "네이버" not in t:
-                all_titles.append(t)
-                all_stocks.extend(_extract_kr_stocks(t))
-        time.sleep(0.5)
+    for q in queries:
+        t, s = fetch_google_finance_news(q)
+        if t:
+            all_titles.extend(t.split("\n")[1:])  # 헤더 제외
+            all_stocks.extend(s)
+        time.sleep(0.3)
 
     text = ""
     if all_titles:
-        text = f"=== 네이버 금융 뉴스 ({len(all_titles)}개) ===\n" + "\n".join(f"• {t}" for t in all_titles[:15])
+        unique_titles = list(dict.fromkeys(all_titles))[:15]
+        text = f"=== 국내 증시 뉴스 ({len(unique_titles)}개) ===\n" + "\n".join(unique_titles)
 
     return text, all_stocks
 
 
 def fetch_dart_disclosures() -> tuple[str, list[dict]]:
-    """DART 전자공시 최신 실적 발표 수집."""
+    """DART 전자공시 — Google 뉴스로 실적 공시 키워드 검색."""
     try:
-        # DART OpenAPI (무료, 인증키 불필요한 공개 공시)
-        url = "https://opendart.fss.or.kr/api/list.json?corp_cls=Y&sort=date&start_dt=&end_dt=&page_no=1&page_count=20"
-        raw = _fetch(url)
-        if not raw:
-            return "", []
-        data = json.loads(raw)
-        items = data.get("list", [])
-        if not items:
-            return "", []
-
-        titles = []
-        stocks = []
-        for item in items[:15]:
-            corp = item.get("corp_name", "")
-            title = item.get("report_nm", "")
-            date = item.get("rcept_dt", "")
-            if corp and title:
-                titles.append(f"[{date}] {corp}: {title}")
-                # 알려진 종목이면 추가
-                if corp in KR_STOCK_KEYWORDS:
-                    stocks.append({"name": corp, "code": KR_STOCK_KEYWORDS[corp], "market": "KR"})
-
-        text = ""
-        if titles:
-            text = f"=== DART 전자공시 ({len(titles)}개) ===\n" + "\n".join(f"• {t}" for t in titles)
-
+        text, stocks = fetch_google_finance_news("DART 전자공시 실적 영업이익")
+        if text:
+            text = text.replace("뉴스 'DART 전자공시 실적 영업이익'", "DART/공시")
         return text, stocks
     except Exception as e:
         logger.debug(f"DART 오류: {e}")
