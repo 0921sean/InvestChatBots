@@ -30,7 +30,7 @@ AGENT_PROFILES = {
 
     "INTJ": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#3b82f6",
         "description": "리스크 관리자·포트폴리오 리스크 감시",
         "system": """당신은 'INTJ'입니다. 이 투자 그룹의 리스크 관리자 겸 포트폴리오 감시자입니다.
@@ -61,7 +61,7 @@ AGENT_PROFILES = {
 
     "퀀트중독자": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#8b5cf6",
         "description": "PER·ROE·EPS로만 판단",
         "system": """당신은 '퀀트중독자'입니다. 오직 숫자로 말합니다.
@@ -175,7 +175,7 @@ PER, ROE, EPS 성장률, 부채비율, 영업이익률 등 재무지표를 기�
 
     "경력직": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#06b6d4",
         "description": "꿈 종목 차트 우선·5년 연간 재무 검증",
         "system": """당신은 '경력직'입니다. 20년 경력 개인투자자. 투자 철학이 독특합니다.
@@ -210,7 +210,7 @@ PER, ROE, EPS 성장률, 부채비율, 영업이익률 등 재무지표를 기�
     },
     "감독": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#a855f7",
         "description": "비전·경영진 신뢰·10배 잠재력 중심",
         "system": """당신은 '감독'입니다. 10배 이상 오를 주식만 관심 있습니다.
@@ -257,7 +257,7 @@ PER, ROE, EPS 성장률, 부채비율, 영업이익률 등 재무지표를 기�
     },
     "류": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#f43f5e",
         "description": "AI·반도체 테마 집중·재귀성 이론·정량 데이터",
         "system": """당신은 '류'입니다. AI와 반도체 테마에 집중하는 투자자입니다.
@@ -319,7 +319,7 @@ PER, ROE, EPS 성장률, 부채비율, 영업이익률 등 재무지표를 기�
 
     "실적왕": {
         "model_provider": "claude",
-        "model_id": "claude-sonnet-4-6",
+        "model_id": "claude-haiku-4-5-20251001",
         "color": "#22d3ee",
         "description": "성장률×PER 균형·대형주 5년 유망주",
         "system": """당신은 '실적왕'입니다. 성장률과 PER의 균형을 핵심 기준으로 봅니다.
