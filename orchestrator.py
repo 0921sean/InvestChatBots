@@ -819,7 +819,7 @@ def run_telegram_watchlist():
     if is_claude_token_exhausted():
         return
 
-    # 텔레그램 수집 (실패해도 계속)
+    # 텔레그램 수집
     tg_available = False
     try:
         fetch_telegram_messages(force=True)
@@ -827,26 +827,33 @@ def run_telegram_watchlist():
     except Exception as e:
         logger.debug(f"텔레그램 수집 실패: {e}")
 
-    tickers = extract_mentioned_tickers(hours=3) if tg_available else []
+    tg_tickers = extract_mentioned_tickers(hours=3) if tg_available else []
 
-    # 텔레그램 불가 시 뉴스/공시/관심 종목으로 대체
-    if not tickers:
-        try:
-            from news_fetcher import collect_all_news_stocks, get_watched_stocks_for_watchlist
-            collect_all_news_stocks()  # 뉴스에서 종목 수집 → watched_stocks 저장
-            watched = get_watched_stocks_for_watchlist()
-            tickers = [{"name": s["name"], "code": s.get("code",""), "market": s.get("market","KR")}
-                       for s in watched]
-            if tickers:
-                logger.info(f"뉴스/관심 종목 {len(tickers)}개로 워치리스트 대체")
-        except Exception as e:
-            logger.debug(f"뉴스 대체 소스 오류: {e}")
+    # 뉴스/공시/관심 종목 항상 병렬 수집 (텔레그램과 무관하게)
+    news_tickers = []
+    try:
+        from news_fetcher import collect_all_news_stocks, get_watched_stocks_for_watchlist
+        collect_all_news_stocks()  # 뉴스에서 종목 수집 → watched_stocks 저장
+        watched = get_watched_stocks_for_watchlist()
+        news_tickers = [{"name": s["name"], "code": s.get("code",""), "market": s.get("market","KR")}
+                        for s in watched]
+    except Exception as e:
+        logger.debug(f"뉴스 소스 오류: {e}")
+
+    # 두 소스 합치기 (중복 제거)
+    seen_names = set()
+    tickers = []
+    for t in tg_tickers + news_tickers:
+        if t["name"] not in seen_names:
+            seen_names.add(t["name"])
+            tickers.append(t)
+
+    source_label = "텔레그램+뉴스" if tg_available else "뉴스/공시"
 
     # 오늘 이미 분석한 종목 제외
     new_tickers = [t for t in tickers if not was_stock_analyzed_today("워치리스트", t["name"])]
 
     # 스캔 결과 채팅에 기록
-    source_label = "텔레그램" if tg_available else "뉴스/공시"
     scan_round_id = create_round(f"{source_label} 워치리스트 스캔")
     all_names = [t["name"] for t in tickers]
     if new_tickers:
