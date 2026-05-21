@@ -58,16 +58,11 @@ def _call_claude_cli(system_prompt: str, user_prompt: str) -> str:
     )
     exhausted_keywords = ("usage limit", "quota", "out of tokens",
                           "out of extra usage", "billing", "rate limit exceeded")
-    ratelimit_keywords = ("rate limit", "temporarily limiting", "server is temporarily",
-                          "overloaded", "529", "too many requests")
-
     if result.returncode != 0:
         stderr = result.stderr.lower()
         if any(k in stderr for k in exhausted_keywords):
             _set_token_exhausted()
             raise ClaudeTokenExhausted(f"Claude 토큰 소진: {result.stderr[:100]}")
-        if any(k in stderr for k in ratelimit_keywords):
-            raise ClaudeRateLimited(f"서버 과부하: {result.stderr[:100]}")
         raise RuntimeError(f"claude CLI 오류: {result.stderr[:200]}")
 
     data = json.loads(result.stdout)
@@ -89,9 +84,6 @@ class ClaudeTokenExhausted(Exception):
     pass
 
 
-class ClaudeRateLimited(Exception):
-    """서버 과부하 — 잠시 후 재시도."""
-    pass
 
 
 _openai_client = None
@@ -151,16 +143,9 @@ def call_agent(agent_name, system_prompt, user_prompt):
 
             raise ValueError(f"Unknown provider: {provider}")
 
-        except ClaudeRateLimited:
-            # 서버 과부하 — 3분 대기 후 재시도
-            if attempt < RATE_LIMIT_RETRIES - 1:
-                time.sleep(180)
-                continue
-            raise
         except Exception as e:
             err = str(e).lower()
-            is_rate = any(k in err for k in ("rate_limit", "tokens per", "too large", "requests per",
-                                              "temporarily limiting", "overloaded"))
+            is_rate = any(k in err for k in ("rate_limit", "tokens per", "too large", "requests per"))
             if is_rate and attempt < RATE_LIMIT_RETRIES - 1:
                 time.sleep(RATE_LIMIT_WAIT)
                 continue
