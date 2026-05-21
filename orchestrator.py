@@ -850,8 +850,13 @@ def run_telegram_watchlist():
 
     source_label = "텔레그램+뉴스" if tg_available else "뉴스/공시"
 
-    # 오늘 이미 분석한 종목 제외
-    new_tickers = [t for t in tickers if not was_stock_analyzed_today("워치리스트", t["name"])]
+    # 메인 섹터 종목 이름 목록 (워치리스트에서 제외)
+    main_stock_names = {s["name"] for sector in SECTORS for s in sector["stocks"]}
+
+    # 오늘 이미 분석했거나 메인 섹터 종목은 제외
+    new_tickers = [t for t in tickers
+                   if not was_stock_analyzed_today("워치리스트", t["name"])
+                   and t["name"] not in main_stock_names]
 
     # 스캔 결과 채팅에 기록
     scan_round_id = create_round(f"{source_label} 워치리스트 스캔")
@@ -873,27 +878,38 @@ def run_telegram_watchlist():
         name = ticker["name"]
         code = ticker["code"]
         market = ticker.get("market", "KR")
-        log_stock_analyzed("워치리스트", name)
-        # 워치리스트에서 분석한 종목 영구 저장
-        try:
-            from db import upsert_watched_stock
-            upsert_watched_stock(name, code, "US" if market == "US" else "KR", source_label)
-        except Exception:
-            pass
 
-        # 종목 데이터 수집 — 가격 없으면 스킵
+        # 코드 없으면 스킵 (log도 안 함)
+        if not code or code.upper() in ("NONE", ""):
+            continue
+
+        # 가격 조회 — TradingView 실패 시 yfinance fallback
         try:
             yf_sym = code if market == "US" else f"{code}.KS"
             stock_data = fetch_stock_data(code, yf_sym, name,
                                           market="US" if market == "US" else "KRX",
                                           exchange="NASDAQ" if market == "US" else "KRX")
             current_price = stock_data.get("price", 0) or 0
+            # TradingView 가격 없으면 yfinance로 직접 조회
             if not current_price:
-                logger.debug(f"워치리스트 {name}: 가격 없음, 건너뜀")
-                continue  # 가격 없으면 분석 의미 없음
+                import yfinance as yf
+                t = yf.Ticker(yf_sym)
+                current_price = t.fast_info.last_price or t.fast_info.previous_close or 0
+                if current_price:
+                    stock_data["price"] = current_price
+            if not current_price:
+                continue
             stock_data_text = format_stock_data(stock_data)
         except Exception:
-            continue  # 데이터 수집 실패도 건너뜀
+            continue
+
+        # 실제 분석할 종목만 로그 기록
+        log_stock_analyzed("워치리스트", name)
+        try:
+            from db import upsert_watched_stock
+            upsert_watched_stock(name, code, "US" if market == "US" else "KR", source_label)
+        except Exception:
+            pass
 
         round_id = create_round(f"워치리스트 — {name}")
         tg_ctx = get_cached_context(max_msgs=10)
