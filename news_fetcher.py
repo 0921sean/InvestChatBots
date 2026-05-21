@@ -209,6 +209,59 @@ def fetch_naver_finance_news() -> tuple[str, list[dict]]:
     return "\n\n".join(all_texts), all_stocks
 
 
+def fetch_us_trending_stocks() -> tuple[str, list[dict]]:
+    """StockTwits 트렌딩 + Google 뉴스로 US 주목 종목 수집."""
+    import json as _json
+    all_stocks = []
+    seen = set()
+
+    SKIP_US = {"AI", "US", "ETF", "IPO", "GDP", "CEO", "FED", "CPI", "EPS",
+               "PER", "ROE", "RSI", "BTC", "ETH", "USD", "EUR", "JPY",
+               "IMF", "WTO", "ECB", "BOK", "BIS", "OPEC", "NATO", "MOU",
+               "ESG", "LNG", "EV", "AR", "VR", "IT", "OK", "TV", "ID",
+               "FOR", "AND", "THE", "NOT", "ARE", "WILL", "WHAT", "FROM"}
+
+    # 1. StockTwits 트렌딩 (공개 API)
+    try:
+        headers = {"User-Agent": random.choice(_USER_AGENTS), "Accept": "application/json"}
+        req = urllib.request.Request("https://api.stocktwits.com/api/2/trending/symbols.json", headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = _json.loads(r.read())
+        for s in data.get("symbols", []):
+            t = s.get("symbol", "")
+            if t and t not in seen and t not in SKIP_US and 1 < len(t) <= 5 and "." not in t and "X" not in t[-1:]:
+                seen.add(t)
+                all_stocks.append({"name": t, "code": t, "market": "US"})
+    except Exception as e:
+        logger.debug(f"StockTwits 오류: {e}")
+
+    time.sleep(0.5)
+
+    # 2. Google 뉴스 US 종목 키워드 검색
+    for query in ["US stock earnings beat", "stock price surge today", "NYSE NASDAQ movers"]:
+        try:
+            encoded = urllib.parse.quote(query)
+            url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
+            raw = _fetch(url)
+            if raw:
+                # (TICKER) 패턴
+                tickers = re.findall(r'\(([A-Z]{2,5})\)', raw)
+                tickers += re.findall(r'\$([A-Z]{2,5})\b', raw)
+                for t in tickers:
+                    if t not in seen and t not in SKIP_US and 1 < len(t) <= 5:
+                        seen.add(t)
+                        all_stocks.append({"name": t, "code": t, "market": "US"})
+        except Exception as e:
+            logger.debug(f"US 뉴스 오류: {e}")
+        time.sleep(0.3)
+
+    text = ""
+    if all_stocks:
+        text = f"=== US 주목 종목 ({len(all_stocks)}개) ===\n" + ", ".join(s["name"] for s in all_stocks[:20])
+
+    return text, all_stocks
+
+
 def fetch_dart_disclosures() -> tuple[str, list[dict]]:
     """DART 전자공시 — Google 뉴스로 실적 공시 키워드 검색."""
     try:
@@ -256,7 +309,7 @@ def collect_all_news_stocks() -> str:
     all_texts = []
     all_stocks = []
 
-    # 네이버 금융
+    # 네이버 증권 뉴스 (KR 종목 코드 파싱)
     text, stocks = fetch_naver_finance_news()
     if text:
         all_texts.append(text)
@@ -264,16 +317,16 @@ def collect_all_news_stocks() -> str:
 
     time.sleep(1)
 
-    # DART 공시
-    text, stocks = fetch_dart_disclosures()
+    # Yahoo Finance + Reuters (US 종목)
+    text, stocks = fetch_us_trending_stocks()
     if text:
         all_texts.append(text)
     all_stocks.extend(stocks)
 
     time.sleep(1)
 
-    # Google 뉴스 (여러 쿼리)
-    for query in ["한국 주식 실적 발표", "코스피 주목 종목", "어닝서프라이즈"]:
+    # Google 뉴스 보조
+    for query in ["코스피 주목 종목", "US stock earnings surprise"]:
         text, stocks = fetch_google_finance_news(query)
         if text:
             all_texts.append(text)
