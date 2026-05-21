@@ -136,6 +136,17 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO cycle_state (id) VALUES (1);
+        CREATE TABLE IF NOT EXISTS watched_stocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            code TEXT,
+            market TEXT DEFAULT 'KR',
+            source TEXT,
+            first_seen DATE DEFAULT (date('now')),
+            last_seen DATE DEFAULT (date('now')),
+            mention_count INTEGER DEFAULT 1,
+            UNIQUE(name)
+        );
         CREATE TABLE IF NOT EXISTS member_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -551,4 +562,31 @@ def get_open_positions() -> list:
         rows = con.execute(
             "SELECT * FROM virtual_positions WHERE status='open' ORDER BY opened_at"
         ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── 관심 종목 (영구 보관) ─────────────────────────────────
+def upsert_watched_stock(name: str, code: str = None, market: str = "KR", source: str = ""):
+    """종목 언급 시 관심 목록에 추가 또는 카운트 증가."""
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO watched_stocks (name, code, market, source, last_seen, mention_count)
+            VALUES (?, ?, ?, ?, date('now'), 1)
+            ON CONFLICT(name) DO UPDATE SET
+                last_seen = date('now'),
+                mention_count = mention_count + 1,
+                code = COALESCE(EXCLUDED.code, code),
+                source = EXCLUDED.source
+        """, (name, code, market, source))
+
+
+def get_watched_stocks(limit: int = 50) -> list[dict]:
+    """관심 종목 목록 (최근 언급 순)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT * FROM watched_stocks 
+            ORDER BY last_seen DESC, mention_count DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
         return [dict(r) for r in rows]
