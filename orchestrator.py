@@ -816,8 +816,22 @@ def run_telegram_watchlist():
         return
     if is_user_active() or _pause_requested:
         return
+
+    # 토큰 소진 시 복구될 때까지 대기 후 재개
     if is_claude_token_exhausted():
-        return
+        from agents import _call_claude_cli
+        from notifier import notify as _notify
+        _notify("⏸ 워치리스트 대기", "Claude 토큰 소진 — 충전 후 자동 재개", priority="default", cooldown=1800)
+        for _ in range(60):  # 최대 60분 대기
+            time.sleep(60)
+            try:
+                _call_claude_cli("test", "ping")
+                _notify("▶ 워치리스트 재개", "토큰 복구됨", priority="default", cooldown=0)
+                break
+            except ClaudeTokenExhausted:
+                continue
+        else:
+            return  # 60분 후에도 안 되면 포기
 
     # 텔레그램 수집
     tg_available = False
