@@ -809,8 +809,24 @@ def reset_daily_cycle():
 
 
 # ── 텔레그램 워치리스트 스캔 ──────────────────────────────
+_watchlist_lock = threading.Lock()
+
+
 def run_telegram_watchlist():
     """2시간마다 텔레그램 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단."""
+    # 이미 실행 중이면 건너뜀 (동시 실행 방지)
+    if not _watchlist_lock.acquire(blocking=False):
+        logger.info("워치리스트 이미 실행 중 — 이번 스케줄 건너뜀")
+        return
+
+    try:
+        _run_telegram_watchlist_inner()
+    finally:
+        _watchlist_lock.release()
+
+
+def _run_telegram_watchlist_inner():
+    """워치리스트 실제 실행 로직."""
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
