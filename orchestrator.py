@@ -869,23 +869,40 @@ def run_telegram_watchlist():
     except Exception:
         pass
 
-    # 스캔 결과 채팅에 기록
+    # new_tickers 중 실제 가격 있는 종목만 사전 필터링
+    import yfinance as _yf
+    valid_tickers = []
+    for t in new_tickers:
+        c = t.get("code", "")
+        if not c or c.upper() in ("NONE", ""):
+            continue
+        try:
+            sym = c if t.get("market") == "US" else f"{c}.KS"
+            info = _yf.Ticker(sym).fast_info
+            price = getattr(info, 'last_price', None) or getattr(info, 'previous_close', None)
+            if price:
+                valid_tickers.append(t)
+        except Exception:
+            pass
+
+    # 스캔 결과 채팅에 기록 (유효 종목만 표시)
     scan_round_id = create_round(f"{source_label} 워치리스트 스캔")
-    all_names = [t["name"] for t in tickers]
-    if new_tickers:
+    if valid_tickers:
         _save_msg(scan_round_id, "System",
-                  f"📡 [{source_label}] 워치리스트 스캔 완료\n언급 종목: {', '.join(all_names) if all_names else '없음'}\n신규 분석 대상: {', '.join(t['name'] for t in new_tickers)}")
+                  f"📡 [{source_label}] 워치리스트 스캔 완료\n"
+                  f"분석 대상: {', '.join(t['name'] for t in valid_tickers)}\n"
+                  f"(메인 종목·가격없음 제외 후)")
     else:
         _save_msg(scan_round_id, "System",
-                  f"📡 [{source_label}] 워치리스트 스캔 완료\n언급 종목: {', '.join(all_names) if all_names else '없음'}\n→ 신규 종목 없음")
+                  f"📡 [{source_label}] 워치리스트 스캔 완료\n→ 분석할 신규 종목 없음")
     complete_round(scan_round_id)
 
-    if not new_tickers:
+    if not valid_tickers:
         return
 
     market_summary, _ = _get_or_refresh_market_summary()
 
-    for ticker in new_tickers:
+    for ticker in valid_tickers:
         name = ticker["name"]
         code = ticker["code"]
         market = ticker.get("market", "KR")
