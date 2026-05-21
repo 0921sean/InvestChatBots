@@ -363,6 +363,18 @@ def _execute_buy(stock: dict, price: float, buy_amount: float,
     buy_votes: [(bot_name, full_response_text), ...] — 매수 투표한 봇들의 발언
     buy_amount: 확신도 티어 기반 고정 금액 (초기 자본 대비)
     """
+    # 오늘 이미 매수한 종목은 재매수 금지
+    from db import _conn as db_conn
+    symbol = stock.get("code") or stock.get("name", "")
+    with db_conn() as con:
+        already = con.execute(
+            "SELECT id FROM virtual_positions WHERE (symbol=? OR code=?) AND status='open' AND date(opened_at)=date('now')",
+            (stock["name"], symbol)
+        ).fetchone()
+    if already:
+        _save_msg(round_id, "System", f"⚠️ {stock['name']} 오늘 이미 매수 완료 — 하루 1회 제한")
+        return
+
     pf = get_shared_portfolio()
     balance = pf["balance"]
     amount = min(round(buy_amount), balance)  # 잔액 초과 방지
