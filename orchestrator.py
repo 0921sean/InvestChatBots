@@ -874,17 +874,19 @@ def run_telegram_watchlist():
         except Exception:
             pass
 
-        # 종목 데이터 수집
+        # 종목 데이터 수집 — 가격 없으면 스킵
         try:
             yf_sym = code if market == "US" else f"{code}.KS"
             stock_data = fetch_stock_data(code, yf_sym, name,
                                           market="US" if market == "US" else "KRX",
                                           exchange="NASDAQ" if market == "US" else "KRX")
-            stock_data_text = format_stock_data(stock_data)
             current_price = stock_data.get("price", 0) or 0
+            if not current_price:
+                logger.debug(f"워치리스트 {name}: 가격 없음, 건너뜀")
+                continue  # 가격 없으면 분석 의미 없음
+            stock_data_text = format_stock_data(stock_data)
         except Exception:
-            stock_data_text = f"=== {name} ({code}) ===\n데이터 수집 실패"
-            current_price = 0
+            continue  # 데이터 수집 실패도 건너뜀
 
         round_id = create_round(f"워치리스트 — {name}")
         tg_ctx = get_cached_context(max_msgs=10)
