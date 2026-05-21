@@ -132,31 +132,81 @@ def _extract_kr_stocks(text: str) -> list[dict]:
     return found
 
 
-def fetch_naver_finance_news() -> tuple[str, list[dict]]:
-    """네이버 금융 뉴스 RSS 수집."""
-    rss_urls = [
-        "https://finance.naver.com/news/news_list.naver?mode=LSD&mid=sec&sid1=101&sid2=258&date=",
-        "https://news.naver.com/main/rss/rss.naver?oid=015",   # 한국경제
-        "https://news.naver.com/main/rss/rss.naver?oid=009",   # 매일경제
+def fetch_naver_stock_news() -> tuple[str, list[dict]]:
+    """네이버 금융 뉴스에서 종목 코드 직접 추출 (stockCode 파라미터)."""
+    urls = [
+        "https://finance.naver.com/news/mainnews.naver",
+        "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
     ]
-    # Google 뉴스로 네이버 금융 뉴스 대체
-    queries = ["코스피 오늘 주식", "한국 증시 종목 이슈", "어닝 서프라이즈 코스피"]
     all_titles = []
     all_stocks = []
+    seen_codes = set()
 
-    for q in queries:
-        t, s = fetch_google_finance_news(q)
-        if t:
-            all_titles.extend(t.split("\n")[1:])  # 헤더 제외
-            all_stocks.extend(s)
-        time.sleep(0.3)
+    for url in urls:
+        raw = _fetch(url)
+        if not raw:
+            continue
+        # code=XXXXXX 또는 stockCode=XXXXXX 패턴 추출
+        codes = re.findall(r'(?:stock)?[Cc]ode=([0-9]{6})', raw)
+        # 기사 제목 추출
+        titles = re.findall(r'<a[^>]+class="[^"]*title[^"]*"[^>]*>([^<]+)</a>', raw)
+        if not titles:
+            titles = re.findall(r'<strong[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)</strong>', raw)
+
+        for code in codes:
+            if code not in seen_codes:
+                result = _lookup_kr_code(code)
+                if result:
+                    all_stocks.append(result)
+                    seen_codes.add(code)
+
+        for t in titles[:10]:
+            t = t.strip()
+            if t and len(t) > 5:
+                all_titles.append(t)
+                # 제목에서도 6자리 코드 파싱
+                for c in re.findall(r'\b([0-9]{6})\b', t):
+                    if c not in seen_codes:
+                        r = _lookup_kr_code(c)
+                        if r:
+                            all_stocks.append(r)
+                            seen_codes.add(c)
+
+        time.sleep(0.5)
 
     text = ""
-    if all_titles:
-        unique_titles = list(dict.fromkeys(all_titles))[:15]
-        text = f"=== 국내 증시 뉴스 ({len(unique_titles)}개) ===\n" + "\n".join(unique_titles)
+    if all_titles or all_stocks:
+        stock_names = [s["name"] for s in all_stocks]
+        text = f"=== 네이버 증권 뉴스 (종목 {len(all_stocks)}개 감지) ===\n"
+        if stock_names:
+            text += f"언급 종목: {', '.join(stock_names[:10])}\n"
+        text += "\n".join(f"• {t}" for t in all_titles[:8])
 
     return text, all_stocks
+
+
+def fetch_naver_finance_news() -> tuple[str, list[dict]]:
+    """네이버 증권 뉴스 + Google 뉴스 통합."""
+    all_texts = []
+    all_stocks = []
+
+    # 네이버 증권 뉴스 (stockCode 파싱)
+    t, s = fetch_naver_stock_news()
+    if t:
+        all_texts.append(t)
+    all_stocks.extend(s)
+
+    time.sleep(0.5)
+
+    # Google 뉴스 보조
+    for q in ["코스닥 급등 종목", "실적 서프라이즈 주가"]:
+        t, s = fetch_google_finance_news(q)
+        if t:
+            all_texts.append(t)
+        all_stocks.extend(s)
+        time.sleep(0.3)
+
+    return "\n\n".join(all_texts), all_stocks
 
 
 def fetch_dart_disclosures() -> tuple[str, list[dict]]:
