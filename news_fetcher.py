@@ -78,12 +78,57 @@ def _fetch(url: str) -> str:
         return ""
 
 
+_yf_code_cache: dict = {}  # {code: {"name": str, "valid": bool}}
+
+def _lookup_kr_code(code: str) -> dict | None:
+    """6자리 코드 → yfinance로 종목명 확인. 캐시 사용."""
+    if code in _yf_code_cache:
+        r = _yf_code_cache[code]
+        return r if r["valid"] else None
+    try:
+        import yfinance as yf
+        t = yf.Ticker(f"{code}.KS")
+        price = t.fast_info.last_price or t.fast_info.previous_close
+        if not price:
+            _yf_code_cache[code] = {"valid": False}
+            return None
+        info = t.info
+        long_name = info.get("longName", "") or ""
+        short_name = info.get("shortName", "") or ""
+        # 짧고 한글 포함된 이름 우선, 없으면 영문 이름
+        name = short_name if short_name and len(short_name) < 20 else long_name
+        if not name or "," in name or len(name) > 30:
+            name = code  # fallback
+        name = (name.replace(" Co., Ltd.", "").replace(" Co.,Ltd.", "")
+                .replace(" Corp.", "").replace(" Inc.", "").strip())
+        result = {"name": name, "code": code, "market": "KR", "valid": True}
+        _yf_code_cache[code] = result
+        return result
+    except Exception:
+        _yf_code_cache[code] = {"valid": False}
+        return None
+
+
 def _extract_kr_stocks(text: str) -> list[dict]:
-    """텍스트에서 한국 주요 종목 추출."""
+    """텍스트에서 한국 종목 추출 — 키워드 매핑 + 6자리 코드 직접 파싱."""
     found = []
+    seen_codes = set()
+
+    # 1. 알려진 종목명 매핑
     for name, code in KR_STOCK_KEYWORDS.items():
-        if name in text:
+        if name in text and code not in seen_codes:
             found.append({"name": name, "code": code, "market": "KR"})
+            seen_codes.add(code)
+
+    # 2. 6자리 숫자 코드 직접 파싱 (예: A005930, (005930), 종목코드 005930)
+    codes_in_text = re.findall(r'\b([0-9]{6})\b', text)
+    for code in codes_in_text:
+        if code not in seen_codes:
+            result = _lookup_kr_code(code)
+            if result:
+                found.append(result)
+                seen_codes.add(code)
+
     return found
 
 
