@@ -24,7 +24,7 @@ from db import (
 )
 from agents import call_agent, is_claude_token_exhausted, ClaudeTokenExhausted
 from prompts import (
-    AGENT_ORDER, AGENT_PROFILES, BULL_TEAM, BEAR_TEAM,
+    AGENT_ORDER, AGENT_PROFILES,
     format_history_compact,
     build_sector_discussion_prompt,
     build_stock_analysis_prompt,
