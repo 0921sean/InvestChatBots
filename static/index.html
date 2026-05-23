@@ -579,7 +579,10 @@ async function runMainCycle() {
   try {
     const res = await fetch('/api/main-cycle/run', {method:'POST'});
     const data = await res.json();
-    if (data.already_done) {
+    if (data.weekend) {
+      alert('🛌 ' + data.message);
+      btn.textContent = '▶ 메인 실행';
+    } else if (data.already_done) {
       alert('✅ ' + data.message);
       btn.textContent = '▶ 메인 실행';
     } else {
