@@ -336,6 +336,11 @@ def api_main_cycle_run():
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
 
+    # 주말(토·일)에는 실행 안 함
+    if now.weekday() >= 5:
+        return {"ok": True, "weekend": True,
+                "message": "오늘은 장이 안 하는 날입니다."}
+
     cycle_done_at = _orch._cycle_done_at
     already_done = False
     if cycle_done_at > 0:
