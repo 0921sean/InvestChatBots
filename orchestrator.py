@@ -31,6 +31,7 @@ from prompts import (
     build_user_response_prompt,
     build_feedback_prompt,
     build_summarize_prompt,
+    build_holdings_review_prompt,
 )
 from fetchers import (
     fetch_market_data, fetch_news, fetch_technical_analysis,
@@ -319,11 +320,14 @@ def _save_msg(round_id, agent_name, content):
 
 # ── 결정 파싱 ─────────────────────────────────────────────
 def _parse_decision(text: str) -> tuple[str, int]:
-    """봇 응답에서 [결정] 파싱. (decision, weight_pct) 반환."""
-    m = re.search(r'\[결정\]\s*(매수|관망|매도)', text)
+    """봇 응답에서 [결정] 파싱. (decision, weight_pct) 반환.
+    '홀드'는 보유 점검 컨텍스트의 별칭 — 내부적으로 '관망'으로 정규화."""
+    m = re.search(r'\[결정\]\s*(매수|관망|홀드|매도)', text)
     if not m:
         return "관망", 0
     decision = m.group(1)
+    if decision == "홀드":
+        decision = "관망"
     return decision, 0
 
 
@@ -1279,3 +1283,229 @@ def evaluate_positions():
     if stopped:
         for symbol in stopped:
             _run_stoploss_feedback(symbol)
+
+
+# ── 월요일 아침 보유 종목 점검 ────────────────────────────
+_holdings_review_lock = threading.Lock()
+
+
+def review_holdings(force: bool = False):
+    """월요일 아침: 모든 보유 포지션에 대해 봇 토론 — 홀드 vs 매도 판단.
+    매도 5표(과반) 이상 → 매도 실행. 그 외 → 보유 유지.
+    `force=True`면 요일 체크를 우회 (수동 트리거용)."""
+    if not _holdings_review_lock.acquire(blocking=False):
+        logger.info("보유 점검 이미 실행 중 — 이번 호출 건너뜀")
+        return
+
+    try:
+        _review_holdings_inner(force=force)
+    finally:
+        _holdings_review_lock.release()
+
+
+def _review_holdings_inner(force: bool = False):
+    from datetime import datetime, timezone, timedelta
+    from db import get_open_positions
+    from fetchers import fetch_stock_news, format_stock_news
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    # 월요일만 (force=True면 우회)
+    if not force and now.weekday() != 0:
+        logger.info("보유 점검은 월요일만 — 오늘은 건너뜀")
+        return
+    if _pause_requested or is_user_active():
+        return
+    if is_claude_token_exhausted():
+        notify("⏸ 보유 점검 대기", "Claude 토큰 소진 — 충전 후 재시도",
+               priority="default", cooldown=1800)
+        return
+
+    positions = get_open_positions()
+    intro_round_id = create_round("월요일 보유 종목 점검")
+    if not positions:
+        _save_msg(intro_round_id, "System", "✅ 보유 종목 없음 — 점검 생략")
+        complete_round(intro_round_id)
+        return
+
+    names = ", ".join(p["symbol"] for p in positions)
+    _save_msg(intro_round_id, "System",
+              f"📋 월요일 보유 종목 점검 — {len(positions)}개\n"
+              f"대상: {names}\n"
+              f"각 종목별로 9봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
+    complete_round(intro_round_id)
+
+    market_summary, _ = _get_or_refresh_market_summary()
+    sold, kept = [], []
+    token_exhausted = False
+    paused = False
+
+    for pos in positions:
+        if _pause_requested:
+            paused = True
+            break
+        if is_claude_token_exhausted():
+            token_exhausted = True
+            break
+
+        symbol = pos["symbol"]
+        code = pos.get("code") or ""
+        market = pos.get("market", "KRX")
+        entry = pos.get("entry_price") or 0
+        buy_reasoning = pos.get("reasoning", "") or ""
+
+        # 보유일수 계산
+        days_held = 0
+        try:
+            opened_at = pos.get("opened_at", "")
+            if opened_at:
+                opened_dt = datetime.fromisoformat(opened_at.replace("Z", "+00:00"))
+                if opened_dt.tzinfo is None:
+                    opened_dt = opened_dt.replace(tzinfo=KST)
+                days_held = (now - opened_dt).days
+        except Exception:
+            pass
+
+        if not code:
+            continue
+
+        # 가격/데이터 조회
+        try:
+            yf_sym = code if market == "US" else f"{code}.KS"
+            stock_data = fetch_stock_data(
+                code, yf_sym, symbol,
+                market="US" if market == "US" else "KRX",
+                exchange="NASDAQ" if market == "US" else "KRX",
+            )
+            current = stock_data.get("price", 0) or 0
+            if not current:
+                import yfinance as yf
+                t = yf.Ticker(yf_sym)
+                current = t.fast_info.last_price or t.fast_info.previous_close or 0
+                if current:
+                    stock_data["price"] = current
+            if not current:
+                continue
+            stock_data_text = format_stock_data(stock_data)
+        except Exception as e:
+            logger.debug(f"보유 점검 데이터 조회 실패 {symbol}: {e}")
+            continue
+
+        pnl_pct = ((current - entry) / entry * 100) if entry else 0.0
+
+        # 최신 뉴스 (있으면 추가)
+        try:
+            news_items = fetch_stock_news(symbol, yf_sym, max_items=5)
+            news_text = format_stock_news(symbol, news_items) if news_items else ""
+        except Exception:
+            news_text = ""
+
+        round_id = create_round(f"보유 점검 — {symbol}")
+        currency = "$" if market == "US" else "₩"
+        header = (f"📊 보유 종목 점검: {symbol} ({code})\n"
+                  f"진입가 {currency}{entry:,.2f} → 현재가 {currency}{current:,.2f} "
+                  f"({pnl_pct:+.1f}%, 보유 {days_held}일)\n"
+                  f"매수 근거: {(buy_reasoning or '(기록 없음)')[:300]}")
+        if news_text:
+            header += f"\n\n{news_text}"
+        _save_msg(round_id, "System", header)
+
+        decisions, bot_responses = [], []
+        for agent_name in AGENT_ORDER:
+            if _pause_requested:
+                break
+            if is_claude_token_exhausted():
+                token_exhausted = True
+                break
+            round_msgs = get_messages_for_round(round_id)
+            history_text = format_history_compact(
+                [m for m in round_msgs if m["agent_name"] not in ("System",)]
+            )
+            system = _build_system(agent_name)
+            prompt = build_holdings_review_prompt(
+                symbol, code, entry, current, pnl_pct, days_held,
+                buy_reasoning, stock_data_text, market_summary,
+                history_text, agent_name,
+            )
+            resp = None
+            for attempt in range(2):
+                try:
+                    resp = call_agent(agent_name, system, prompt)
+                    break
+                except ClaudeTokenExhausted:
+                    _handle_agent_error(agent_name, ClaudeTokenExhausted())
+                    token_exhausted = True
+                    break
+                except Exception as e:
+                    if attempt == 1:
+                        _handle_agent_error(agent_name, e)
+                        resp = f"[{agent_name} 응답 오류]"
+                    else:
+                        time.sleep(3)
+            if token_exhausted:
+                break
+            if resp:
+                _save_msg(round_id, agent_name, resp)
+                d, _ = _parse_decision(resp)
+                decisions.append((d, 0))
+                bot_responses.append((agent_name, resp))
+
+        if token_exhausted:
+            complete_round(round_id)
+            break
+
+        # 전체 응답 오류 = 토큰 소진으로 판단
+        err_cnt = sum(1 for _, r in bot_responses if "응답 오류" in r)
+        if err_cnt == len(bot_responses) and len(bot_responses) > 0:
+            from agents import _set_token_exhausted
+            _set_token_exhausted()
+            complete_round(round_id)
+            token_exhausted = True
+            break
+
+        # 매도 / 홀드(=관망) 집계
+        sell_count = sum(1 for d, _ in decisions if d == "매도")
+        hold_count = sum(1 for d, _ in decisions if d == "관망")
+        vote_text = " | ".join(
+            f"{n}: {_parse_decision(r)[0].replace('관망','홀드')}"
+            for n, r in bot_responses
+        )
+
+        if sell_count >= SELL_MAJORITY:
+            sell_reasons = []
+            for n, r in bot_responses:
+                if _parse_decision(r)[0] == "매도":
+                    sell_reasons.append(f"• {n}: {_extract_reason(r)}")
+            sell_reasoning = "월요일 보유 점검 — 매도 과반\n" + "\n".join(sell_reasons)
+            _save_msg(round_id, "System",
+                      f"🗳 점검 투표: {vote_text}\n"
+                      f"→ 매도 {sell_count}표 ≥ {SELL_MAJORITY} — 매도 실행")
+            _execute_sell({"name": symbol, "code": code, "market": market},
+                          current, sell_reasoning, round_id)
+            sold.append(symbol)
+        else:
+            _save_msg(round_id, "System",
+                      f"🗳 점검 투표: {vote_text}\n"
+                      f"→ 보유 유지 (홀드 {hold_count}표 / 매도 {sell_count}표)")
+            kept.append(symbol)
+
+        complete_round(round_id)
+        time.sleep(1)
+
+    # 최종 요약
+    done_round_id = create_round("월요일 보유 점검 완료")
+    if paused:
+        _save_msg(done_round_id, "System",
+                  f"⏸ 일시정지 요청으로 중단 — 매도: {len(sold)}, 유지: {len(kept)}, 남은 종목: {len(positions)-len(sold)-len(kept)}")
+    elif token_exhausted:
+        _save_msg(done_round_id, "System",
+                  f"⏸ 토큰 소진으로 중단 — 매도: {len(sold)}, 유지: {len(kept)}, 남은 종목: {len(positions)-len(sold)-len(kept)}")
+    else:
+        summary = (f"✅ 월요일 보유 점검 완료\n"
+                   f"매도: {len(sold)}개" + (f" ({', '.join(sold)})" if sold else "") + "\n"
+                   f"유지: {len(kept)}개" + (f" ({', '.join(kept)})" if kept else ""))
+        _save_msg(done_round_id, "System", summary)
+        notify("📋 월요일 보유 점검 완료",
+               f"매도 {len(sold)} / 유지 {len(kept)}",
+               priority="default", cooldown=0)
+    complete_round(done_round_id)

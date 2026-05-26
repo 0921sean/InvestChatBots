@@ -407,6 +407,35 @@ def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, hi
 2-3문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
 
 
+def build_holdings_review_prompt(symbol, code, entry_price, current_price, pnl_pct,
+                                  days_held, buy_reasoning, stock_data_text,
+                                  market_summary, history_text, agent_name):
+    """월요일 보유 종목 점검 — 계속 보유(홀드) vs 매도 판단."""
+    entry_fmt = f"{entry_price:,.2f}" if entry_price else "?"
+    cur_fmt = f"{current_price:,.2f}" if current_price else "?"
+    return f"""[보유 종목 점검 — {symbol} ({code})]
+
+진입가 {entry_fmt} → 현재가 {cur_fmt} ({pnl_pct:+.1f}%, 보유 {days_held}일)
+
+매수 당시 근거:
+{buy_reasoning or '(기록 없음)'}
+
+최신 데이터:
+{stock_data_text}
+
+시황 요약: {market_summary[:300]}
+
+[다른 봇 의견]
+{history_text or "(첫 번째 의견)"}
+
+{agent_name}, 이 종목을 **계속 보유(홀드)**할지 **매도**할지 판단해주세요.
+- 매수 당시 근거가 여전히 유효한가
+- 현재 PnL/시황/뉴스 변화가 매도를 정당화하는가
+- 추세, 손익비, 기회비용 관점에서 짧고 단호하게
+- 반드시 [결정] 형식으로 마무리: **[결정] 홀드** 또는 **[결정] 매도**
+1-2문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
+
+
 def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = ""):
     stock_section = f"\n\n[자동 조회된 종목 데이터]\n{stock_context}" if stock_context else ""
 
