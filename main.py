@@ -18,7 +18,7 @@ from db import (
 import time as _time_module
 from orchestrator import (
     run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS,
-    is_market_open, get_current_state, evaluate_positions,
+    is_market_open, get_current_state, evaluate_positions, review_holdings,
     SECTORS, request_pause, clear_pause,
 )
 import orchestrator as _orch
@@ -262,6 +262,13 @@ def api_positions():
 @app.post("/api/positions/evaluate")
 def api_evaluate_positions():
     threading.Thread(target=evaluate_positions, daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/holdings/review")
+def api_holdings_review():
+    """월요일 보유 점검 수동 트리거 (요일 무관)."""
+    threading.Thread(target=lambda: review_holdings(force=True), daemon=True).start()
     return {"ok": True}
 
 
