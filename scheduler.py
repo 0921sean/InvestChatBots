@@ -14,19 +14,14 @@ def start_scheduler():
     scheduler.add_job(reset_daily_cycle, CronTrigger(hour=6, minute=0), misfire_grace_time=300)
     # 9시 30분: 손절 체크
     scheduler.add_job(evaluate_positions, CronTrigger(hour=9, minute=30), misfire_grace_time=300)
-    # 월요일 8시 30분: 보유 종목 홀드/매도 점검 (메인 사이클 종료 후, 장 시작 전)
-    scheduler.add_job(
-        review_holdings,
-        CronTrigger(day_of_week='mon', hour=8, minute=30),
-        id="monday_holdings_review",
-        misfire_grace_time=1800,  # 30분 이내 놓친 것도 실행
-    )
-    # 메인 완료 후 6시간 간격 (메인 진행 중이면 자동 skip, KST 기준)
+    # 워치리스트: 12, 18, 24시 (메인 진행 중이면 자동 skip, KST 기준)
     scheduler.add_job(
         run_telegram_watchlist,
-        CronTrigger(hour='2,8,14,20', minute=0),
+        CronTrigger(hour='0,12,18', minute=0),
         id="telegram_watchlist",
         misfire_grace_time=600,  # 10분 이내 놓친 것도 실행
     )
+    # 보유 종목 점검은 메인 사이클 완료 직후 자동 트리거 (_advance_stock → cycle_rest 진입 시).
+    # 별도 cron job 없음. 수동 실행은 POST /api/holdings/review (force=True).
     scheduler.start()
     return scheduler
