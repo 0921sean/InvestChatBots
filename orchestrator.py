@@ -607,6 +607,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
 
 def _advance_stock(round_id: int, sector: dict):
     """현재 종목 완료 후 다음 종목 또는 다음 섹터로 상태 전환."""
+    cycle_just_finished = False
     with _state_lock:
         globals()["_stock_idx"] += 1
         if _stock_idx >= len(sector["stocks"]):
@@ -620,6 +621,7 @@ def _advance_stock(round_id: int, sector: dict):
                 globals()["_sector_idx"] = 0
                 globals()["_phase"] = "cycle_rest"
                 globals()["_cycle_done_at"] = time.time()
+                cycle_just_finished = True
             else:
                 next_name = SECTORS[next_sector_idx]["name"]
                 _save_msg(round_id, "System",
@@ -632,6 +634,10 @@ def _advance_stock(round_id: int, sector: dict):
             next_stock = sector["stocks"][_stock_idx]["name"]
             _save_msg(round_id, "System", f"다음 종목 → {next_stock}")
         _persist_state()
+
+    # 메인 사이클이 방금 끝났으면 → 보유 종목 점검 백그라운드 실행
+    if cycle_just_finished:
+        threading.Thread(target=review_holdings, daemon=True).start()
 
 
 # ── 종목 분석 라운드 ──────────────────────────────────────
@@ -1285,14 +1291,15 @@ def evaluate_positions():
             _run_stoploss_feedback(symbol)
 
 
-# ── 월요일 아침 보유 종목 점검 ────────────────────────────
+# ── 메인 사이클 완료 후 보유 종목 점검 ──────────────────
 _holdings_review_lock = threading.Lock()
 
 
 def review_holdings(force: bool = False):
-    """월요일 아침: 모든 보유 포지션에 대해 봇 토론 — 홀드 vs 매도 판단.
+    """모든 보유 포지션에 대해 봇 토론 — 홀드 vs 매도 판단.
     매도 5표(과반) 이상 → 매도 실행. 그 외 → 보유 유지.
-    `force=True`면 요일 체크를 우회 (수동 트리거용)."""
+    메인 사이클 완료 직후 자동 호출 (_advance_stock → cycle_rest 진입 시).
+    `force=True`면 _phase 체크 우회 (수동 트리거용)."""
     if not _holdings_review_lock.acquire(blocking=False):
         logger.info("보유 점검 이미 실행 중 — 이번 호출 건너뜀")
         return
@@ -1310,9 +1317,9 @@ def _review_holdings_inner(force: bool = False):
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
 
-    # 월요일만 (force=True면 우회)
-    if not force and now.weekday() != 0:
-        logger.info("보유 점검은 월요일만 — 오늘은 건너뜀")
+    # 메인 사이클 진행 중이면 동시 실행 방지 (force=True면 우회)
+    if not force and _phase != "cycle_rest":
+        logger.info(f"메인 사이클 진행 중(_phase={_phase}) — 보유 점검 건너뜀")
         return
     if _pause_requested or is_user_active():
         return
@@ -1322,7 +1329,7 @@ def _review_holdings_inner(force: bool = False):
         return
 
     positions = get_open_positions()
-    intro_round_id = create_round("월요일 보유 종목 점검")
+    intro_round_id = create_round("보유 종목 점검")
     if not positions:
         _save_msg(intro_round_id, "System", "✅ 보유 종목 없음 — 점검 생략")
         complete_round(intro_round_id)
@@ -1330,7 +1337,7 @@ def _review_holdings_inner(force: bool = False):
 
     names = ", ".join(p["symbol"] for p in positions)
     _save_msg(intro_round_id, "System",
-              f"📋 월요일 보유 종목 점검 — {len(positions)}개\n"
+              f"📋 보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
               f"대상: {names}\n"
               f"각 종목별로 9봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
     complete_round(intro_round_id)
@@ -1493,7 +1500,7 @@ def _review_holdings_inner(force: bool = False):
         time.sleep(1)
 
     # 최종 요약
-    done_round_id = create_round("월요일 보유 점검 완료")
+    done_round_id = create_round("보유 점검 완료")
     if paused:
         _save_msg(done_round_id, "System",
                   f"⏸ 일시정지 요청으로 중단 — 매도: {len(sold)}, 유지: {len(kept)}, 남은 종목: {len(positions)-len(sold)-len(kept)}")
@@ -1501,11 +1508,11 @@ def _review_holdings_inner(force: bool = False):
         _save_msg(done_round_id, "System",
                   f"⏸ 토큰 소진으로 중단 — 매도: {len(sold)}, 유지: {len(kept)}, 남은 종목: {len(positions)-len(sold)-len(kept)}")
     else:
-        summary = (f"✅ 월요일 보유 점검 완료\n"
+        summary = (f"✅ 보유 점검 완료\n"
                    f"매도: {len(sold)}개" + (f" ({', '.join(sold)})" if sold else "") + "\n"
                    f"유지: {len(kept)}개" + (f" ({', '.join(kept)})" if kept else ""))
         _save_msg(done_round_id, "System", summary)
-        notify("📋 월요일 보유 점검 완료",
+        notify("📋 보유 점검 완료",
                f"매도 {len(sold)} / 유지 {len(kept)}",
                priority="default", cooldown=0)
     complete_round(done_round_id)
