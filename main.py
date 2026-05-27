@@ -266,7 +266,7 @@ def _normalize_consensus(content: str, note_id, created_at) -> dict:
         except Exception:
             pass
 
-    # v1 raw text — 섹터명·전망·결정·핵심 이유·주의 사항 추출 시도
+    # v1 raw text — 메타데이터만 추출, 본문은 cleaned raw로 단일 thesis
     sector_m = _re.search(r'\[([^\]]+?)\s*섹터\]', content)
     sector = sector_m.group(1) if sector_m else None
 
@@ -280,25 +280,19 @@ def _normalize_consensus(content: str, note_id, created_at) -> dict:
     if d_m:
         decision = d_m.group(1)
 
-    # 핵심 이유 / 주의 사항 추출 — '|' 또는 줄단위 모두 시도
-    thesis = ""
-    risks = ""
-
-    # 패턴 1: "핵심 이유: ... | 주의 사항: ..."
-    pat1 = _re.search(r'핵심\s*이유[:\s|]*(.+?)(?=\s*\|?\s*주의\s*사항|$)', content, _re.DOTALL)
-    if pat1:
-        thesis = pat1.group(1).strip().rstrip('|').strip()
-    pat2 = _re.search(r'주의\s*사항[:\s|]*(.+?)(?=\n\n|\[결정\]|$)', content, _re.DOTALL)
-    if pat2:
-        risks = pat2.group(1).strip()
-
-    # 마크다운 ** 제거
-    thesis = _re.sub(r'\*\*', '', thesis)[:600]
-    risks = _re.sub(r'\*\*', '', risks)[:400]
+    # 본문 청소: 섹터 헤더·마크다운·[결정] 줄·잡담 제거
+    cleaned = content
+    cleaned = _re.sub(r'\[[^\]]+?\s*섹터\]\s*\n?', '', cleaned)  # [반도체 섹터] 헤더 제거
+    cleaned = _re.sub(r'\*\*', '', cleaned)                        # ** 마크다운 제거
+    cleaned = _re.sub(r'\[결정\][^\n]*\n?', '', cleaned)           # [결정] ... 종목용 라인 제거
+    # "전망(긍정/부정/중립) | 핵심 이유 | 주의 사항" 같은 빈 헤더 라인 제거
+    cleaned = _re.sub(r'전망\s*\(\s*긍정\s*/\s*부정\s*/\s*중립\s*\)\s*\|?\s*핵심\s*이유\s*\|?\s*주의\s*사항\s*\n?', '', cleaned)
+    cleaned = cleaned.strip()
+    thesis = cleaned[:1000]
 
     return {**base, "v": 1, "sector": sector, "outlook": outlook,
-            "decision": decision, "thesis": thesis, "risks": risks,
-            "raw": content}
+            "decision": decision, "thesis": thesis, "risks": [], "drivers": [],
+            "key_picks": [], "raw": content}
 
 
 @app.get("/api/state")
