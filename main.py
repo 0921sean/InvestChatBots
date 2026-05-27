@@ -503,11 +503,35 @@ class DonationIn(BaseModel):
 
 @app.post("/api/donations")
 def api_add_donation(body: DonationIn):
-    """owner — 후원 항목 추가 (KRW 기준)."""
+    """owner — 후원 항목 추가 (KRW 기준). 채팅에 시스템 메시지 자동 게시."""
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be > 0")
     add_donation(body.amount, body.note or "")
+
+    # 채팅방에 충전 알림 메시지 (봇 토론 사이에 한 줄)
+    try:
+        from db import create_round, save_message, complete_round
+        from main import _enrich_donations as _enrich
+        total = _enrich(get_donations_total())
+        token_equiv = total.get("total_tokens", 0)
+        amount_tokens = int(body.amount * 400)  # 환산
+        note_part = f" · {body.note}" if body.note else ""
+        msg = (f"💰 충전: ₩{int(body.amount):,} (~{_fmt_tokens(amount_tokens)} 토큰){note_part}\n"
+               f"누적 충전: ₩{int(total['total_krw']):,} · {_fmt_tokens(token_equiv)} 토큰")
+        round_id = create_round("후원")
+        save_message(round_id, "System", None, msg)
+        complete_round(round_id)
+    except Exception as e:
+        logger.warning(f"충전 알림 메시지 실패: {e}")
+
     return {"ok": True, **_enrich_donations(get_donations_total())}
+
+
+def _fmt_tokens(n: int) -> str:
+    if n >= 1_000_000_000: return f"{n/1_000_000_000:.2f}B"
+    if n >= 1_000_000:     return f"{n/1_000_000:.2f}M"
+    if n >= 1_000:         return f"{n/1_000:.1f}K"
+    return str(n)
 
 
 @app.delete("/api/donations/{donation_id}")
