@@ -61,21 +61,21 @@
   #token-box .tb-summary { font-size: 10.5px; color: #8b949e; font-variant-numeric: tabular-nums; display: flex; gap: 8px; }
   #token-box .tb-summary .v { color: #e2e8f0; font-weight: 600; }
   #token-box .tb-summary .tb-cost { color: #ffa657; }
+  /* 섹션 라벨 — 두 영역 명확히 구분 */
+  #token-box .tb-section-label { font-size: 9.5px; font-weight: 700; color: #6e7681;
+    text-transform: uppercase; letter-spacing: .06em; margin-top: 5px; margin-bottom: 3px; }
   /* 후원 안내 — 기본 표시, 클릭 시 숨김 */
-  #token-box .tb-detail { display: block; margin-top: 7px; padding-top: 7px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.55; }
+  #token-box .tb-detail { display: block; margin-top: 7px; padding-top: 4px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.55; }
   #token-box.collapsed .tb-detail { display: none; }
-  #token-box #tb-mood { font-size: 11px; color: #e2e8f0; font-weight: 700; margin-bottom: 3px; }
-  #token-box #tb-tagline { font-size: 10px; color: #8b949e; margin-bottom: 5px; }
+  #token-box #tb-tagline { font-size: 10px; color: #adb6c0; margin-bottom: 5px; line-height: 1.5; }
   #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; display: block; user-select: all; cursor: copy; word-break: break-all;
-    background: #0d1117; border: 1px dashed #30363d; border-radius: 4px; padding: 4px 6px; text-align: center; }
+    background: #0d1117; border: 1px dashed #30363d; border-radius: 4px; padding: 5px 6px; text-align: center; }
   #token-box .tb-account:hover { background: #1c2128; }
   #token-box #tb-footnote { margin-top: 5px; color: #6e7681; font-size: 9.5px; font-style: italic; text-align: center; }
   #token-box .tb-chev { font-size: 9px; color: #6e7681; transition: transform .15s; transform: rotate(90deg); }
   #token-box.collapsed .tb-chev { transform: rotate(0deg); }
-  /* 봇 기분이 토큰 사용량에 따라 변하는 시각 효과 */
-  #token-box.mood-hungry #tb-mood { color: #e3b341; }
-  #token-box.mood-starving #tb-mood { color: #f85149; }
-  #token-box.mood-starving { animation: pulse-warn 2.4s ease-in-out infinite; }
+  /* 소진 시 박스 펄스 */
+  #token-box.exhausted-warn { animation: pulse-warn 2.4s ease-in-out infinite; }
   @keyframes pulse-warn { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 50% { box-shadow: inset 0 0 0 1px rgba(248,81,73,0.35); } }
 
   /* Live 시황 */
@@ -368,6 +368,7 @@
         <div class="tb-head-left"><span class="tb-chev">▶</span>🪙 Claude 토큰</div>
         <span class="tb-status ok" id="tb-status">활성</span>
       </div>
+      <div class="tb-section-label">오늘 토큰 사용량</div>
       <div class="tb-summary">
         <span>호출 <span class="v" id="tb-calls">—</span></span>
         <span>in <span class="v" id="tb-input">—</span></span>
@@ -375,10 +376,10 @@
         <span class="tb-cost" id="tb-cost">—</span>
       </div>
       <div class="tb-detail" onclick="event.stopPropagation()">
-        <div id="tb-mood">🐷 봇들이 토론 중입니다</div>
-        <div id="tb-tagline">토큰이 떨어지면 봇들도 침묵해요 🤐</div>
+        <div class="tb-section-label">여러분이 충전해주신 양</div>
+        <div id="tb-tagline">토큰이 떨어지면 봇들도 침묵해요. 충전 부탁드려요 🙏</div>
         <span class="tb-account" id="tb-account" title="클릭해서 복사" onclick="copyAccount()">국민 000-00-0000000 천승범</span>
-        <div id="tb-footnote">한 끼만 사주셔도 봇들이 며칠 더 떠듭니다 🙏</div>
+        <div id="tb-footnote">한 끼만 사주셔도 봇들이 며칠 더 떠듭니다</div>
       </div>
     </div>
     <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
@@ -817,10 +818,8 @@ async function loadConsensus() {
   <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding-bottom:7px;border-bottom:1px solid #21262d">
     <div style="font-size:12.5px;font-weight:700;color:#e2e8f0;min-width:0;flex:1;line-height:1.3">${esc(n.sector||'—')}<div style="font-size:9.5px;color:#6e7681;font-weight:400;margin-top:2px">${t}</div></div>
     <div style="display:flex;gap:4px;flex-shrink:0;flex-direction:column;align-items:flex-end">
-      <div style="display:flex;gap:4px">
-        <span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:8px;background:${oCol}26;color:${oCol}">전망: ${outlook}</span>
-      </div>
-      <span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:8px;background:${dCol}26;color:${dCol}">권고: ${decision}</span>
+      <span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:8px;background:${oCol}26;color:${oCol}">방향: ${outlook}</span>
+      <span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:8px;background:${dCol}26;color:${dCol}">결론: ${decision}</span>
     </div>
   </div>
   <div style="margin-top:8px">
@@ -1041,25 +1040,14 @@ async function loadTokenUsage() {
       s.textContent = '활성';
       s.className = 'tb-status ok';
     }
-    // 봇 기분 — 토큰 비용에 따라 변화 (재밌게)
+    // 소진 시 박스 펄스 효과
     const box = document.getElementById('token-box');
-    const mood = document.getElementById('tb-mood');
     const tag = document.getElementById('tb-tagline');
-    box.classList.remove('mood-hungry', 'mood-starving');
+    box.classList.toggle('exhausted-warn', !!d.exhausted);
     if (d.exhausted) {
-      box.classList.add('mood-starving');
-      mood.textContent = '💀 봇들이 굶어 쓰러졌어요';
-      tag.textContent = '한 끼만 사주시면 다시 말합니다 🥺';
-    } else if (cost >= 3) {
-      box.classList.add('mood-hungry');
-      mood.textContent = '🥵 봇들이 배고파해요';
-      tag.textContent = '오늘만 ' + (t.calls||0).toLocaleString() + '번 떠들었음. 한 끼 정도는…';
-    } else if (cost >= 1) {
-      mood.textContent = '🤔 봇들이 열심히 일하는 중';
-      tag.textContent = '토큰이 떨어지면 봇들도 침묵해요 🤐';
+      tag.textContent = '⚠️ 토큰 소진. 충전될 때까지 봇들이 침묵합니다.';
     } else {
-      mood.textContent = '🐷 봇들이 토론 중입니다';
-      tag.textContent = '토큰이 떨어지면 봇들도 침묵해요 🤐';
+      tag.textContent = '토큰이 떨어지면 봇들도 침묵해요. 충전 부탁드려요 🙏';
     }
   } catch (e) {}
 }

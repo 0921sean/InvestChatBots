@@ -658,7 +658,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     headline = consensus_json.get("headline", "")
     lines = [
         f"📊 [{sector['name']}] 섹터 토론 완료",
-        f"{o_emoji} 전망: {o} · 권고: {d}" + (f" · {headline}" if headline else ""),
+        f"{o_emoji} 방향: {o} · 결론: {d}" + (f" · {headline}" if headline else ""),
         f"",
         f"핵심: {consensus_json.get('thesis','—')}",
     ]
