@@ -1074,17 +1074,17 @@ async function loadTokenUsage() {
     const dn = dr.ok ? await dr.json() : { total_krw: 0, total_usd: 0, total_tokens: 0 };
 
     const t = d.today || {};
-    const usedKrw = (t.cost_usd || 0) * USD_TO_KRW;
     const usedTokens = (t.input_tokens || 0) + (t.output_tokens || 0);
-    const totalKrw = dn.total_krw || 0;
     const totalTokens = dn.total_tokens || 0;
+    const usedKrw = (t.cost_usd || 0) * USD_TO_KRW;
+    const totalKrw = dn.total_krw || 0;
 
-    // 게이지 — 충전 대비 사용 비율
-    const pct = totalKrw > 0 ? Math.min(100, (usedKrw / totalKrw) * 100) : 0;
+    // 게이지 — 충전 토큰 대비 사용 토큰 비율
+    const pct = totalTokens > 0 ? Math.min(100, (usedTokens / totalTokens) * 100) : 0;
     const fill = document.getElementById('tb-gauge-fill');
     fill.style.width = pct + '%';
     fill.className = 'tb-gauge-fill';
-    if (totalKrw === 0) {
+    if (totalTokens === 0) {
       fill.classList.add('empty');
       fill.style.width = '100%';  // 충전 전 — 회색 빈 상태로 풀로 표시
     } else if (pct >= 90 || d.exhausted) {
@@ -1093,23 +1093,22 @@ async function loadTokenUsage() {
       fill.classList.add('warn');
     }
 
-    // 라벨 — 사용 / 충전
-    const usedLabel = totalKrw > 0
-      ? `${fmtKrw(usedKrw)} 사용`
-      : `${fmtKrw(usedKrw)} 사용 중`;
-    const totalLabel = totalKrw > 0 ? fmtKrw(totalKrw) + ' 충전' : '충전 없음';
+    // 메인 라벨 — 토큰량 (사용 / 충전)
+    const usedLabel = totalTokens > 0
+      ? `${fmtTokens(usedTokens)} 사용`
+      : `${fmtTokens(usedTokens)} 사용 중`;
+    const totalLabel = totalTokens > 0 ? fmtTokens(totalTokens) + ' 충전' : '충전 없음';
     document.getElementById('tb-gauge-used').textContent = usedLabel;
     document.getElementById('tb-gauge-total').textContent = totalLabel;
 
-    // 보조 라인 — 호출 수, 토큰량
-    const tokenSubparts = [];
-    tokenSubparts.push('호출 ' + fmtNum(t.calls || 0));
-    if (totalTokens > 0) {
-      tokenSubparts.push(fmtTokens(usedTokens) + ' / ' + fmtTokens(totalTokens));
-    } else if (usedTokens > 0) {
-      tokenSubparts.push(fmtTokens(usedTokens));
+    // 보조 라인 — 호출 수 + (참고) KRW 환산
+    const subparts = ['호출 ' + fmtNum(t.calls || 0)];
+    if (totalKrw > 0) {
+      subparts.push(`${fmtKrw(usedKrw)} / ${fmtKrw(totalKrw)}`);
+    } else if (usedKrw > 0) {
+      subparts.push(fmtKrw(usedKrw));
     }
-    document.getElementById('tb-gauge-sub').textContent = tokenSubparts.join(' · ');
+    document.getElementById('tb-gauge-sub').textContent = subparts.join(' · ');
 
     // 상태 뱃지
     const s = document.getElementById('tb-status');
@@ -1156,11 +1155,15 @@ async function _refreshRecentDonations() {
       el.innerHTML = '<div style="font-size:11px;color:#6e7681">아직 후원 없음</div>';
       return;
     }
+    const TOKENS_PER_KRW = 400;  // backend 상수와 동기
     el.innerHTML = '<div style="font-size:10.5px;font-weight:700;color:#6e7681;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">최근 5건</div>' +
-      recent.map(r => `<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#c9d1d9;padding:3px 0">
-        <span>${fmtKrw(r.amount)}${r.note ? ' <span style="color:#6e7681">· ' + esc(r.note) + '</span>' : ''}</span>
-        <span style="font-size:10px;color:#6e7681">${new Date(r.added_at+'Z').toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})} <button onclick="deleteDonation(${r.id})" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:11px;margin-left:4px" title="삭제">✕</button></span>
-      </div>`).join('');
+      recent.map(r => {
+        const tokenEquiv = fmtTokens(r.amount * TOKENS_PER_KRW);
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#c9d1d9;padding:3px 0">
+          <span><b style="color:#e2e8f0">${tokenEquiv}</b> <span style="color:#6e7681">(${fmtKrw(r.amount)})</span>${r.note ? ' <span style="color:#6e7681">· ' + esc(r.note) + '</span>' : ''}</span>
+          <span style="font-size:10px;color:#6e7681">${new Date(r.added_at+'Z').toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})} <button onclick="deleteDonation(${r.id})" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:11px;margin-left:4px" title="삭제">✕</button></span>
+        </div>`;
+      }).join('');
   } catch (e) {}
 }
 async function submitDonation() {
