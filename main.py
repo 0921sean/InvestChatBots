@@ -519,10 +519,11 @@ def api_add_donation(body: DonationIn):
 
 
 def _run_donation_thanks(amount: float, note: str):
-    """후원 알림 + 9봇 한마디씩 감사 인사. 토큰 소진 시 봇 인사는 스킵."""
+    """후원 알림 + 9봇 한마디씩 감사 인사. 각 봇 캐릭터 살린 톤."""
     from db import create_round, save_message, complete_round
     from agents import call_agent, is_claude_token_exhausted
     from orchestrator import AGENT_ORDER, _build_system
+    from prompts import AGENT_PROFILES
     try:
         # 1) 시스템 알림 메시지 (별도 라운드)
         total = _enrich_donations(get_donations_total())
@@ -543,14 +544,41 @@ def _run_donation_thanks(amount: float, note: str):
         save_message(round_id, "System", None, f"🙏 {donor}님께 봇들이 한마디씩...")
 
         amount_str = f"₩{int(amount):,}"
+
+        # 봇별 캐릭터 힌트 — 평소 어투/관점/말버릇 살리기
+        char_hints = {
+            "드가자": "들뜬 톤으로, '매수 타이밍'·'가보자'·'담자' 같은 본인 어휘 사용",
+            "INTJ": "절제된 톤, 리스크 관리자 관점으로 차분하게. 손익비·기회비용 같은 어휘",
+            "퀀트중독자": "데이터광답게 ROE/PER/EPS 등 수치 비유로 (예: '이 후원의 ROE는 무한대')",
+            "빅픽처": "매크로 시각으로 비유 (예: '금리 인상기에 한 줄기 빛'). 거시 어휘",
+            "차트천재": "차트 어휘로 (EMA/돌파/수렴/모멘텀). 예: '후원이 매수 신호로 떴어'",
+            "원칙주의자": "깐깐한 톤이지만 후원은 본인 기준 통과 인정. 'OO 기준 봤어요?' 말버릇",
+            "경력직": "20년 베테랑 입장에서 차분히. '내 20년 받아본 후원 중...' 같은 말투",
+            "감독": "장기 비전·5년·10배 같은 어휘. 후원자를 동반자로 인정하는 톤",
+            "실적왕": "성장률·EPS·PEG 비유. '실적 안 봐도 알아요' 같은 어휘",
+        }
+
         for agent_name in AGENT_ORDER:
             if is_claude_token_exhausted():
                 save_message(round_id, "System", None, "⏸ 도중에 토큰 소진 — 나머지 봇 인사 생략.")
                 break
             system = _build_system(agent_name)
-            prompt = (f"방금 '{donor}'님이 {amount_str}을 후원해주셨습니다 (메모: {note or '없음'}).\n\n"
-                      f"{agent_name}로서 본인 캐릭터·말투 그대로 **1문장(최대 50자)** 짧게 감사 인사를 해주세요. "
-                      f"투자 의견·종목 분석 X. 이모지 1개 정도 OK. 반드시 한국어.")
+            desc = AGENT_PROFILES[agent_name].get("description", "")
+            hint = char_hints.get(agent_name, "본인 캐릭터·말투 그대로")
+            prompt = (
+                f"방금 '{donor}'님이 {amount_str}을 후원해주셨습니다.\n\n"
+                f"당신은 '{agent_name}' — {desc}\n"
+                f"{donor}님께 감사 한마디. 본인 평소 어투와 투자 용어를 살짝 섞어서 "
+                f"캐릭터가 살아있게 표현하세요.\n\n"
+                f"스타일 힌트: {hint}\n\n"
+                f"요구사항:\n"
+                f"- 1-2문장, 80자 이내\n"
+                f"- 본인 캐릭터·말버릇 그대로 (들떴거나·절제·깐깐·차분 등)\n"
+                f"- 종목 분석·시장 평가는 X (후원 자체에 대한 반응만)\n"
+                f"- {donor}님을 호명하거나 자연스레 언급\n"
+                f"- 이모지 1개 이내, 마크다운 금지\n"
+                f"- 반드시 한국어"
+            )
             try:
                 resp = call_agent(agent_name, system, prompt)
                 save_message(round_id, agent_name, None, resp)

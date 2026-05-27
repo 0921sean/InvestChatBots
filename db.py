@@ -258,19 +258,22 @@ def save_message(round_id, agent_name, model, content, summary=None):
 def get_messages_since(since_id, limit=100):
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?",
-            (since_id, limit)
-        ).fetchall()
+        rows = con.execute("""
+            SELECT m.*, r.topic AS round_topic
+            FROM messages m LEFT JOIN rounds r ON m.round_id = r.id
+            WHERE m.id > ? ORDER BY m.id ASC LIMIT ?
+        """, (since_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
 
 def get_recent_messages(n=30):
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (n,)
-        ).fetchall()
+        rows = con.execute("""
+            SELECT m.*, r.topic AS round_topic
+            FROM messages m LEFT JOIN rounds r ON m.round_id = r.id
+            ORDER BY m.id DESC LIMIT ?
+        """, (n,)).fetchall()
         return list(reversed([dict(r) for r in rows]))
 
 

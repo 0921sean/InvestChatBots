@@ -123,6 +123,10 @@
   #msg-anchor { height: 1px; flex-shrink: 0; }
   .msg-system { text-align: center; }
   .msg-system span { background: #1c2128; border: 1px solid #30363d; color: #8b949e; font-size: 11px; padding: 3px 14px; border-radius: 10px; }
+  /* 후원 라운드 메시지 — 초록 톤으로 강조 */
+  .msg-donation-system span { background: rgba(63,185,80,.12); border-color: rgba(63,185,80,.35); color: #3fb950; font-weight: 600; }
+  .msg-donation { background: linear-gradient(90deg, rgba(63,185,80,.08), transparent 80%); border-left: 3px solid #3fb950; padding: 6px 10px 6px 8px; border-radius: 0 8px 8px 0; }
+  .msg-donation .msg-bubble { background: #0d1d10; border-color: rgba(63,185,80,.3); }
   .msg { display: flex; gap: 10px; align-items: flex-start; }
   .msg.user-msg { flex-direction: row-reverse; }
   .avatar { width: 34px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; flex-shrink: 0; border: 2px solid; }
@@ -554,16 +558,20 @@ function avatar(name, color) {
 function renderMessage(msg) {
   const el = document.createElement('div');
   const color = BOT_COLORS[msg.agent_name] || '#8b949e';
+  // 후원 라운드 메시지인지 (round_topic이 '후원'으로 시작)
+  const isDonation = (msg.round_topic || '').startsWith('후원');
+
   if (msg.agent_name === 'System') {
-    el.className = 'msg-system';
+    el.className = 'msg-system' + (isDonation ? ' msg-donation-system' : '');
     el.innerHTML = `<span>${esc(msg.content)}</span>`;
   } else if (msg.agent_name === 'User') {
     el.className = 'msg user-msg';
     el.innerHTML = `${avatar('나',color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">나</span><span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${esc(msg.content)}</span></div>`;
   } else {
     const sub = agents[msg.agent_name]?.description || '';
-    el.className = 'msg';
-    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span><span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
+    el.className = 'msg' + (isDonation ? ' msg-donation' : '');
+    const donationTag = isDonation ? '<span style="font-size:9px;background:rgba(63,185,80,.18);color:#3fb950;padding:1px 6px;border-radius:6px;font-weight:700;margin-left:4px">💚 후원 인사</span>' : '';
+    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span>${donationTag}<span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
   }
   return el;
 }
