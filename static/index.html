@@ -29,8 +29,23 @@
   .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .member-name { font-weight: 600; }
   .member-sub { font-size: 10px; color: #6e7681; padding: 0 20px 3px; }
-  #market-ticker { padding: 10px 12px; border-top: 1px solid #21262d; font-size: 11px; color: #6e7681; line-height: 1.8; margin-top: auto; }
+  #market-ticker { padding: 10px 12px; border-top: 1px solid #21262d; font-size: 11px; color: #6e7681; line-height: 1.8; }
   #market-ticker .live { color: #3fb950; font-weight: 600; }
+
+  /* 토큰 사용량 패널 */
+  #token-box { margin: 10px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; margin-top: auto; }
+  #token-box .tb-title { font-size: 11px; font-weight: 700; color: #e2e8f0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  #token-box .tb-status { font-size: 9px; padding: 2px 6px; border-radius: 8px; font-weight: 600; }
+  #token-box .tb-status.ok { background: rgba(63,185,80,.15); color: #3fb950; }
+  #token-box .tb-status.exhausted { background: rgba(248,81,73,.18); color: #f85149; }
+  #token-box .tb-row { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; padding: 2px 0; }
+  #token-box .tb-row .v { color: #e2e8f0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #token-box .tb-cost { color: #ffa657; }
+  #token-box .tb-donate { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.5; }
+  #token-box .tb-donate b { color: #e2e8f0; }
+  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; margin-top: 2px; display: block; user-select: all; cursor: copy; }
+  #token-box .tb-account:hover { text-decoration: underline; }
+  #token-box .tb-thanks { margin-top: 4px; color: #6e7681; font-size: 9.5px; font-style: italic; }
 
   /* ── 메인 채팅 ── */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -138,6 +153,22 @@
   <div style="padding-top:12px">
     <div class="sidebar-label">Members</div>
     <div id="member-list"></div>
+  </div>
+  <div id="token-box">
+    <div class="tb-title">
+      <span>🪙 Claude 토큰</span>
+      <span class="tb-status ok" id="tb-status">활성</span>
+    </div>
+    <div class="tb-row"><span>오늘 호출</span><span class="v" id="tb-calls">—</span></div>
+    <div class="tb-row"><span>Input</span><span class="v" id="tb-input">—</span></div>
+    <div class="tb-row"><span>Output</span><span class="v" id="tb-output">—</span></div>
+    <div class="tb-row"><span>비용 추정</span><span class="v tb-cost" id="tb-cost">—</span></div>
+    <div class="tb-donate">
+      <b>토큰값 충전 부탁드려요 🙏</b><br>
+      개발자에게 보내주시면 큰 도움이 됩니다.
+      <span class="tb-account" id="tb-account" title="클릭해서 복사" onclick="copyAccount()">국민 000-00-0000000 천승범</span>
+      <div class="tb-thanks">매달 Claude Code MAX 구독 유지에 사용됩니다</div>
+    </div>
   </div>
   <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
 </div>
@@ -620,7 +651,47 @@ function closeReason() {
 }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeReason(); });
 
-loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus();
+function fmtNum(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return (n/1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+async function loadTokenUsage() {
+  try {
+    const r = await fetch('/api/token-usage');
+    if (!r.ok) return;
+    const d = await r.json();
+    const t = d.today || {};
+    document.getElementById('tb-calls').textContent  = fmtNum(t.calls || 0);
+    document.getElementById('tb-input').textContent  = fmtNum(t.input_tokens || 0);
+    document.getElementById('tb-output').textContent = fmtNum(t.output_tokens || 0);
+    const cost = t.cost_usd || 0;
+    document.getElementById('tb-cost').textContent = cost > 0 ? '$' + cost.toFixed(2) : '—';
+    const s = document.getElementById('tb-status');
+    if (d.exhausted) {
+      s.textContent = '소진';
+      s.className = 'tb-status exhausted';
+    } else {
+      s.textContent = '활성';
+      s.className = 'tb-status ok';
+    }
+  } catch (e) {}
+}
+
+function copyAccount() {
+  const txt = document.getElementById('tb-account').textContent.trim();
+  navigator.clipboard?.writeText(txt).then(() => {
+    const el = document.getElementById('tb-account');
+    const orig = el.textContent;
+    el.textContent = '✓ 복사됨';
+    setTimeout(() => { el.textContent = orig; }, 1200);
+  });
+}
+
+loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
 initialLoad();  // 최근 200개 한 번에 로드 → 맨 아래로 이동
 setInterval(poll, 3000);
 setInterval(loadState, 10000);
@@ -628,6 +699,7 @@ setInterval(loadMarket, 60000);
 setInterval(syncPlayStatus, 5000);
 setInterval(loadConsensus, 20000);
 setInterval(loadPortfolio, 15000);
+setInterval(loadTokenUsage, 10000);
 </script>
 </body>
 </html>

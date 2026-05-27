@@ -14,6 +14,7 @@ from db import (
     init_db, get_messages_since, get_latest_market_snapshot,
     get_consensus_notes, get_shared_portfolio, get_all_positions, get_open_positions,
     add_lecture_note, get_active_lecture_notes, clear_lecture_notes,
+    get_token_usage_today, get_token_usage_recent,
 )
 import time as _time_module
 from orchestrator import (
@@ -270,6 +271,19 @@ def api_holdings_review():
     """월요일 보유 점검 수동 트리거 (요일 무관)."""
     threading.Thread(target=lambda: review_holdings(force=True), daemon=True).start()
     return {"ok": True}
+
+
+@app.get("/api/token-usage")
+def api_token_usage():
+    """오늘 + 최근 7일 Claude 토큰 사용량. 현재 소진 여부 포함."""
+    from agents import is_claude_token_exhausted
+    today = get_token_usage_today()
+    recent = get_token_usage_recent(7)
+    return {
+        "today": today,
+        "recent": recent,
+        "exhausted": is_claude_token_exhausted(),
+    }
 
 
 @app.post("/api/summary/request")
