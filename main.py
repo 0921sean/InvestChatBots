@@ -270,7 +270,9 @@ def _normalize_consensus(content: str, note_id, created_at) -> dict:
                         "thesis": d.get("thesis", ""),
                         "drivers": d.get("drivers", []),
                         "risks": d.get("risks", []),
-                        "key_picks": d.get("key_picks", [])}
+                        "key_picks": d.get("key_picks", []),
+                        "spokesperson": d.get("spokesperson", ""),
+                        "quote": d.get("quote", "")}
         except Exception:
             pass
 
