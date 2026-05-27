@@ -754,7 +754,7 @@ async function loadConsensus() {
     if (!notes.length) { if(empty) empty.style.display='block'; return; }
     if(empty) empty.style.display='none';
     list.innerHTML = '';
-    notes.forEach(n => {
+    notes.forEach((n, idx) => {
       const t = n.created_at
         ? new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
         : '';
@@ -763,6 +763,12 @@ async function loadConsensus() {
       const headlineHtml = (n.v === 2 && n.headline)
         ? `<div class="cc-headline">${esc(n.headline)}</div>` : '';
       const bodyHtml = _renderConsensusBody(n);
+
+      if (idx === 0) {
+        console.log(`[InvestChat] 첫 카드 렌더 — sector="${n.sector}" v=${n.v} thesis길이=${(n.thesis||'').length}`);
+        console.log('[InvestChat] bodyHtml 길이:', bodyHtml.length);
+        console.log('[InvestChat] bodyHtml 앞 200자:', bodyHtml.substring(0, 200));
+      }
 
       const card = document.createElement('div');
       card.className = (n.v === 2) ? 'cc' : 'cc cc-legacy';
@@ -790,6 +796,11 @@ async function loadConsensus() {
         card.querySelector('.cc-legacy-note').onclick = () => card.classList.toggle('open');
       }
       list.appendChild(card);
+      if (idx === 0) {
+        console.log('[InvestChat] 첫 카드 outerHTML:', card.outerHTML.substring(0, 400));
+        const body = card.querySelector('.cc-body');
+        console.log('[InvestChat] .cc-body 존재:', !!body, '내용길이:', body ? body.innerHTML.length : 0);
+      }
     });
   } catch(e) {}
 }
