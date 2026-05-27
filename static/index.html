@@ -75,14 +75,14 @@
   #market-ticker .live { color: #3fb950; font-weight: 600; }
 
   /* 읽기 전용 모드 — 익명 접속자 */
-  #readonly-badge { position: fixed; top: 8px; right: 14px; z-index: 100;
-    background: #21262d; color: #8b949e; padding: 4px 10px; border-radius: 12px;
-    font-size: 10.5px; font-weight: 600; border: 1px solid #30363d; display: none; }
-  body.readonly #readonly-badge { display: block; }
-  body.readonly #input-area { display: none; }
   body.readonly #btn-pause, body.readonly #btn-play,
   body.readonly #btn-summary, body.readonly #btn-main-run { display: none; }
   body.readonly #typing { display: none; }
+  /* 채팅 입력 form은 보이되 입력 차단 + 안내문 표시 */
+  body.readonly #input-area input { background: #1c2128; color: #6e7681; cursor: not-allowed; }
+  body.readonly #input-area button { display: none; }
+  body.readonly #input-area::before { content: "👁"; font-size: 14px; color: #6e7681;
+    display: flex; align-items: center; padding: 0 4px; }
 
   /* ── 메인 채팅 ── */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -305,9 +305,6 @@
     #input-area { padding: 8px 10px; gap: 6px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
     #input-area input { font-size: 16px; padding: 10px 12px; } /* 16px = iOS zoom 방지 */
     #input-area button { padding: 10px 16px; font-size: 13px; }
-
-    /* readonly 뱃지 */
-    #readonly-badge { top: 4px; right: 8px; font-size: 9.5px; padding: 3px 7px; }
   }
 
   /* ───────── 작은 폰 (480px 이하) — 더 타이트 ───────── */
@@ -318,7 +315,6 @@
 </style>
 </head>
 <body>
-<div id="readonly-badge">👁 읽기 전용</div>
 <div id="drawer-backdrop" onclick="closeDrawers()"></div>
 
 <div id="sidebar">
@@ -383,7 +379,7 @@
   <div id="messages"><div id="msg-anchor"></div></div>
   <div id="typing"><span class="typing-dots" id="typing-text">분석 중...</span></div>
   <div id="input-area">
-    <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" />
+    <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" data-owner-placeholder="투자 의견이나 질문을 입력하세요..." data-readonly-placeholder="현재는 읽기 전용입니다 — 본인 외엔 입력 불가" />
     <button onclick="sendMessage()">전송</button>
   </div>
 </div>
@@ -595,6 +591,18 @@ async function loadAgents() {
       sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
       el.appendChild(sub);
     });
+    // 사용자 본인 '나' 행 (페르소나: 감독 캐릭터를 사용자가 맡음)
+    const youRow = document.createElement('div');
+    youRow.className = 'member';
+    youRow.style.marginTop = '6px';
+    youRow.style.borderTop = '1px solid #21262d';
+    youRow.style.paddingTop = '8px';
+    youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">나</span>`;
+    el.appendChild(youRow);
+    const youSub = document.createElement('div');
+    youSub.className = 'member-sub';
+    youSub.textContent = '최종 결정권자 · 봇 9명의 의견을 종합';
+    el.appendChild(youSub);
   } catch(e) {}
 }
 
@@ -749,16 +757,13 @@ function _renderConsensusBody(n) {
 
 async function loadConsensus() {
   try {
-    console.log('[InvestChat] loadConsensus v2.0.18 시작');
     const notes = await (await fetch('/api/consensus')).json();
-    console.log(`[InvestChat] /api/consensus 응답: ${notes.length}건, 첫 항목 키:`, notes[0] ? Object.keys(notes[0]) : '(empty)');
-    if (notes[0]) console.log(`[InvestChat] 첫 thesis 길이: ${(notes[0].thesis||'').length}`);
     const list = document.getElementById('memo-list');
     const empty = document.getElementById('memo-empty');
     if (!notes.length) { if(empty) empty.style.display='block'; return; }
     if(empty) empty.style.display='none';
     list.innerHTML = '';
-    notes.forEach((n, idx) => {
+    notes.forEach(n => {
       const t = n.created_at
         ? new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
         : '';
@@ -767,12 +772,6 @@ async function loadConsensus() {
       const headlineHtml = (n.v === 2 && n.headline)
         ? `<div class="cc-headline">${esc(n.headline)}</div>` : '';
       const bodyHtml = _renderConsensusBody(n);
-
-      if (idx === 0) {
-        console.log(`[InvestChat] 첫 카드 렌더 — sector="${n.sector}" v=${n.v} thesis길이=${(n.thesis||'').length}`);
-        console.log('[InvestChat] bodyHtml 길이:', bodyHtml.length);
-        console.log('[InvestChat] bodyHtml 앞 200자:', bodyHtml.substring(0, 200));
-      }
 
       const card = document.createElement('div');
       card.className = (n.v === 2) ? 'cc' : 'cc cc-legacy';
@@ -800,19 +799,6 @@ async function loadConsensus() {
         card.querySelector('.cc-legacy-note').onclick = () => card.classList.toggle('open');
       }
       list.appendChild(card);
-      if (idx === 0) {
-        const body = card.querySelector('.cc-body');
-        const cs = body ? getComputedStyle(body) : null;
-        console.log('[InvestChat] === 진단 ===');
-        console.log('[InvestChat] cc-body 존재:', !!body);
-        console.log('[InvestChat] cc-body innerHTML 길이:', body ? body.innerHTML.length : 'N/A');
-        console.log('[InvestChat] cc-body textContent 길이:', body ? body.textContent.length : 'N/A');
-        console.log('[InvestChat] cc-body display:', cs ? cs.display : 'N/A');
-        console.log('[InvestChat] cc-body 화면 높이:', body ? body.offsetHeight + 'px' : 'N/A');
-        console.log('[InvestChat] cc-body visibility:', cs ? cs.visibility : 'N/A');
-        console.log('[InvestChat] 카드 전체 높이:', card.offsetHeight + 'px');
-        console.log('[InvestChat] 카드 outerHTML 전체:\n' + card.outerHTML);
-      }
     });
   } catch(e) {}
 }
@@ -1048,8 +1034,14 @@ async function loadWhoami() {
     const d = await r.json();
     isOwner = !!d.owner;
     document.body.classList.toggle('readonly', !isOwner);
+    // 입력창 placeholder + 비활성 처리
+    const input = document.getElementById('msg-input');
+    if (input) {
+      const ph = isOwner ? input.dataset.ownerPlaceholder : input.dataset.readonlyPlaceholder;
+      if (ph) input.placeholder = ph;
+      input.readOnly = !isOwner;
+    }
   } catch (e) {
-    // 네트워크 오류 시 안전하게 읽기 전용으로 처리
     document.body.classList.add('readonly');
   }
 }

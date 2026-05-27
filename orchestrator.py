@@ -260,8 +260,18 @@ def get_current_state() -> dict:
     sector = SECTORS[_sector_idx]
     stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" and _stock_idx < len(sector["stocks"]) else None
     cooldown_remaining_h = 0.0
-    if _phase == "cycle_rest" and _cycle_done_at:
-        cooldown_remaining_h = max(0.0, round(CYCLE_REST_HOURS - (time.time() - _cycle_done_at) / 3600, 1))
+    if _phase == "cycle_rest":
+        # 다음 평일 06:00 KST까지의 시간 (주말 건너뜀)
+        from datetime import datetime, timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        now = datetime.now(KST)
+        next_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if now >= next_start:
+            next_start += timedelta(days=1)
+        # 주말이면 월요일까지 건너뜀
+        while next_start.weekday() >= 5:
+            next_start += timedelta(days=1)
+        cooldown_remaining_h = round((next_start - now).total_seconds() / 3600, 1)
     return {
         "sector_idx": _sector_idx,
         "sector": sector["name"],
