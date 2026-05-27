@@ -126,39 +126,44 @@
 
   /* 합의 카드 — v2 통일 디자인 */
   .cc { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
-  .cc-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; gap: 8px;
-    border-bottom: 1px solid #21262d; }
+  .cc-header { padding: 8px 11px 7px; border-bottom: 1px solid #21262d; }
+  .cc-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .cc-sector { font-size: 12.5px; font-weight: 700; color: #e2e8f0; flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-time { font-size: 9.5px; color: #6e7681; font-weight: 400; margin-left: 4px; }
   .cc-badges { display: flex; gap: 4px; flex-shrink: 0; }
-  .cc-badge { font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 8px;
-    letter-spacing: .02em; }
-  .cc-outlook-긍정    { background: rgba(63,185,80,.16);  color: #3fb950; }
-  .cc-outlook-중립    { background: rgba(139,148,158,.16); color: #adb6c0; }
-  .cc-outlook-부정    { background: rgba(248,81,73,.16);  color: #f85149; }
-  .cc-decision-매수   { background: rgba(56,139,253,.18); color: #79c0ff; }
-  .cc-decision-관망   { background: rgba(210,153,34,.18); color: #e3b341; }
-  .cc-decision-매도   { background: rgba(248,81,73,.18);  color: #f85149; }
+  .cc-badge { font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 8px; letter-spacing: .02em; }
+  .cc-outlook-긍정 { background: rgba(63,185,80,.16);  color: #3fb950; }
+  .cc-outlook-중립 { background: rgba(139,148,158,.16); color: #adb6c0; }
+  .cc-outlook-부정 { background: rgba(248,81,73,.16);  color: #f85149; }
+  .cc-decision-매수 { background: rgba(56,139,253,.18); color: #79c0ff; }
+  .cc-decision-관망 { background: rgba(210,153,34,.18); color: #e3b341; }
+  .cc-decision-매도 { background: rgba(248,81,73,.18);  color: #f85149; }
+  .cc-headline { font-size: 11px; color: #adb6c0; margin-top: 4px; line-height: 1.5; font-style: italic; }
 
-  .cc-body { padding: 9px 11px; font-size: 11.5px; line-height: 1.6; color: #c9d1d9; }
+  .cc-body { padding: 9px 11px 10px; font-size: 11.5px; line-height: 1.65; color: #c9d1d9; }
   .cc-thesis { color: #c9d1d9; }
+  .cc-section { margin-top: 9px; }
   .cc-section-label { font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
-    color: #6e7681; text-transform: uppercase; margin: 8px 0 3px; }
-  .cc-risks { font-size: 11px; color: #adb6c0; }
-  .cc-picks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    color: #6e7681; text-transform: uppercase; margin-bottom: 4px; }
+  .cc-list { font-size: 11px; line-height: 1.6; color: #c9d1d9; padding-left: 0; list-style: none; }
+  .cc-list li { padding-left: 11px; position: relative; margin-bottom: 3px; }
+  .cc-list li::before { content: '·'; position: absolute; left: 2px; color: #6e7681; font-weight: 700; }
+  .cc-list.cc-risks-list li::before { color: #f85149; }
+  .cc-list.cc-drivers-list li::before { color: #3fb950; }
+  .cc-picks { display: flex; flex-wrap: wrap; gap: 4px; }
   .cc-pick { font-size: 10px; padding: 2px 7px; border-radius: 8px;
     background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
 
-  /* v1 (옛 데이터) — 회색 톤으로 표시 */
-  .cc.cc-legacy { opacity: 0.78; border-style: dashed; }
-  .cc.cc-legacy .cc-body { font-size: 11px; color: #8b949e; white-space: pre-wrap; max-height: 96px; overflow: hidden;
-    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); }
-  .cc.cc-legacy .cc-expand { font-size: 10px; color: #6e7681; text-align: center; padding: 4px;
-    border-top: 1px dashed #30363d; cursor: pointer; }
-  .cc.cc-legacy.open .cc-body { max-height: none; -webkit-mask-image: none; }
-  .cc.cc-legacy.open .cc-expand::after { content: ' ▲'; }
-  .cc.cc-legacy:not(.open) .cc-expand::after { content: ' ▼'; }
-  .cc-time { font-size: 9.5px; color: #6e7681; }
+  /* v1 (옛 데이터) — 동일 구조에 점선 보더만 */
+  .cc.cc-legacy { border-style: dashed; border-color: #2a3038; }
+  .cc.cc-legacy .cc-legacy-note { font-size: 9.5px; color: #6e7681; font-style: italic;
+    padding: 6px 11px 8px; border-top: 1px dashed #30363d; cursor: pointer; text-align: center; }
+  .cc.cc-legacy .cc-raw { display: none; padding: 0 11px 10px; font-size: 10.5px; color: #8b949e;
+    white-space: pre-wrap; line-height: 1.55; border-top: 1px dashed #30363d; padding-top: 8px; }
+  .cc.cc-legacy.open .cc-raw { display: block; }
+  .cc.cc-legacy.open .cc-legacy-note::after { content: ' ▲'; }
+  .cc.cc-legacy:not(.open) .cc-legacy-note::after { content: ' ▼'; }
 
   /* ── 우측 — 포트폴리오 ── */
   #portfolio-panel { width: 220px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -705,6 +710,35 @@ async function syncPlayStatus() {
   } catch(e) {}
 }
 
+function _renderConsensusBody(n) {
+  // thesis + drivers + risks + picks — v1/v2 공통
+  const parts = [];
+  if (n.thesis) {
+    parts.push(`<div class="cc-thesis">${esc(n.thesis)}</div>`);
+  }
+  if (Array.isArray(n.drivers) && n.drivers.length) {
+    parts.push(`<div class="cc-section">
+      <div class="cc-section-label">드라이버</div>
+      <ul class="cc-list cc-drivers-list">${n.drivers.map(d=>`<li>${esc(d)}</li>`).join('')}</ul>
+    </div>`);
+  }
+  // v1는 risks가 문자열, v2는 배열
+  if (n.risks && (typeof n.risks === 'string' ? n.risks.trim() : n.risks.length)) {
+    const riskItems = Array.isArray(n.risks) ? n.risks : [n.risks];
+    parts.push(`<div class="cc-section">
+      <div class="cc-section-label">리스크</div>
+      <ul class="cc-list cc-risks-list">${riskItems.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>
+    </div>`);
+  }
+  if (Array.isArray(n.key_picks) && n.key_picks.length) {
+    parts.push(`<div class="cc-section">
+      <div class="cc-section-label">주목 종목</div>
+      <div class="cc-picks">${n.key_picks.map(p=>`<span class="cc-pick">${esc(p)}</span>`).join('')}</div>
+    </div>`);
+  }
+  return parts.join('');
+}
+
 async function loadConsensus() {
   try {
     const notes = await (await fetch('/api/consensus')).json();
@@ -717,47 +751,36 @@ async function loadConsensus() {
       const t = n.created_at
         ? new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
         : '';
-      const card = document.createElement('div');
       const outlook = n.outlook || '중립';
       const decision = n.decision || '관망';
+      const headlineHtml = (n.v === 2 && n.headline)
+        ? `<div class="cc-headline">${esc(n.headline)}</div>` : '';
+      const bodyHtml = _renderConsensusBody(n);
 
-      if (n.v === 2) {
-        // 통일된 v2 카드 — 깔끔
-        card.className = 'cc';
-        const picksHtml = (n.key_picks && n.key_picks.length)
-          ? `<div class="cc-section-label">주목 종목</div>
-             <div class="cc-picks">${n.key_picks.map(p=>`<span class="cc-pick">${esc(p)}</span>`).join('')}</div>`
-          : '';
-        const risksHtml = n.risks
-          ? `<div class="cc-section-label">리스크</div><div class="cc-risks">${esc(n.risks)}</div>`
-          : '';
-        card.innerHTML = `
-          <div class="cc-header">
-            <div class="cc-sector">${esc(n.sector || '—')} <span class="cc-time">${t}</span></div>
+      const card = document.createElement('div');
+      card.className = (n.v === 2) ? 'cc' : 'cc cc-legacy';
+
+      let inner = `
+        <div class="cc-header">
+          <div class="cc-header-top">
+            <div class="cc-sector">${esc(n.sector || '—')}<span class="cc-time">${t}</span></div>
             <div class="cc-badges">
               <span class="cc-badge cc-outlook-${outlook}">${outlook}</span>
               <span class="cc-badge cc-decision-${decision}">${decision}</span>
             </div>
           </div>
-          <div class="cc-body">
-            <div class="cc-thesis">${esc(n.thesis || '—')}</div>
-            ${risksHtml}
-            ${picksHtml}
-          </div>`;
-      } else {
-        // v1 옛 raw 텍스트 — 호환 카드 (펼쳐보기)
-        card.className = 'cc cc-legacy';
-        card.innerHTML = `
-          <div class="cc-header">
-            <div class="cc-sector">${esc(n.sector || '—')} <span class="cc-time">${t}</span></div>
-            <div class="cc-badges">
-              <span class="cc-badge cc-outlook-${outlook}">${outlook}</span>
-              <span class="cc-badge cc-decision-${decision}">${decision}</span>
-            </div>
-          </div>
-          <div class="cc-body">${esc(n.raw || '')}</div>
-          <div class="cc-expand">전체 보기</div>`;
-        card.querySelector('.cc-expand').onclick = () => card.classList.toggle('open');
+          ${headlineHtml}
+        </div>
+        <div class="cc-body">${bodyHtml || '<div class="cc-thesis" style="color:#6e7681">합의 본문 없음</div>'}</div>`;
+
+      if (n.v !== 2) {
+        // v1은 본문 외에 원본 raw도 펼침으로 추가
+        inner += `<div class="cc-legacy-note">원본 보기</div>
+                  <div class="cc-raw">${esc(n.raw || '')}</div>`;
+      }
+      card.innerHTML = inner;
+      if (n.v !== 2) {
+        card.querySelector('.cc-legacy-note').onclick = () => card.classList.toggle('open');
       }
       list.appendChild(card);
     });

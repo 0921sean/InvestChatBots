@@ -587,20 +587,26 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f"{m['agent_name']}: {m['content'][:150]}"
             for m in recent if m["agent_name"] not in ("System", "User")
         )
-        # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단
+        # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단 + 구체적 내용 유도
         summary_prompt = (
             f"{sector['name']} 섹터 토론 내용:\n{convo}\n\n"
             f"위 토론을 종합해 섹터 합의를 JSON으로만 출력하세요. 다른 텍스트·코드블록·마크다운 금지.\n\n"
             f"형식:\n"
             f'{{"outlook":"긍정|중립|부정", "decision":"매수|관망|매도", '
-            f'"thesis":"핵심 합의 1-2문장 (구체 근거 포함)", '
-            f'"risks":"주의·리스크 1-2문장", '
-            f'"key_picks":["관심 종목명들"]}}\n\n'
+            f'"headline":"15자 이내 핵심 한 줄 요약", '
+            f'"thesis":"3-4문장 핵심 합의 — 구체 수치·종목명·근거 포함", '
+            f'"drivers":["촉진 요인 한 줄(구체적)", ...], '
+            f'"risks":["리스크 한 줄(구체적)", ...], '
+            f'"key_picks":["주목 종목명들"]}}\n\n'
             f"규칙:\n"
             f"- outlook: 정확히 '긍정/중립/부정' 셋 중 하나만. 중첩 표기('중립(부정 우위)') 금지.\n"
             f"- decision: 정확히 '매수/관망/매도' 셋 중 하나만. 섹터 전체 권고 기준.\n"
-            f"- thesis·risks는 평서문 1-2문장. 봇 호명·이모지·마크다운 bold 금지.\n"
-            f"- key_picks는 sector['stocks']에서 다수가 합의한 종목 0-3개. 없으면 빈 배열."
+            f"- headline: 12-15자 요약 (예: 'HBM 사이클 초입, 매력적', '본업 정체·배당만 매력').\n"
+            f"- thesis: 평서문 3-4문장. PER·ROE·EPS 등 구체 수치, 종목명, 다수 봇이 합의한 핵심 근거 포함. 봇 호명·이모지·**bold** 금지.\n"
+            f"- drivers: 2-4개. 각 한 줄로 구체적 촉진 요인(수치/이벤트/내러티브). 예: 'HBM 수주잔고 3년치 확보', 'PER 10배로 밸류 부담 낮음'.\n"
+            f"- risks: 1-3개. 각 한 줄로 구체적 리스크. 예: '사이클 피크아웃 시점 불투명', '한화에어로 PER 40배 선반영'.\n"
+            f"- key_picks: 다수가 동의한 종목 0-3개 (종목명만, 코멘트 X).\n"
+            f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
         raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
         consensus_json = _parse_consensus_json(raw, sector["name"])
@@ -623,17 +629,27 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     o = consensus_json.get("outlook", "중립")
     d = consensus_json.get("decision", "관망")
     o_emoji = {"긍정":"🟢", "중립":"🟡", "부정":"🔴"}.get(o, "⚪")
-    chat_summary = (
-        f"📊 [{sector['name']}] 섹터 토론 완료\n"
-        f"{o_emoji} 전망: {o} · 권고: {d}\n"
-        f"핵심: {consensus_json.get('thesis','—')}\n"
-        f"주의: {consensus_json.get('risks','—')}"
-    )
+    headline = consensus_json.get("headline", "")
+    lines = [
+        f"📊 [{sector['name']}] 섹터 토론 완료",
+        f"{o_emoji} 전망: {o} · 권고: {d}" + (f" · {headline}" if headline else ""),
+        f"",
+        f"핵심: {consensus_json.get('thesis','—')}",
+    ]
+    drivers = consensus_json.get("drivers") or []
+    if drivers:
+        lines.append("드라이버:")
+        lines.extend(f"  • {x}" for x in drivers)
+    risks = consensus_json.get("risks") or []
+    if risks:
+        lines.append("리스크:")
+        lines.extend(f"  • {x}" for x in risks)
     picks = consensus_json.get("key_picks") or []
     if picks:
-        chat_summary += f"\n주목 종목: {', '.join(picks)}"
-    chat_summary += f"\n\n→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터"
-    _save_msg(round_id, "System", chat_summary)
+        lines.append(f"주목 종목: {', '.join(picks)}")
+    lines.append("")
+    lines.append(f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
+    _save_msg(round_id, "System", "\n".join(lines))
 
     with _state_lock:
         globals()["_phase"] = "stock_analysis"
@@ -671,13 +687,26 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
             if a in v: return a
         return default
 
+    # risks·drivers는 배열 또는 문자열 둘 다 수용
+    def _to_list(v, limit):
+        if v is None: return []
+        if isinstance(v, str):
+            # 문자열이면 줄바꿈/세미콜론으로 분리 시도
+            parts = [p.strip().lstrip("•-· ").strip() for p in _re.split(r'[\n;]', v) if p.strip()]
+            return parts[:limit]
+        if isinstance(v, list):
+            return [str(x).strip().lstrip("•-· ").strip() for x in v if str(x).strip()][:limit]
+        return []
+
     return {
         "v": 2,
         "sector": sector_name,
         "outlook": _norm(d.get("outlook"), ["긍정", "중립", "부정"], "중립"),
         "decision": _norm(d.get("decision"), ["매수", "관망", "매도"], "관망"),
-        "thesis": (d.get("thesis") or "—").strip()[:400],
-        "risks": (d.get("risks") or "").strip()[:400],
+        "headline": (d.get("headline") or "").strip()[:30],
+        "thesis": (d.get("thesis") or "—").strip()[:600],
+        "drivers": _to_list(d.get("drivers"), 4),
+        "risks": _to_list(d.get("risks"), 3),
         "key_picks": [str(x).strip() for x in (d.get("key_picks") or []) if str(x).strip()][:5],
     }
 
