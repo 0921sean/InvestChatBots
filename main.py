@@ -184,7 +184,15 @@ def whoami(request: Request):
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    # 인라인 JS·CSS라 캐시되면 화면이 안 갱신됨 → 매번 새로 받게 함
+    return FileResponse(
+        "static/index.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/api/messages")
