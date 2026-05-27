@@ -89,7 +89,7 @@
   #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; font-size: 10.5px; display: block; user-select: all; cursor: copy; word-break: break-all;
     background: transparent; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; text-align: center; transition: border-color .15s, color .15s; }
   #token-box .tb-account:hover { border-color: #58a6ff; color: #58a6ff; }
-  #token-box .tb-footnote { display: none; }
+  #token-box .tb-footnote { margin-top: 7px; color: #6e7681; font-size: 9.5px; line-height: 1.55; text-align: center; }
 
   #token-box .tb-owner-actions { margin-top: 8px; display: flex; justify-content: center; }
   #token-box .tb-add-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 4px 14px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
@@ -405,7 +405,7 @@
         <div class="tb-owner-actions" id="tb-owner-actions" style="display:none">
           <button class="tb-add-btn" onclick="openDonationModal()">+ 후원 추가</button>
         </div>
-        <div class="tb-footnote">한 끼만 사주셔도 봇들이 며칠 더 떠듭니다</div>
+        <div class="tb-footnote">개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.</div>
       </div>
     </div>
     <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
@@ -1143,9 +1143,9 @@ async function loadTokenUsage() {
     const tag = document.getElementById('tb-tagline');
     box.classList.toggle('exhausted-warn', !!d.exhausted);
     if (d.exhausted) {
-      tag.innerHTML = '토큰 소진 — 충전 시 자동 재개됩니다.<br>개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.';
+      tag.textContent = '토큰 소진 — 충전 시 자동 재개됩니다.';
     } else {
-      tag.innerHTML = '토큰이 떨어지면 봇 활동도 중단됩니다.<br>개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.';
+      tag.textContent = '토큰이 떨어지면 봇 활동도 중단됩니다.';
     }
     // 마지막 충전 정보 (최근 1건)
     const lastEl = document.getElementById('tb-last-donation');
