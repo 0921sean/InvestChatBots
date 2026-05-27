@@ -16,6 +16,7 @@ def _migrate():
             "ALTER TABLE messages ADD COLUMN translation TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN code TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
+            "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
         ]:
             try:
                 con.execute(sql)
@@ -356,7 +357,7 @@ def buy_shared_position(symbol: str, code: str, entry_price: float, amount: floa
         return cur.lastrowid, None
 
 
-def sell_shared_position(pos_id: int, exit_price: float):
+def sell_shared_position(pos_id: int, exit_price: float, exit_reasoning: str = ""):
     """포지션 청산 후 잔액에 반환. (pnl, error) 반환."""
     with _conn() as con:
         con.row_factory = sqlite3.Row
@@ -381,9 +382,10 @@ def sell_shared_position(pos_id: int, exit_price: float):
 
         con.execute("""
             UPDATE virtual_positions SET
-                status='closed', exit_price=?, pnl=?, pnl_pct=?, closed_at=CURRENT_TIMESTAMP
+                status='closed', exit_price=?, pnl=?, pnl_pct=?, closed_at=CURRENT_TIMESTAMP,
+                exit_reasoning=?
             WHERE id=?
-        """, (exit_price, round(pnl, 0), round(pnl_pct, 2), pos_id))
+        """, (exit_price, round(pnl, 0), round(pnl_pct, 2), exit_reasoning, pos_id))
 
         con.execute("""
             UPDATE shared_portfolio SET
