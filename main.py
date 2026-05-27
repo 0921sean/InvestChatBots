@@ -143,6 +143,8 @@ _OWNER_ONLY_ROUTES = {
     ("DELETE", "/api/lecture-notes"),
     ("POST", "/api/owner/logout"),
     ("POST", "/api/donations"),
+    ("POST", "/api/watchlist/pause"),
+    ("POST", "/api/watchlist/resume"),
 }
 
 # /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
@@ -458,6 +460,28 @@ def api_holdings_review():
     """월요일 보유 점검 수동 트리거 (요일 무관)."""
     threading.Thread(target=lambda: review_holdings(force=True), daemon=True).start()
     return {"ok": True}
+
+
+@app.post("/api/watchlist/pause")
+def api_watchlist_pause():
+    """서브 사이클(워치리스트) 즉시 중단 + 다음 슬롯도 스킵."""
+    from orchestrator import pause_watchlist
+    pause_watchlist()
+    return {"ok": True, "disabled": True}
+
+
+@app.post("/api/watchlist/resume")
+def api_watchlist_resume():
+    """서브 사이클 재가동."""
+    from orchestrator import resume_watchlist
+    resume_watchlist()
+    return {"ok": True, "disabled": False}
+
+
+@app.get("/api/watchlist/status")
+def api_watchlist_status():
+    from orchestrator import is_watchlist_disabled
+    return {"disabled": is_watchlist_disabled()}
 
 
 @app.get("/api/token-usage")
