@@ -660,16 +660,16 @@ async function loadState() {
     const subEl = document.getElementById('round-label');
     if (hashEl && subEl) {
       if (s.activity === 'watchlist') {
-        hashEl.textContent = '# 워치리스트';
+        hashEl.textContent = '# 서브 사이클';
         subEl.textContent = '텔레그램·뉴스 신규 종목 스캔 중';
       } else if (s.activity === 'holdings_review') {
-        hashEl.textContent = '# 보유-점검';
+        hashEl.textContent = '# 종목 점검';
         subEl.textContent = '보유 종목 홀드/매도 판단 중';
       } else if (s.phase === 'sector_discussion') {
-        hashEl.textContent = '# 섹터-토론';
-        subEl.textContent = `${s.sector || ''} · 라운드 ${s.discussion_round||0}/3`;
+        hashEl.textContent = '# 메인 사이클';
+        subEl.textContent = `${s.sector || ''} · 섹터 토론 ${s.discussion_round||0}/3`;
       } else if (s.phase === 'stock_analysis') {
-        hashEl.textContent = '# 종목-분석';
+        hashEl.textContent = '# 메인 사이클';
         subEl.textContent = `${s.sector || ''} · ${s.stock || ''}`;
       } else if (s.phase === 'cycle_rest') {
         hashEl.textContent = '# 휴식';
