@@ -214,6 +214,25 @@
   .member { cursor:pointer; transition: background .15s; }
   .member:hover { background:rgba(255,255,255,0.05); border-radius:4px; }
 
+  /* 일정표 모달 */
+  #chat-hash { cursor: pointer; transition: opacity .15s; }
+  #chat-hash:hover { opacity: 0.7; }
+  #chat-hash::after { content: ' 📅'; font-size: 11px; opacity: 0.6; }
+  #schedule-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; padding: 20px; }
+  #schedule-modal.open { display:flex; }
+  #schedule-box { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:24px 26px; max-width:480px; width:100%; position:relative; max-height:85vh; overflow-y:auto; }
+  #schedule-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; color:#e2e8f0; }
+  #schedule-box .sched-now { font-size:11px; color:#6e7681; margin-bottom:18px; }
+  #schedule-close { position:absolute; top:14px; right:16px; background:none; border:none; color:#6e7681; font-size:20px; cursor:pointer; }
+  .sched-item { padding: 10px 12px; margin-bottom: 8px; background:#0d1117; border:1px solid #21262d; border-radius:8px; }
+  .sched-item.active { border-color: #388bfd; background: rgba(31,111,235,.08); }
+  .sched-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .sched-title { font-size:13px; font-weight:700; color:#e2e8f0; }
+  .sched-time { font-size:11px; color:#79c0ff; font-variant-numeric: tabular-nums; flex-shrink:0; }
+  .sched-desc { font-size:11px; color:#8b949e; margin-top:4px; line-height:1.5; }
+  .sched-next { font-size:10.5px; color:#3fb950; margin-top:4px; font-weight:600; }
+  .sched-note { font-size:11px; color:#6e7681; margin-top:14px; padding-top:12px; border-top:1px dashed #30363d; line-height:1.6; }
+
   /* ───────── 모바일 토글 버튼 (기본은 숨김) ───────── */
   .mobile-only { display: none; }
   #mobile-menu-btn, #mobile-right-btn {
@@ -363,7 +382,7 @@
     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
       <button id="mobile-menu-btn" class="mobile-only" onclick="toggleLeftDrawer()" aria-label="메뉴">☰</button>
       <div style="min-width:0; flex:1;">
-        <h2 id="chat-hash"># 채팅</h2>
+        <h2 id="chat-hash" onclick="openSchedule()" title="클릭하면 일정표"># 채팅</h2>
         <span class="sub" id="round-label">AI 투자 토론방</span>
       </div>
     </div>
@@ -415,6 +434,21 @@
     <div class="pf-row"><span class="pf-label">승/패</span><span class="pf-value pf-neu" id="pf-record">—</span></div>
   </div>
   <div id="pf-positions"></div>
+</div>
+
+<div id="schedule-modal" onclick="if(event.target===this)closeSchedule()">
+  <div id="schedule-box">
+    <button id="schedule-close" onclick="closeSchedule()">✕</button>
+    <h3>📅 일정표</h3>
+    <div class="sched-now" id="sched-now">—</div>
+    <div id="sched-list"></div>
+    <div class="sched-note">
+      • 모든 시각은 <b>KST 기준</b>이며 평일에만 동작합니다 (메인 사이클).<br>
+      • 서브 사이클은 메인이 진행 중이면 자동으로 건너뜁니다.<br>
+      • 종목 점검은 메인 사이클 완료 직후 자동 실행됩니다.<br>
+      • 토큰 소진 시 충전될 때까지 대기하고 자동 재개됩니다.
+    </div>
+  </div>
 </div>
 
 <div id="reason-modal" onclick="if(event.target===this)closeReason()">
@@ -635,6 +669,7 @@ async function loadState() {
     }
     const res = await fetch('/api/state');
     const s = await res.json();
+    window._lastState = s;  // 일정표 모달이 현재 상태 참조
 
     document.getElementById('sector-name-text').textContent = s.sector || '—';
     // 섹터 N/총개수 — cycle_rest면 완료 표시
@@ -946,7 +981,7 @@ function showReason(symbol, openedAt, reasoning, market) {
 function closeReason() {
   document.getElementById('reason-modal').classList.remove('open');
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') closeReason(); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') { closeReason(); closeSchedule(); } });
 
 function fmtNum(n) {
   if (n == null) return '—';
@@ -991,6 +1026,119 @@ function toggleTokenBox(e) {
   // .tb-detail 내부 클릭은 무시 (계좌 복사 등 펼친 상태 유지)
   if (e && e.target && e.target.closest('.tb-detail')) return;
   document.getElementById('token-box').classList.toggle('collapsed');
+}
+
+// ───── 일정표 모달 ─────
+function _kstNow() {
+  // 브라우저 로케일과 무관하게 KST(UTC+9) 시각 계산
+  const now = new Date();
+  return new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (9 * 3600000));
+}
+function _nextKstWeekdayAt(hour, minute) {
+  // 다음 평일 hour:minute KST. 토일은 월요일로 건너뜀.
+  const n = _kstNow();
+  const target = new Date(n);
+  target.setUTCHours(hour, minute, 0, 0);
+  if (target <= n) target.setUTCDate(target.getUTCDate() + 1);
+  while (target.getUTCDay() === 0 || target.getUTCDay() === 6) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+  return target;
+}
+function _nextKstDailyAt(hours) {
+  // 다음 hours 중 가장 빠른 시각 (평일 제한 없음, KST)
+  const n = _kstNow();
+  let best = null;
+  for (const h of hours) {
+    const t = new Date(n);
+    t.setUTCHours(h, 0, 0, 0);
+    if (t <= n) t.setUTCDate(t.getUTCDate() + 1);
+    if (!best || t < best) best = t;
+  }
+  return best;
+}
+function _fmtKstRelative(target) {
+  const n = _kstNow();
+  const diffMs = target - n;
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor((diffMs % 3600000) / 60000);
+  const at = target.toLocaleString('ko-KR', {
+    timeZone: 'UTC',  // 이미 KST 보정된 Date
+    month: 'numeric', day: 'numeric', weekday: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  let rel;
+  if (h >= 24) rel = `${Math.floor(h/24)}일 ${h%24}시간 후`;
+  else if (h >= 1) rel = `${h}시간 ${m}분 후`;
+  else if (m >= 1) rel = `${m}분 후`;
+  else rel = '곧';
+  return { abs: at, rel };
+}
+
+function openSchedule() {
+  // 현재 활동(activity / phase)에 따라 active 표시
+  let activeKey = null;
+  if (window._lastState) {
+    const s = window._lastState;
+    if (s.activity === 'watchlist') activeKey = 'sub';
+    else if (s.activity === 'holdings_review') activeKey = 'check';
+    else if (s.phase === 'sector_discussion' || s.phase === 'stock_analysis') activeKey = 'main';
+    else if (s.phase === 'cycle_rest') activeKey = 'rest';
+  }
+
+  const items = [
+    {
+      key: 'main', title: '메인 사이클', time: '평일 06:00',
+      desc: '13개 섹터 분석 시작. 섹터별 3라운드 토론 + 종목별 9봇 투표 → 매수 결정',
+      next: _nextKstWeekdayAt(6, 0),
+    },
+    {
+      key: 'stop', title: '손절 체크', time: '매일 09:30',
+      desc: '보유 포지션 -20% 도달 시 자동 매도',
+      next: _nextKstWeekdayAt(9, 30),
+    },
+    {
+      key: 'sub', title: '서브 사이클 (워치리스트)', time: '매일 12:00 · 18:00 · 24:00',
+      desc: '텔레그램·뉴스 신규 종목 스캔 + 9봇 분석. 메인 진행 중이면 자동 skip',
+      next: _nextKstDailyAt([12, 18, 0]),
+    },
+    {
+      key: 'check', title: '종목 점검', time: '메인 완료 직후',
+      desc: '보유 종목 전체에 대해 홀드/매도 판단. 매도 5표 이상이면 자동 청산',
+      next: null,  // 메인 완료 시점에 동적
+    },
+    {
+      key: 'rest', title: '주말 휴식', time: '토 · 일',
+      desc: '메인 사이클·종목 점검 정지. 워치리스트는 계속 동작',
+      next: null,
+    },
+  ];
+
+  const now = _kstNow();
+  document.getElementById('sched-now').textContent =
+    '현재 ' + now.toLocaleString('ko-KR', { timeZone: 'UTC', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + ' (KST)';
+
+  const list = document.getElementById('sched-list');
+  list.innerHTML = items.map(it => {
+    const cls = (activeKey === it.key) ? 'sched-item active' : 'sched-item';
+    const next = it.next ? _fmtKstRelative(it.next) : null;
+    const nextHtml = next ? `<div class="sched-next">▶ ${next.abs} · ${next.rel}</div>` : '';
+    const activeHtml = (activeKey === it.key) ? '<div class="sched-next">● 지금 진행 중</div>' : nextHtml;
+    return `
+      <div class="${cls}">
+        <div class="sched-row">
+          <span class="sched-title">${it.title}</span>
+          <span class="sched-time">${it.time}</span>
+        </div>
+        <div class="sched-desc">${it.desc}</div>
+        ${activeHtml}
+      </div>`;
+  }).join('');
+
+  document.getElementById('schedule-modal').classList.add('open');
+}
+function closeSchedule() {
+  document.getElementById('schedule-modal').classList.remove('open');
 }
 
 // ───── 모바일 드로어 ─────
