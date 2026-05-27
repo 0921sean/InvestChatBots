@@ -246,7 +246,7 @@ def api_consensus():
 
 
 def _normalize_consensus(content: str, note_id, created_at) -> dict:
-    """v2 JSON이면 그대로, v1 raw 텍스트면 outlook 추출 시도."""
+    """v2 JSON이면 그대로, v1 raw 텍스트면 sector/outlook/decision/thesis/risks 추출 시도."""
     import json as _json, re as _re
     content = (content or "").strip()
     base = {"id": note_id, "created_at": created_at}
@@ -258,26 +258,47 @@ def _normalize_consensus(content: str, note_id, created_at) -> dict:
                 return {**base, "v": 2, "sector": d.get("sector"),
                         "outlook": d.get("outlook", "중립"),
                         "decision": d.get("decision", "관망"),
+                        "headline": d.get("headline", ""),
                         "thesis": d.get("thesis", ""),
-                        "risks": d.get("risks", ""),
+                        "drivers": d.get("drivers", []),
+                        "risks": d.get("risks", []),
                         "key_picks": d.get("key_picks", [])}
         except Exception:
             pass
-    # v1 raw text — 섹터명·전망 추출 시도
+
+    # v1 raw text — 섹터명·전망·결정·핵심 이유·주의 사항 추출 시도
     sector_m = _re.search(r'\[([^\]]+?)\s*섹터\]', content)
     sector = sector_m.group(1) if sector_m else None
-    # 전망: '긍정/중립/부정' 첫 번째 매칭
+
     outlook = "중립"
     o_m = _re.search(r'전망[^가-힣]*?(긍정|중립|부정)', content)
     if o_m:
         outlook = o_m.group(1)
-    # 결정: [결정] 매수/관망/매도
+
     decision = "관망"
     d_m = _re.search(r'\[결정\]\s*(매수|관망|매도)', content)
     if d_m:
         decision = d_m.group(1)
+
+    # 핵심 이유 / 주의 사항 추출 — '|' 또는 줄단위 모두 시도
+    thesis = ""
+    risks = ""
+
+    # 패턴 1: "핵심 이유: ... | 주의 사항: ..."
+    pat1 = _re.search(r'핵심\s*이유[:\s|]*(.+?)(?=\s*\|?\s*주의\s*사항|$)', content, _re.DOTALL)
+    if pat1:
+        thesis = pat1.group(1).strip().rstrip('|').strip()
+    pat2 = _re.search(r'주의\s*사항[:\s|]*(.+?)(?=\n\n|\[결정\]|$)', content, _re.DOTALL)
+    if pat2:
+        risks = pat2.group(1).strip()
+
+    # 마크다운 ** 제거
+    thesis = _re.sub(r'\*\*', '', thesis)[:600]
+    risks = _re.sub(r'\*\*', '', risks)[:400]
+
     return {**base, "v": 1, "sector": sector, "outlook": outlook,
-            "decision": decision, "raw": content}
+            "decision": decision, "thesis": thesis, "risks": risks,
+            "raw": content}
 
 
 @app.get("/api/state")
