@@ -28,30 +28,31 @@
   #sidebar-scroll::-webkit-scrollbar { width: 6px; }
   #sidebar-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
-  /* 섹터 진행 박스 */
-  #sector-box { margin: 10px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; }
-  #sector-name { font-size: 14px; font-weight: 700; color: #e2e8f0; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-  #sector-count { font-size: 11px; font-weight: 600; color: #6e7681; font-variant-numeric: tabular-nums; }
-  #sector-phase { font-size: 11px; color: #8b949e; margin-top: 2px; }
-  .progress-track { background: #21262d; border-radius: 3px; height: 4px; margin-top: 8px; }
-  .progress-fill { height: 4px; border-radius: 3px; background: #388bfd; transition: width .4s; }
-  #sector-stocks { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 3px; }
-  .stock-badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #21262d; color: #8b949e; }
+  /* 섹터 진행 박스 — 컴팩트 */
+  #sector-box { margin: 8px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 8px 11px; }
+  #sector-name { font-size: 13.5px; font-weight: 700; color: #e2e8f0; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  #sector-count { font-size: 10.5px; font-weight: 600; color: #6e7681; font-variant-numeric: tabular-nums; }
+  #sector-phase { font-size: 10.5px; color: #8b949e; margin-top: 2px; }
+  .progress-track { background: #21262d; border-radius: 3px; height: 3px; margin-top: 6px; }
+  .progress-fill { height: 3px; border-radius: 3px; background: #388bfd; transition: width .4s; }
+  #sector-stocks { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 3px; }
+  .stock-badge { font-size: 9.5px; padding: 1.5px 6px; border-radius: 10px; background: #21262d; color: #8b949e; }
   .stock-badge.current { background: #1f6feb; color: #fff; }
   .stock-badge.done { background: #1a7f37; color: #fff; }
 
-  /* 멤버 */
-  .member { padding: 4px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; border-radius: 4px; margin: 1px 8px; cursor: pointer; }
+  /* 멤버 — 컴팩트하게 (사이드바 공간 절약) */
+  .member { padding: 2px 12px; font-size: 12.5px; display: flex; align-items: center; gap: 8px; border-radius: 4px; margin: 0 8px; cursor: pointer; }
   .member:hover { background: #21262d; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .member-name { font-weight: 600; }
-  .member-sub { font-size: 10px; color: #6e7681; padding: 0 20px 3px; }
+  .member-sub { font-size: 9.5px; color: #6e7681; padding: 0 20px 1px 28px; line-height: 1.3; }
+  .member-sub .model-label { display: none; }  /* Claude Haiku 라벨 숨겨 줄 절약 */
 
   /* 고정 하단 영역 (토큰 + Live) */
   #sidebar-bottom { flex-shrink: 0; border-top: 1px solid #21262d; background: #161b22; }
 
   /* 토큰 사용량 패널 — 컴팩트 */
-  #token-box { padding: 8px 12px 8px; border-bottom: 1px solid #21262d; }
+  #token-box { padding: 6px 11px 7px; border-bottom: 1px solid #21262d; }
   #token-box .tb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; cursor: pointer; user-select: none; }
   #token-box .tb-head-left { font-size: 11px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 5px; }
   #token-box .tb-status { font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
@@ -95,7 +96,7 @@
   @keyframes pulse-warn { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 50% { box-shadow: inset 0 0 0 1px rgba(248,81,73,0.35); } }
 
   /* Live 시황 */
-  #market-ticker { padding: 8px 12px 10px; font-size: 11px; color: #6e7681; line-height: 1.6; max-height: 64px; overflow: hidden; }
+  #market-ticker { padding: 6px 11px 8px; font-size: 10.5px; color: #6e7681; line-height: 1.5; max-height: 56px; overflow: hidden; }
   #market-ticker .live { color: #3fb950; font-weight: 600; }
 
   /* 읽기 전용 모드 — 익명 접속자 */
@@ -675,21 +676,17 @@ async function loadAgents() {
       el.appendChild(row);
       const sub = document.createElement('div');
       sub.className = 'member-sub';
-      sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
+      sub.innerHTML = `${esc(a.description)}<span class="model-label" style="color:#444c56;font-size:9px;margin-left:4px">${esc(a.model_label||a.model_provider)}</span>`;
       el.appendChild(sub);
     });
     // 사용자 본인 '나' 행 (페르소나: 감독 캐릭터를 사용자가 맡음)
     const youRow = document.createElement('div');
     youRow.className = 'member';
-    youRow.style.marginTop = '6px';
+    youRow.style.marginTop = '4px';
     youRow.style.borderTop = '1px solid #21262d';
-    youRow.style.paddingTop = '8px';
+    youRow.style.paddingTop = '6px';
     youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">나</span>`;
     el.appendChild(youRow);
-    const youSub = document.createElement('div');
-    youSub.className = 'member-sub';
-    youSub.textContent = '최종 결정권자 · 봇 9명의 의견을 종합';
-    el.appendChild(youSub);
   } catch(e) {}
 }
 
