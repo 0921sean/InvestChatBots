@@ -1143,9 +1143,9 @@ async function loadTokenUsage() {
     const tag = document.getElementById('tb-tagline');
     box.classList.toggle('exhausted-warn', !!d.exhausted);
     if (d.exhausted) {
-      tag.textContent = '토큰 소진 — 충전 시 자동 재개';
+      tag.innerHTML = '토큰 소진 — 충전 시 자동 재개됩니다.<br>개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.';
     } else {
-      tag.textContent = '토큰이 떨어지면 봇 활동도 중단됩니다.';
+      tag.innerHTML = '토큰이 떨어지면 봇 활동도 중단됩니다.<br>개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.';
     }
     // 마지막 충전 정보 (최근 1건)
     const lastEl = document.getElementById('tb-last-donation');
