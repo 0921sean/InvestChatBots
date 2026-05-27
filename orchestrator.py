@@ -994,10 +994,29 @@ def reset_daily_cycle():
 
 # ── 텔레그램 워치리스트 스캔 ──────────────────────────────
 _watchlist_lock = threading.Lock()
+_watchlist_disabled = False  # True면 새 슬롯은 스킵, 진행 중도 다음 봇 호출 직전 중단
+
+
+def pause_watchlist():
+    """워치리스트 비활성 + 현재 진행 중 즉시 중단 요청."""
+    global _watchlist_disabled
+    _watchlist_disabled = True
+
+
+def resume_watchlist():
+    global _watchlist_disabled
+    _watchlist_disabled = False
+
+
+def is_watchlist_disabled() -> bool:
+    return _watchlist_disabled
 
 
 def run_telegram_watchlist():
-    """2시간마다 텔레그램 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단."""
+    """텔레그램·뉴스 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단."""
+    if _watchlist_disabled:
+        logger.info("워치리스트 비활성 상태 — 이번 슬롯 스킵")
+        return
     # 이미 실행 중이면 건너뜀 (동시 실행 방지)
     if not _watchlist_lock.acquire(blocking=False):
         logger.info("워치리스트 이미 실행 중 — 이번 스케줄 건너뜀")
@@ -1125,6 +1144,9 @@ def _run_telegram_watchlist_inner():
     market_summary, _ = _get_or_refresh_market_summary()
 
     for ticker in valid_tickers:
+        if _watchlist_disabled:
+            logger.info("워치리스트 비활성 — 종목 루프 중단")
+            return
         name = ticker["name"]
         code = ticker["code"]
         market = ticker.get("market", "KR")
@@ -1169,6 +1191,11 @@ def _run_telegram_watchlist_inner():
         decisions, bot_responses = [], []
         token_exhausted = False
         for agent_name in AGENT_ORDER:
+            if _watchlist_disabled:
+                _save_msg(round_id, "System", f"⏸ 워치리스트 비활성화 — {name} 분석 중단")
+                complete_round(round_id)
+                logger.info("워치리스트 비활성 신호 — 봇 루프 중단")
+                return
             if _pause_requested or (datetime.now(KST).hour == 6 and _phase != "cycle_rest"):
                 break
             if is_claude_token_exhausted():
