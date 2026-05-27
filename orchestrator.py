@@ -577,32 +577,109 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
 
 def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     global _phase, _stock_idx, _discussion_round
+    import json
+    consensus_json = None
+    chat_summary = None  # 채팅 메시지용 사람 읽기 좋은 텍스트
+
     try:
         recent = get_recent_messages(30)
         convo = "\n".join(
             f"{m['agent_name']}: {m['content'][:150]}"
             for m in recent if m["agent_name"] not in ("System", "User")
         )
+        # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단
         summary_prompt = (
             f"{sector['name']} 섹터 토론 내용:\n{convo}\n\n"
-            f"위 토론을 바탕으로 섹터 합의를 3줄 이내로 요약하세요.\n"
-            f"형식: 전망(긍정/부정/중립) | 핵심 이유 | 주의 사항\n한국어."
+            f"위 토론을 종합해 섹터 합의를 JSON으로만 출력하세요. 다른 텍스트·코드블록·마크다운 금지.\n\n"
+            f"형식:\n"
+            f'{{"outlook":"긍정|중립|부정", "decision":"매수|관망|매도", '
+            f'"thesis":"핵심 합의 1-2문장 (구체 근거 포함)", '
+            f'"risks":"주의·리스크 1-2문장", '
+            f'"key_picks":["관심 종목명들"]}}\n\n'
+            f"규칙:\n"
+            f"- outlook: 정확히 '긍정/중립/부정' 셋 중 하나만. 중첩 표기('중립(부정 우위)') 금지.\n"
+            f"- decision: 정확히 '매수/관망/매도' 셋 중 하나만. 섹터 전체 권고 기준.\n"
+            f"- thesis·risks는 평서문 1-2문장. 봇 호명·이모지·마크다운 bold 금지.\n"
+            f"- key_picks는 sector['stocks']에서 다수가 합의한 종목 0-3개. 없으면 빈 배열."
         )
-        consensus = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
-        save_consensus(round_id, f"[{sector['name']} 섹터]\n{consensus}")
-        _save_msg(round_id, "System",
-                  f"📊 [{sector['name']}] 섹터 토론 완료\n{consensus}\n\n"
-                  f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
+        raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
+        consensus_json = _parse_consensus_json(raw, sector["name"])
     except Exception as e:
         logger.error(f"합의 추출 오류: {e}")
-        _save_msg(round_id, "System",
-                  f"📊 [{sector['name']}] 섹터 토론 완료 → 종목 분석 시작")
+        consensus_json = {
+            "v": 2, "sector": sector["name"],
+            "outlook": "중립", "decision": "관망",
+            "thesis": f"⚠️ 합의 생성 오류로 토론 결과 표시 못함 ({type(e).__name__}).",
+            "risks": "", "key_picks": [],
+        }
+
+    # DB 저장: v=2 JSON 형태로 통일
+    try:
+        save_consensus(round_id, json.dumps(consensus_json, ensure_ascii=False))
+    except Exception as e:
+        logger.error(f"합의 저장 실패: {e}")
+
+    # 채팅에 사람 읽기 좋은 텍스트로 표시
+    o = consensus_json.get("outlook", "중립")
+    d = consensus_json.get("decision", "관망")
+    o_emoji = {"긍정":"🟢", "중립":"🟡", "부정":"🔴"}.get(o, "⚪")
+    chat_summary = (
+        f"📊 [{sector['name']}] 섹터 토론 완료\n"
+        f"{o_emoji} 전망: {o} · 권고: {d}\n"
+        f"핵심: {consensus_json.get('thesis','—')}\n"
+        f"주의: {consensus_json.get('risks','—')}"
+    )
+    picks = consensus_json.get("key_picks") or []
+    if picks:
+        chat_summary += f"\n주목 종목: {', '.join(picks)}"
+    chat_summary += f"\n\n→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터"
+    _save_msg(round_id, "System", chat_summary)
 
     with _state_lock:
         globals()["_phase"] = "stock_analysis"
         globals()["_stock_idx"] = 0
         globals()["_discussion_round"] = 0
         _persist_state()
+
+
+def _parse_consensus_json(raw: str, sector_name: str) -> dict:
+    """LLM 응답에서 JSON 추출·정규화. 실패 시 fallback dict 반환."""
+    import json, re as _re
+    raw = (raw or "").strip()
+    # ```json ... ``` 블록 제거
+    raw = _re.sub(r'^```(?:json)?\s*', '', raw)
+    raw = _re.sub(r'\s*```$', '', raw)
+    # 첫 { 부터 마지막 } 까지만 슬라이스
+    s, e = raw.find('{'), raw.rfind('}')
+    if s != -1 and e != -1 and e > s:
+        raw = raw[s:e+1]
+
+    try:
+        d = json.loads(raw)
+    except Exception:
+        return {
+            "v": 2, "sector": sector_name,
+            "outlook": "중립", "decision": "관망",
+            "thesis": (raw[:200] or "—"), "risks": "", "key_picks": [],
+            "parse_error": True,
+        }
+
+    # 정규화
+    def _norm(val, allowed, default):
+        v = (val or "").strip()
+        for a in allowed:
+            if a in v: return a
+        return default
+
+    return {
+        "v": 2,
+        "sector": sector_name,
+        "outlook": _norm(d.get("outlook"), ["긍정", "중립", "부정"], "중립"),
+        "decision": _norm(d.get("decision"), ["매수", "관망", "매도"], "관망"),
+        "thesis": (d.get("thesis") or "—").strip()[:400],
+        "risks": (d.get("risks") or "").strip()[:400],
+        "key_picks": [str(x).strip() for x in (d.get("key_picks") or []) if str(x).strip()][:5],
+    }
 
 
 def _advance_stock(round_id: int, sector: dict):

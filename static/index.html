@@ -122,11 +122,43 @@
   .panel-header h3 { font-size: 12px; font-weight: 700; }
   .panel-header p { font-size: 10px; color: #6e7681; margin-top: 2px; }
   #memo-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-  .memo-card { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 10px; border-left: 3px solid #388bfd; }
-  .memo-card:first-child { border-left-color: #3fb950; }
-  .memo-time { font-size: 10px; color: #6e7681; margin-bottom: 5px; }
-  .memo-body { font-size: 11px; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap; }
   #memo-empty { font-size: 11px; color: #6e7681; text-align: center; padding: 20px 10px; line-height: 1.7; }
+
+  /* 합의 카드 — v2 통일 디자인 */
+  .cc { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .cc-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; gap: 8px;
+    border-bottom: 1px solid #21262d; }
+  .cc-sector { font-size: 12.5px; font-weight: 700; color: #e2e8f0; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-badges { display: flex; gap: 4px; flex-shrink: 0; }
+  .cc-badge { font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 8px;
+    letter-spacing: .02em; }
+  .cc-outlook-긍정    { background: rgba(63,185,80,.16);  color: #3fb950; }
+  .cc-outlook-중립    { background: rgba(139,148,158,.16); color: #adb6c0; }
+  .cc-outlook-부정    { background: rgba(248,81,73,.16);  color: #f85149; }
+  .cc-decision-매수   { background: rgba(56,139,253,.18); color: #79c0ff; }
+  .cc-decision-관망   { background: rgba(210,153,34,.18); color: #e3b341; }
+  .cc-decision-매도   { background: rgba(248,81,73,.18);  color: #f85149; }
+
+  .cc-body { padding: 9px 11px; font-size: 11.5px; line-height: 1.6; color: #c9d1d9; }
+  .cc-thesis { color: #c9d1d9; }
+  .cc-section-label { font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+    color: #6e7681; text-transform: uppercase; margin: 8px 0 3px; }
+  .cc-risks { font-size: 11px; color: #adb6c0; }
+  .cc-picks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .cc-pick { font-size: 10px; padding: 2px 7px; border-radius: 8px;
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+
+  /* v1 (옛 데이터) — 회색 톤으로 표시 */
+  .cc.cc-legacy { opacity: 0.78; border-style: dashed; }
+  .cc.cc-legacy .cc-body { font-size: 11px; color: #8b949e; white-space: pre-wrap; max-height: 96px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); }
+  .cc.cc-legacy .cc-expand { font-size: 10px; color: #6e7681; text-align: center; padding: 4px;
+    border-top: 1px dashed #30363d; cursor: pointer; }
+  .cc.cc-legacy.open .cc-body { max-height: none; -webkit-mask-image: none; }
+  .cc.cc-legacy.open .cc-expand::after { content: ' ▲'; }
+  .cc.cc-legacy:not(.open) .cc-expand::after { content: ' ▼'; }
+  .cc-time { font-size: 9.5px; color: #6e7681; }
 
   /* ── 우측 — 포트폴리오 ── */
   #portfolio-panel { width: 220px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -682,11 +714,52 @@ async function loadConsensus() {
     if(empty) empty.style.display='none';
     list.innerHTML = '';
     notes.forEach(n => {
-      const d = document.createElement('div');
-      d.className = 'memo-card';
-      const t = new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-      d.innerHTML = `<div class="memo-time">${t}</div><div class="memo-body">${esc(n.content)}</div>`;
-      list.appendChild(d);
+      const t = n.created_at
+        ? new Date(n.created_at+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
+        : '';
+      const card = document.createElement('div');
+      const outlook = n.outlook || '중립';
+      const decision = n.decision || '관망';
+
+      if (n.v === 2) {
+        // 통일된 v2 카드 — 깔끔
+        card.className = 'cc';
+        const picksHtml = (n.key_picks && n.key_picks.length)
+          ? `<div class="cc-section-label">주목 종목</div>
+             <div class="cc-picks">${n.key_picks.map(p=>`<span class="cc-pick">${esc(p)}</span>`).join('')}</div>`
+          : '';
+        const risksHtml = n.risks
+          ? `<div class="cc-section-label">리스크</div><div class="cc-risks">${esc(n.risks)}</div>`
+          : '';
+        card.innerHTML = `
+          <div class="cc-header">
+            <div class="cc-sector">${esc(n.sector || '—')} <span class="cc-time">${t}</span></div>
+            <div class="cc-badges">
+              <span class="cc-badge cc-outlook-${outlook}">${outlook}</span>
+              <span class="cc-badge cc-decision-${decision}">${decision}</span>
+            </div>
+          </div>
+          <div class="cc-body">
+            <div class="cc-thesis">${esc(n.thesis || '—')}</div>
+            ${risksHtml}
+            ${picksHtml}
+          </div>`;
+      } else {
+        // v1 옛 raw 텍스트 — 호환 카드 (펼쳐보기)
+        card.className = 'cc cc-legacy';
+        card.innerHTML = `
+          <div class="cc-header">
+            <div class="cc-sector">${esc(n.sector || '—')} <span class="cc-time">${t}</span></div>
+            <div class="cc-badges">
+              <span class="cc-badge cc-outlook-${outlook}">${outlook}</span>
+              <span class="cc-badge cc-decision-${decision}">${decision}</span>
+            </div>
+          </div>
+          <div class="cc-body">${esc(n.raw || '')}</div>
+          <div class="cc-expand">전체 보기</div>`;
+        card.querySelector('.cc-expand').onclick = () => card.classList.toggle('open');
+      }
+      list.appendChild(card);
     });
   } catch(e) {}
 }
