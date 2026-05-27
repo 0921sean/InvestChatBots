@@ -167,7 +167,35 @@ def init_db():
             cost_usd REAL DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS donations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount REAL NOT NULL,
+            note TEXT,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """)
+
+
+def add_donation(amount: float, note: str = ""):
+    with _conn() as con:
+        con.execute("INSERT INTO donations (amount, note) VALUES (?, ?)", (amount, note))
+
+
+def get_donations_total() -> dict:
+    """누적 후원액 + 최근 5건."""
+    with _conn() as con:
+        import sqlite3
+        con.row_factory = sqlite3.Row
+        total = con.execute("SELECT COALESCE(SUM(amount), 0) AS s FROM donations").fetchone()["s"]
+        rows = con.execute(
+            "SELECT id, amount, note, added_at FROM donations ORDER BY id DESC LIMIT 5"
+        ).fetchall()
+        return {"total": total, "recent": [dict(r) for r in rows]}
+
+
+def delete_donation(donation_id: int):
+    with _conn() as con:
+        con.execute("DELETE FROM donations WHERE id=?", (donation_id,))
 
 
 # ── 토큰 사용량 트래킹 ──────────────────────────────────────

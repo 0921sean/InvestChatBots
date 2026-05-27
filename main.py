@@ -16,6 +16,7 @@ from db import (
     get_consensus_notes, get_shared_portfolio, get_all_positions, get_open_positions,
     add_lecture_note, get_active_lecture_notes, clear_lecture_notes,
     get_token_usage_today, get_token_usage_recent,
+    add_donation, get_donations_total, delete_donation,
 )
 import time as _time_module
 from orchestrator import (
@@ -141,17 +142,29 @@ _OWNER_ONLY_ROUTES = {
     ("POST", "/api/lecture-note"),
     ("DELETE", "/api/lecture-notes"),
     ("POST", "/api/owner/logout"),
+    ("POST", "/api/donations"),
 }
+
+# /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
+_OWNER_ONLY_PREFIXES = [
+    ("DELETE", "/api/donations/"),
+]
 
 
 @app.middleware("http")
 async def owner_guard(request: Request, call_next):
-    if (request.method, request.url.path) in _OWNER_ONLY_ROUTES:
-        if request.cookies.get(COOKIE_NAME) != OWNER_TOKEN:
-            return JSONResponse(
-                {"detail": "owner only — 읽기 전용 접속자는 조작 불가"},
-                status_code=403,
-            )
+    method, path = request.method, request.url.path
+    is_owner_only = (method, path) in _OWNER_ONLY_ROUTES
+    if not is_owner_only:
+        for m, prefix in _OWNER_ONLY_PREFIXES:
+            if method == m and path.startswith(prefix):
+                is_owner_only = True
+                break
+    if is_owner_only and request.cookies.get(COOKIE_NAME) != OWNER_TOKEN:
+        return JSONResponse(
+            {"detail": "owner only — 읽기 전용 접속자는 조작 불가"},
+            status_code=403,
+        )
     return await call_next(request)
 
 
@@ -458,6 +471,50 @@ def api_token_usage():
         "recent": recent,
         "exhausted": is_claude_token_exhausted(),
     }
+
+
+# ── 후원 누적 (수동 카운터) ─────────────────────────────────
+# 환산 기준 (대략):
+#   USD/KRW ≈ 1380 (변동성 있음, 고정값 사용)
+#   Haiku 4.5 평균 가격: input $1/1M + output $5/1M, in/out ≈ 80/20 → 평균 $1.80/1M
+#   → ₩1 ≈ 400 tokens (참고치)
+USD_TO_KRW = 1380
+TOKENS_PER_KRW = 400
+
+
+def _enrich_donations(d: dict) -> dict:
+    krw = d.get("total", 0) or 0
+    d["total_krw"] = krw
+    d["total_usd"] = round(krw / USD_TO_KRW, 2)
+    d["total_tokens"] = int(krw * TOKENS_PER_KRW)  # 참고치
+    return d
+
+
+@app.get("/api/donations")
+def api_donations():
+    """공개 — 누적 후원액 + 최근 5건 + USD/토큰 환산."""
+    return _enrich_donations(get_donations_total())
+
+
+class DonationIn(BaseModel):
+    amount: float
+    note: str | None = ""
+
+
+@app.post("/api/donations")
+def api_add_donation(body: DonationIn):
+    """owner — 후원 항목 추가 (KRW 기준)."""
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be > 0")
+    add_donation(body.amount, body.note or "")
+    return {"ok": True, **_enrich_donations(get_donations_total())}
+
+
+@app.delete("/api/donations/{donation_id}")
+def api_delete_donation(donation_id: int):
+    """owner — 특정 후원 항목 삭제."""
+    delete_donation(donation_id)
+    return {"ok": True, **_enrich_donations(get_donations_total())}
 
 
 @app.post("/api/summary/request")
