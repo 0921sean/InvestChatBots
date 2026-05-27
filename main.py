@@ -503,28 +503,63 @@ class DonationIn(BaseModel):
 
 @app.post("/api/donations")
 def api_add_donation(body: DonationIn):
-    """owner — 후원 항목 추가 (KRW 기준). 채팅에 시스템 메시지 자동 게시."""
+    """owner — 후원 항목 추가 (KRW 기준). 채팅에 시스템 메시지 + 봇 9명 감사 인사."""
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be > 0")
     add_donation(body.amount, body.note or "")
 
-    # 채팅방에 충전 알림 메시지 (봇 토론 사이에 한 줄)
-    try:
-        from db import create_round, save_message, complete_round
-        from main import _enrich_donations as _enrich
-        total = _enrich(get_donations_total())
-        token_equiv = total.get("total_tokens", 0)
-        amount_tokens = int(body.amount * 400)  # 환산
-        note_part = f" · {body.note}" if body.note else ""
-        msg = (f"💰 충전: ₩{int(body.amount):,} (~{_fmt_tokens(amount_tokens)} 토큰){note_part}\n"
-               f"누적 충전: ₩{int(total['total_krw']):,} · {_fmt_tokens(token_equiv)} 토큰")
-        round_id = create_round("후원")
-        save_message(round_id, "System", None, msg)
-        complete_round(round_id)
-    except Exception as e:
-        logger.warning(f"충전 알림 메시지 실패: {e}")
+    # 백그라운드로 채팅 알림 + 봇 감사 인사 (응답은 즉시)
+    threading.Thread(
+        target=_run_donation_thanks,
+        args=(body.amount, body.note or ""),
+        daemon=True,
+    ).start()
 
     return {"ok": True, **_enrich_donations(get_donations_total())}
+
+
+def _run_donation_thanks(amount: float, note: str):
+    """후원 알림 + 9봇 한마디씩 감사 인사. 토큰 소진 시 봇 인사는 스킵."""
+    from db import create_round, save_message, complete_round
+    from agents import call_agent, is_claude_token_exhausted
+    from orchestrator import AGENT_ORDER, _build_system
+    try:
+        # 1) 시스템 알림 메시지 (별도 라운드)
+        total = _enrich_donations(get_donations_total())
+        amount_tokens = int(amount * 400)
+        donor = (note.strip() or "익명의 후원자")
+        note_disp = f" · {note}" if note else ""
+        round_id = create_round(f"후원 — {donor}")
+        save_message(round_id, "System", None,
+                     f"💰 충전: ₩{int(amount):,} (~{_fmt_tokens(amount_tokens)} 토큰){note_disp}\n"
+                     f"누적 충전: ₩{int(total['total_krw']):,} · {_fmt_tokens(total['total_tokens'])} 토큰")
+
+        # 2) 봇 9명 감사 인사 — 토큰 소진 아닐 때만
+        if is_claude_token_exhausted():
+            save_message(round_id, "System", None, "⏸ 토큰 소진 — 봇 감사 인사는 충전 후 자동 이어집니다.")
+            complete_round(round_id)
+            return
+
+        save_message(round_id, "System", None, f"🙏 {donor}님께 봇들이 한마디씩...")
+
+        amount_str = f"₩{int(amount):,}"
+        for agent_name in AGENT_ORDER:
+            if is_claude_token_exhausted():
+                save_message(round_id, "System", None, "⏸ 도중에 토큰 소진 — 나머지 봇 인사 생략.")
+                break
+            system = _build_system(agent_name)
+            prompt = (f"방금 '{donor}'님이 {amount_str}을 후원해주셨습니다 (메모: {note or '없음'}).\n\n"
+                      f"{agent_name}로서 본인 캐릭터·말투 그대로 **1문장(최대 50자)** 짧게 감사 인사를 해주세요. "
+                      f"투자 의견·종목 분석 X. 이모지 1개 정도 OK. 반드시 한국어.")
+            try:
+                resp = call_agent(agent_name, system, prompt)
+                save_message(round_id, agent_name, None, resp)
+            except Exception as e:
+                logger.debug(f"감사 인사 실패 {agent_name}: {e}")
+
+        complete_round(round_id)
+    except Exception as e:
+        logger.warning(f"후원 감사 인사 오류: {e}")
 
 
 def _fmt_tokens(n: int) -> str:
