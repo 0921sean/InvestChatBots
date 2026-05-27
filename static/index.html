@@ -50,55 +50,53 @@
   /* 고정 하단 영역 (토큰 + Live) */
   #sidebar-bottom { flex-shrink: 0; border-top: 1px solid #21262d; background: #161b22; }
 
-  /* ── 토큰 패널 — 깔끔 재설계 (게이지=남은 양) ──────── */
-  #token-box { padding: 10px 12px 12px; border-bottom: 1px solid #21262d; }
-  #token-box .tb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; cursor: pointer; user-select: none; }
-  #token-box .tb-title { font-size: 11px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 6px; }
+  /* ── 토큰 패널 — 미니멀 무채색 ──────────────────── */
+  #token-box { padding: 11px 13px 12px; border-bottom: 1px solid #21262d; }
+  #token-box .tb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; cursor: pointer; user-select: none; }
+  #token-box .tb-title { font-size: 11px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px; letter-spacing: .01em; }
   #token-box .tb-chev { font-size: 8px; color: #6e7681; transition: transform .15s; transform: rotate(90deg); display: inline-block; }
   #token-box.collapsed .tb-chev { transform: rotate(0deg); }
-  #token-box .tb-status { font-size: 9px; padding: 2px 7px; border-radius: 8px; font-weight: 700; letter-spacing: .04em; }
-  #token-box .tb-status.ok { background: rgba(63,185,80,.15); color: #3fb950; }
-  #token-box .tb-status.exhausted { background: rgba(248,81,73,.18); color: #f85149; }
+  #token-box .tb-status { font-size: 9.5px; padding: 2px 7px; border-radius: 4px; font-weight: 600; color: #8b949e; background: transparent; border: 1px solid #30363d; }
+  #token-box .tb-status.exhausted { color: #f85149; border-color: rgba(248,81,73,.4); }
 
-  /* 게이지 — 남은 토큰 비율 (충전 - 사용). 사용할수록 줄어들고 색깔도 변함. */
-  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 5px; height: 10px; overflow: hidden; }
-  #token-box .tb-gauge-fill { height: 100%; transition: width .6s ease, background .4s; border-radius: 4px;
-    background: linear-gradient(90deg, #3fb950, #2ea043); }                  /* 정상: 50%+ 남음 */
-  #token-box .tb-gauge-fill.caution { background: linear-gradient(90deg, #e3b341, #d29922); } /* 30~50% */
-  #token-box .tb-gauge-fill.warn    { background: linear-gradient(90deg, #f0883e, #ec7331); } /* 10~30% */
-  #token-box .tb-gauge-fill.danger  { background: linear-gradient(90deg, #f85149, #da3633); } /* 0~10% */
-  #token-box .tb-gauge-fill.empty   { background: #30363d; }                                  /* 충전 없음 */
+  /* 게이지 — 단색, 그라데이션 X */
+  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 6px; overflow: hidden; }
+  #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: #58a6ff; }
+  #token-box .tb-gauge-fill.caution { background: #d29922; }
+  #token-box .tb-gauge-fill.warn    { background: #db6d28; }
+  #token-box .tb-gauge-fill.danger  { background: #da3633; }
+  #token-box .tb-gauge-fill.empty   { background: #30363d; }
 
-  #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; font-variant-numeric: tabular-nums; }
-  #token-box .tb-remain { font-size: 13px; font-weight: 700; color: #e2e8f0; }
+  #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; margin-top: 7px; font-variant-numeric: tabular-nums; }
+  #token-box .tb-remain { font-size: 12px; font-weight: 600; color: #e2e8f0; }
   #token-box .tb-remain-sub { font-size: 9.5px; color: #6e7681; margin-left: 4px; font-weight: 400; }
-  #token-box .tb-total { font-size: 10px; color: #8b949e; }
-  #token-box .tb-sub { font-size: 9.5px; color: #6e7681; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  #token-box .tb-total { font-size: 10px; color: #6e7681; }
+  #token-box .tb-sub { font-size: 9.5px; color: #6e7681; margin-top: 3px; font-variant-numeric: tabular-nums; }
 
-  /* 펼침 영역 — 충전 안내 */
-  #token-box .tb-detail { display: block; margin-top: 10px; padding-top: 10px; border-top: 1px solid #21262d; font-size: 10px; color: #8b949e; line-height: 1.55; }
+  /* 펼침 영역 */
+  #token-box .tb-detail { display: block; margin-top: 11px; padding-top: 10px; border-top: 1px solid #21262d; font-size: 10px; color: #8b949e; line-height: 1.55; }
   #token-box.collapsed .tb-detail { display: none; }
 
-  /* 최근 충전 */
-  #token-box #tb-last-donation { display: none; background: rgba(63,185,80,.08); border-left: 2px solid #3fb950; padding: 5px 8px; margin-bottom: 8px; font-size: 10px; line-height: 1.5; border-radius: 0 4px 4px 0; }
+  /* 최근 충전 — 작은 회색 박스 */
+  #token-box #tb-last-donation { display: none; padding: 5px 0 8px; font-size: 10px; color: #8b949e; line-height: 1.5; border-bottom: 1px solid #21262d; margin-bottom: 8px; }
   #token-box #tb-last-donation .ld-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-  #token-box #tb-last-donation .ld-tokens { color: #3fb950; font-weight: 700; font-size: 11px; }
+  #token-box #tb-last-donation .ld-label { color: #6e7681; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; }
+  #token-box #tb-last-donation .ld-tokens { color: #c9d1d9; font-weight: 600; }
   #token-box #tb-last-donation .ld-meta { color: #6e7681; font-size: 9.5px; }
 
-  /* 충전 안내 */
-  #token-box .tb-tagline { font-size: 10px; color: #adb6c0; margin-bottom: 6px; line-height: 1.5; }
-  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; display: block; user-select: all; cursor: copy; word-break: break-all;
-    background: #0d1117; border: 1px solid #30363d; border-radius: 5px; padding: 6px 8px; text-align: center; transition: border-color .15s; }
-  #token-box .tb-account:hover { border-color: #58a6ff; }
-  #token-box .tb-footnote { margin-top: 6px; color: #6e7681; font-size: 9.5px; font-style: italic; text-align: center; }
+  /* 충전 안내 — 차분히 */
+  #token-box .tb-tagline { font-size: 10px; color: #8b949e; margin-bottom: 7px; line-height: 1.55; }
+  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; font-size: 10.5px; display: block; user-select: all; cursor: copy; word-break: break-all;
+    background: transparent; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; text-align: center; transition: border-color .15s, color .15s; }
+  #token-box .tb-account:hover { border-color: #58a6ff; color: #58a6ff; }
+  #token-box .tb-footnote { display: none; }
 
   #token-box .tb-owner-actions { margin-top: 8px; display: flex; justify-content: center; }
-  #token-box .tb-add-btn { background: #1f6feb; border: 1px solid #388bfd; color: #fff; padding: 5px 14px; border-radius: 6px; font-size: 10.5px; font-weight: 600; cursor: pointer; }
-  #token-box .tb-add-btn:hover { background: #388bfd; }
+  #token-box .tb-add-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 4px 14px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
+  #token-box .tb-add-btn:hover { background: #21262d; color: #c9d1d9; border-color: #58a6ff; }
 
-  /* 위급 펄스 */
-  #token-box.exhausted-warn { animation: pulse-warn 2.4s ease-in-out infinite; }
-  @keyframes pulse-warn { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 50% { box-shadow: inset 0 0 0 1px rgba(248,81,73,0.35); } }
+  /* 위급 — 펄스 제거, 보더 색만 변경 */
+  #token-box.exhausted-warn { border-bottom-color: rgba(248,81,73,.4); }
 
   /* Live 시황 */
   #market-ticker { padding: 6px 11px 8px; font-size: 10.5px; color: #6e7681; line-height: 1.5; max-height: 56px; overflow: hidden; }
@@ -391,8 +389,8 @@
   <div id="sidebar-bottom">
     <div id="token-box" onclick="toggleTokenBox(event)">
       <div class="tb-head">
-        <div class="tb-title"><span class="tb-chev">▶</span>🪙 Claude 토큰</div>
-        <span class="tb-status ok" id="tb-status">활성</span>
+        <div class="tb-title"><span class="tb-chev">▶</span>Claude 토큰</div>
+        <span class="tb-status" id="tb-status">활성</span>
       </div>
       <div class="tb-gauge-track"><div class="tb-gauge-fill" id="tb-gauge-fill" style="width:100%"></div></div>
       <div class="tb-gauge-labels">
@@ -1138,16 +1136,16 @@ async function loadTokenUsage() {
       s.className = 'tb-status exhausted';
     } else {
       s.textContent = '활성';
-      s.className = 'tb-status ok';
+      s.className = 'tb-status';
     }
     // 소진 시 박스 펄스 + 안내문
     const box = document.getElementById('token-box');
     const tag = document.getElementById('tb-tagline');
     box.classList.toggle('exhausted-warn', !!d.exhausted);
     if (d.exhausted) {
-      tag.textContent = '⚠️ 토큰 소진. 충전될 때까지 봇들이 침묵합니다.';
+      tag.textContent = '토큰 소진 — 충전 시 자동 재개';
     } else {
-      tag.textContent = '토큰이 떨어지면 봇들도 침묵해요. 충전 부탁드려요 🙏';
+      tag.textContent = '토큰이 떨어지면 봇 활동도 중단됩니다.';
     }
     // 마지막 충전 정보 (최근 1건)
     const lastEl = document.getElementById('tb-last-donation');
@@ -1162,7 +1160,7 @@ async function loadTokenUsage() {
       else rel = `${Math.floor(diffMs/86400000)}일 전`;
       const noteHtml = last.note ? ` · ${esc(last.note)}` : '';
       const tokenEquiv = fmtTokens(last.amount * 400);
-      lastEl.innerHTML = `<div class="ld-row"><span class="ld-tokens">💚 +${tokenEquiv}</span><span class="ld-meta">${rel}</span></div><div class="ld-meta">${fmtKrw(last.amount)}${noteHtml}</div>`;
+      lastEl.innerHTML = `<div class="ld-row"><span class="ld-label">최근 충전</span><span class="ld-meta">${rel}</span></div><div class="ld-row"><span class="ld-tokens">+${tokenEquiv}</span><span class="ld-meta">${fmtKrw(last.amount)}${noteHtml}</span></div>`;
       lastEl.style.display = 'block';
     } else {
       lastEl.style.display = 'none';
