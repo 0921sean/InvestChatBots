@@ -227,6 +227,8 @@ def api_agents():
             "model_provider": profile["model_provider"],
             "model_label": MODEL_LABEL.get(profile["model_id"], profile["model_id"]),
             "system": system_clean,
+            # '감독'은 사용자 본인 페르소나라 UI Members에선 숨김
+            "hidden_from_members": (name == "감독"),
         })
     return result
 
@@ -292,6 +294,29 @@ _price_cache: dict = {}          # {symbol: price}
 _price_cache_at: float = 0.0
 _PRICE_CACHE_TTL = 180           # 3분 캐시
 
+# 옛 봇 이름 → 새 봇 이름 매핑 (포트폴리오 모달의 매수 근거 표시용)
+# 형식: "구)<옛이름>" 표기로 과거 봇 이름임을 명시
+_OLD_BOT_MAP = {
+    "황소": "드가자", "강세파": "드가자", "모험파": "드가자",
+    "매크로": "빅픽처",
+    "모멘텀": "차트천재", "트레이더": "차트천재", "단기파": "차트천재",
+    "사냥꾼": "경력직",
+    "가치파": "감독", "장기파": "감독",
+    "안정파": "INTJ",
+    "퀀트": "퀀트중독자",
+    "회의파": "원칙주의자",
+}
+import re as _re
+# 봇 이름 뒤에 콜론(:)이 직접 오는 경우만 치환 — '매크로 환경' 같은 일반 단어 사용은 안전
+_OLD_BOT_PAT = _re.compile(r'(?<![가-힣\w])(' + '|'.join(_OLD_BOT_MAP.keys()) + r')(?=\s*[:：])')
+
+
+def _remap_old_bot_names(text: str) -> str:
+    """매수 근거 텍스트의 '옛봇:' 헤더를 '새봇(구):' 로 치환."""
+    if not text:
+        return text
+    return _OLD_BOT_PAT.sub(lambda m: f"{_OLD_BOT_MAP[m.group(1)]}(구)", text)
+
 def _refresh_prices_bg():
     """백그라운드에서 현재가 갱신."""
     global _price_cache, _price_cache_at
@@ -317,7 +342,7 @@ def api_portfolio():
     if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:
         threading.Thread(target=_refresh_prices_bg, daemon=True).start()
 
-    # 캐시된 현재가 적용
+    # 캐시된 현재가 적용 + 옛 봇 이름 치환
     for p in positions:
         if p["status"] == "open" and p["symbol"] in _price_cache:
             current = _price_cache[p["symbol"]]
@@ -327,6 +352,9 @@ def api_portfolio():
             if entry and qty:
                 p["unrealized_pnl"]     = round((current - entry) * qty, 0)
                 p["unrealized_pnl_pct"] = round((current - entry) / entry * 100, 2)
+        # 매수 근거에 옛 봇 이름 있으면 새 봇 이름으로 치환
+        if p.get("reasoning"):
+            p["reasoning"] = _remap_old_bot_names(p["reasoning"])
 
     pf["positions"] = positions
     return pf

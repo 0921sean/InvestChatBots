@@ -9,13 +9,19 @@
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; height: 100vh; display: flex; overflow: hidden; }
 
   /* ── 좌측 사이드바 ── */
-  #sidebar { width: 220px; background: #161b22; border-right: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
-  #sidebar-title { padding: 16px 14px 12px; font-size: 15px; font-weight: 700; color: #e2e8f0; border-bottom: 1px solid #21262d; }
+  #sidebar { width: 220px; background: #161b22; border-right: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; height: 100vh; }
+  #sidebar-title { padding: 14px 14px 11px; font-size: 15px; font-weight: 700; color: #e2e8f0; border-bottom: 1px solid #21262d; flex-shrink: 0; }
   .sidebar-label { padding: 6px 14px 3px; font-size: 10px; font-weight: 600; letter-spacing: 1px; color: #6e7681; text-transform: uppercase; }
+
+  /* 스크롤 영역 (섹터 + Members) */
+  #sidebar-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+  #sidebar-scroll::-webkit-scrollbar { width: 6px; }
+  #sidebar-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
   /* 섹터 진행 박스 */
   #sector-box { margin: 10px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; }
-  #sector-name { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+  #sector-name { font-size: 14px; font-weight: 700; color: #e2e8f0; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  #sector-count { font-size: 11px; font-weight: 600; color: #6e7681; font-variant-numeric: tabular-nums; }
   #sector-phase { font-size: 11px; color: #8b949e; margin-top: 2px; }
   .progress-track { background: #21262d; border-radius: 3px; height: 4px; margin-top: 8px; }
   .progress-fill { height: 4px; border-radius: 3px; background: #388bfd; transition: width .4s; }
@@ -25,27 +31,38 @@
   .stock-badge.done { background: #1a7f37; color: #fff; }
 
   /* 멤버 */
-  .member { padding: 4px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; border-radius: 4px; margin: 1px 8px; }
+  .member { padding: 4px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; border-radius: 4px; margin: 1px 8px; cursor: pointer; }
+  .member:hover { background: #21262d; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .member-name { font-weight: 600; }
   .member-sub { font-size: 10px; color: #6e7681; padding: 0 20px 3px; }
-  #market-ticker { padding: 10px 12px; border-top: 1px solid #21262d; font-size: 11px; color: #6e7681; line-height: 1.8; }
-  #market-ticker .live { color: #3fb950; font-weight: 600; }
 
-  /* 토큰 사용량 패널 */
-  #token-box { margin: 10px 10px 0; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; margin-top: auto; }
-  #token-box .tb-title { font-size: 11px; font-weight: 700; color: #e2e8f0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-  #token-box .tb-status { font-size: 9px; padding: 2px 6px; border-radius: 8px; font-weight: 600; }
+  /* 고정 하단 영역 (토큰 + Live) */
+  #sidebar-bottom { flex-shrink: 0; border-top: 1px solid #21262d; background: #161b22; }
+
+  /* 토큰 사용량 패널 — 컴팩트 */
+  #token-box { padding: 8px 12px 8px; border-bottom: 1px solid #21262d; }
+  #token-box .tb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; cursor: pointer; user-select: none; }
+  #token-box .tb-head-left { font-size: 11px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 5px; }
+  #token-box .tb-status { font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
   #token-box .tb-status.ok { background: rgba(63,185,80,.15); color: #3fb950; }
   #token-box .tb-status.exhausted { background: rgba(248,81,73,.18); color: #f85149; }
-  #token-box .tb-row { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; padding: 2px 0; }
-  #token-box .tb-row .v { color: #e2e8f0; font-weight: 600; font-variant-numeric: tabular-nums; }
-  #token-box .tb-cost { color: #ffa657; }
-  #token-box .tb-donate { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.5; }
-  #token-box .tb-donate b { color: #e2e8f0; }
-  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; margin-top: 2px; display: block; user-select: all; cursor: copy; }
+  /* 한 줄 요약 — 항상 표시 */
+  #token-box .tb-summary { font-size: 10.5px; color: #8b949e; font-variant-numeric: tabular-nums; display: flex; gap: 8px; }
+  #token-box .tb-summary .v { color: #e2e8f0; font-weight: 600; }
+  #token-box .tb-summary .tb-cost { color: #ffa657; }
+  /* 펼침 디테일 — 클릭 시 표시 */
+  #token-box .tb-detail { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.6; }
+  #token-box.open .tb-detail { display: block; }
+  #token-box .tb-detail b { color: #e2e8f0; }
+  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; margin-top: 3px; display: block; user-select: all; cursor: copy; word-break: break-all; }
   #token-box .tb-account:hover { text-decoration: underline; }
-  #token-box .tb-thanks { margin-top: 4px; color: #6e7681; font-size: 9.5px; font-style: italic; }
+  #token-box .tb-chev { font-size: 9px; color: #6e7681; transition: transform .15s; }
+  #token-box.open .tb-chev { transform: rotate(90deg); }
+
+  /* Live 시황 */
+  #market-ticker { padding: 8px 12px 10px; font-size: 11px; color: #6e7681; line-height: 1.6; max-height: 64px; overflow: hidden; }
+  #market-ticker .live { color: #3fb950; font-weight: 600; }
 
   /* 읽기 전용 모드 — 익명 접속자 */
   #readonly-badge { position: fixed; top: 8px; right: 14px; z-index: 100;
@@ -153,41 +170,48 @@
 <div id="sidebar">
   <div id="sidebar-title">📈 InvestChat</div>
 
-  <div id="sector-box">
-    <div class="sidebar-label" style="padding:0 0 4px">현재 섹터</div>
-    <div id="sector-name">로딩 중...</div>
-    <div id="sector-phase">—</div>
-    <div class="progress-track"><div class="progress-fill" id="sector-progress-fill" style="width:0%"></div></div>
-    <div id="sector-stocks"></div>
+  <div id="sidebar-scroll">
+    <div id="sector-box">
+      <div class="sidebar-label" style="padding:0 0 4px">현재 섹터</div>
+      <div id="sector-name"><span id="sector-name-text">로딩 중...</span><span id="sector-count">—</span></div>
+      <div id="sector-phase">—</div>
+      <div class="progress-track"><div class="progress-fill" id="sector-progress-fill" style="width:0%"></div></div>
+      <div id="sector-stocks"></div>
+    </div>
+
+    <div style="padding-top:12px; padding-bottom:8px">
+      <div class="sidebar-label">Members</div>
+      <div id="member-list"></div>
+    </div>
   </div>
 
-  <div style="padding-top:12px">
-    <div class="sidebar-label">Members</div>
-    <div id="member-list"></div>
-  </div>
-  <div id="token-box">
-    <div class="tb-title">
-      <span>🪙 Claude 토큰</span>
-      <span class="tb-status ok" id="tb-status">활성</span>
+  <div id="sidebar-bottom">
+    <div id="token-box" onclick="toggleTokenBox(event)">
+      <div class="tb-head">
+        <div class="tb-head-left"><span class="tb-chev">▶</span>🪙 Claude 토큰</div>
+        <span class="tb-status ok" id="tb-status">활성</span>
+      </div>
+      <div class="tb-summary">
+        <span>호출 <span class="v" id="tb-calls">—</span></span>
+        <span>in <span class="v" id="tb-input">—</span></span>
+        <span>out <span class="v" id="tb-output">—</span></span>
+        <span class="tb-cost" id="tb-cost">—</span>
+      </div>
+      <div class="tb-detail" onclick="event.stopPropagation()">
+        <b>토큰값 충전 부탁드려요 🙏</b><br>
+        개발자에게 보내주시면 큰 도움이 됩니다.
+        <span class="tb-account" id="tb-account" title="클릭해서 복사" onclick="copyAccount()">국민 000-00-0000000 천승범</span>
+        <div style="margin-top:4px; color:#6e7681; font-size:9.5px; font-style:italic;">Claude Code MAX 구독 유지에 사용됩니다</div>
+      </div>
     </div>
-    <div class="tb-row"><span>오늘 호출</span><span class="v" id="tb-calls">—</span></div>
-    <div class="tb-row"><span>Input</span><span class="v" id="tb-input">—</span></div>
-    <div class="tb-row"><span>Output</span><span class="v" id="tb-output">—</span></div>
-    <div class="tb-row"><span>비용 추정</span><span class="v tb-cost" id="tb-cost">—</span></div>
-    <div class="tb-donate">
-      <b>토큰값 충전 부탁드려요 🙏</b><br>
-      개발자에게 보내주시면 큰 도움이 됩니다.
-      <span class="tb-account" id="tb-account" title="클릭해서 복사" onclick="copyAccount()">국민 000-00-0000000 천승범</span>
-      <div class="tb-thanks">매달 Claude Code MAX 구독 유지에 사용됩니다</div>
-    </div>
+    <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
   </div>
-  <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
 </div>
 
 <div id="main">
   <div id="chat-header">
     <div>
-      <h2># war-room</h2>
+      <h2 id="chat-hash"># 채팅</h2>
       <span class="sub" id="round-label">AI 투자 토론방</span>
     </div>
     <div class="btn-group">
@@ -391,7 +415,8 @@ async function loadAgents() {
     const el = document.getElementById('member-list');
     el.innerHTML = '';
     list.forEach(a => {
-      agents[a.name] = a;
+      agents[a.name] = a;  // 매수근거 매핑 등에선 9봇 모두 유지
+      if (a.hidden_from_members) return;  // '감독'은 Members에서 숨김
       const color = BOT_COLORS[a.name] || '#8b949e';
       const row = document.createElement('div');
       row.className = 'member';
@@ -404,11 +429,6 @@ async function loadAgents() {
       sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
       el.appendChild(sub);
     });
-    const youRow = document.createElement('div');
-    youRow.className = 'member';
-    youRow.style.marginTop = '6px';
-    youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">나 (감독)</span>`;
-    el.appendChild(youRow);
   } catch(e) {}
 }
 
@@ -442,7 +462,15 @@ async function loadState() {
     const res = await fetch('/api/state');
     const s = await res.json();
 
-    document.getElementById('sector-name').textContent = s.sector || '—';
+    document.getElementById('sector-name-text').textContent = s.sector || '—';
+    // 섹터 N/총개수 — cycle_rest면 완료 표시
+    const total = s.total_sectors || _sectors.length || 13;
+    const idx = (s.sector_idx || 0);
+    if (s.phase === 'cycle_rest') {
+      document.getElementById('sector-count').textContent = `${total}/${total} ✓`;
+    } else {
+      document.getElementById('sector-count').textContent = `${idx + 1}/${total}`;
+    }
     let phaseText = '';
     if (s.phase === 'cycle_rest') {
       phaseText = `오늘 분석 완료 😴 ${s.cooldown_remaining_h||0}h 후 재시작`;
@@ -452,6 +480,25 @@ async function loadState() {
       phaseText = `종목 분석 ${(s.stock_idx||0)+1}/${s.stocks_total||3} — ${s.stock||''}`;
     }
     document.getElementById('sector-phase').textContent = phaseText;
+
+    // 채팅 헤더 해시태그 — phase 따라 동적
+    const hashEl = document.getElementById('chat-hash');
+    const subEl = document.getElementById('round-label');
+    if (hashEl && subEl) {
+      if (s.phase === 'sector_discussion') {
+        hashEl.textContent = '# 섹터-토론';
+        subEl.textContent = `${s.sector || ''} · 라운드 ${s.discussion_round||0}/3`;
+      } else if (s.phase === 'stock_analysis') {
+        hashEl.textContent = '# 종목-분석';
+        subEl.textContent = `${s.sector || ''} · ${s.stock || ''}`;
+      } else if (s.phase === 'cycle_rest') {
+        hashEl.textContent = '# 채팅';
+        subEl.textContent = `오늘 분석 완료 · 다음 사이클 ${s.cooldown_remaining_h||0}h 후`;
+      } else {
+        hashEl.textContent = '# 채팅';
+        subEl.textContent = 'AI 투자 토론방';
+      }
+    }
 
     const rawPct = s.phase === 'stock_analysis'
       ? Math.round(((s.stock_idx||0)/(s.stocks_total||3))*100)
@@ -700,6 +747,11 @@ function copyAccount() {
     el.textContent = '✓ 복사됨';
     setTimeout(() => { el.textContent = orig; }, 1200);
   });
+}
+function toggleTokenBox(e) {
+  // .tb-detail 내부 클릭은 무시 (계좌 복사 등 펼친 상태 유지)
+  if (e && e.target && e.target.closest('.tb-detail')) return;
+  document.getElementById('token-box').classList.toggle('open');
 }
 
 let isOwner = false;
