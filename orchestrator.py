@@ -777,6 +777,9 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     if error_count == len(bot_responses) and len(bot_responses) > 0:
         from agents import _set_token_exhausted
         _set_token_exhausted()
+        _save_msg(round_id, "System",
+                  f"⏸ Claude 토큰 소진으로 중단됨 — {stock['name']} 분석 미완료.\n"
+                  f"토큰 충전되면 자동으로 다음 슬롯에 재개됩니다.")
         _handle_agent_error("전체", Exception("모든 봇 응답 오류 — 토큰 소진으로 판단"))
         return
 
@@ -818,15 +821,32 @@ def _handle_agent_error(agent_name: str, e: Exception):
         notify(f"🚨 {agent_name} 3회 연속 응답 실패", f"{type(e).__name__}", priority="high", cooldown=1800)
 
 
-# ── 일일 리셋 (스케줄러가 7시에 1회 호출) ────────────────
+# ── 일일 리셋 (스케줄러가 매일 6시에 1회 호출) ────────────
 def reset_daily_cycle():
-    """매일 아침 7시 스케줄러가 호출 — 사이클 리셋 후 루프 시작."""
+    """매일 아침 6시 스케줄러가 호출 — 사이클 리셋 후 루프 시작."""
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
     with _state_lock:
         globals()["_phase"] = "sector_discussion"
         globals()["_sector_idx"] = 0
         globals()["_discussion_round"] = 0
         globals()["_cycle_done_at"] = 0.0
         _persist_state()
+
+    # 채팅 로그에 사이클 시작 안내
+    try:
+        round_id = create_round(f"메인 사이클 시작 — {now.strftime('%m-%d')}")
+        _save_msg(round_id, "System",
+                  f"🌅 오늘 메인 사이클 시작 ({now.strftime('%Y-%m-%d %H:%M KST')})\n"
+                  f"오늘 분석 대상: {len(SECTORS)}개 섹터\n"
+                  f"순서: {' → '.join(s['name'] for s in SECTORS[:5])} → ... → {SECTORS[-1]['name']}\n"
+                  f"섹터별 3라운드 토론 + 종목 분석 후 자동으로 보유 종목 점검까지 진행됩니다.")
+        complete_round(round_id)
+    except Exception as e:
+        logger.debug(f"reset 메시지 기록 실패: {e}")
+
     logger.info("✅ 일일 사이클 리셋 완료 — 반도체 섹터부터 시작")
 
 
@@ -1043,6 +1063,9 @@ def _run_telegram_watchlist_inner():
                 bot_responses.append((agent_name, resp))
 
         if token_exhausted:
+            _save_msg(round_id, "System",
+                      f"⏸ Claude 토큰 소진 — 워치리스트 중단 ({name} 분석 미완).\n"
+                      f"다음 워치리스트 슬롯(KST 12·18·24시) 또는 토큰 충전 후 자동 재개.")
             complete_round(round_id)
             break
 
@@ -1051,6 +1074,8 @@ def _run_telegram_watchlist_inner():
         if err_cnt == len(bot_responses) and len(bot_responses) > 0:
             from agents import _set_token_exhausted
             _set_token_exhausted()
+            _save_msg(round_id, "System",
+                      f"⏸ 모든 봇 응답 실패 — 토큰 소진 판단. 다음 슬롯에서 자동 재개.")
             complete_round(round_id)
             break
 
