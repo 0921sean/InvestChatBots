@@ -447,7 +447,7 @@ def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int):
 
     total_pnl = 0.0
     for pos in positions:
-        pnl, err = sell_shared_position(pos["id"], price)
+        pnl, err = sell_shared_position(pos["id"], price, exit_reasoning=reasoning)
         if pnl is not None:
             total_pnl += pnl
 
@@ -1420,7 +1420,10 @@ def evaluate_positions():
 
             if pnl_pct <= STOP_LOSS_PCT:
                 # 손절 실행
-                pnl, err = sell_shared_position(pos["id"], current)
+                stop_reason = (f"자동 손절 ({STOP_LOSS_PCT*100:.0f}% 도달)\n"
+                               f"진입가 {entry:,.2f} → 현재가 {current:,.2f}\n"
+                               f"손실률: {pnl_pct*100:.1f}%")
+                pnl, err = sell_shared_position(pos["id"], current, exit_reasoning=stop_reason)
                 if not err:
                     msg = (f"🔴 손절 체결: {symbol}\n"
                            f"진입가 ₩{entry:,.0f} → 현재가 ₩{current:,.0f}\n"

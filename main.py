@@ -417,9 +417,11 @@ def api_portfolio():
             if entry and qty:
                 p["unrealized_pnl"]     = round((current - entry) * qty, 0)
                 p["unrealized_pnl_pct"] = round((current - entry) / entry * 100, 2)
-        # 매수 근거에 옛 봇 이름 있으면 새 봇 이름으로 치환
+        # 매수/매도 근거에 옛 봇 이름 있으면 새 봇 이름으로 치환
         if p.get("reasoning"):
             p["reasoning"] = _remap_old_bot_names(p["reasoning"])
+        if p.get("exit_reasoning"):
+            p["exit_reasoning"] = _remap_old_bot_names(p["exit_reasoning"])
 
     pf["positions"] = positions
     return pf
