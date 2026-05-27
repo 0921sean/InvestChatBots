@@ -47,6 +47,16 @@
   #token-box .tb-account:hover { text-decoration: underline; }
   #token-box .tb-thanks { margin-top: 4px; color: #6e7681; font-size: 9.5px; font-style: italic; }
 
+  /* 읽기 전용 모드 — 익명 접속자 */
+  #readonly-badge { position: fixed; top: 8px; right: 14px; z-index: 100;
+    background: #21262d; color: #8b949e; padding: 4px 10px; border-radius: 12px;
+    font-size: 10.5px; font-weight: 600; border: 1px solid #30363d; display: none; }
+  body.readonly #readonly-badge { display: block; }
+  body.readonly #input-area { display: none; }
+  body.readonly #btn-pause, body.readonly #btn-play,
+  body.readonly #btn-summary, body.readonly #btn-main-run { display: none; }
+  body.readonly #typing { display: none; }
+
   /* ── 메인 채팅 ── */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #chat-header { padding: 10px 16px; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; background: #161b22; }
@@ -138,6 +148,7 @@
 </style>
 </head>
 <body>
+<div id="readonly-badge">👁 읽기 전용</div>
 
 <div id="sidebar">
   <div id="sidebar-title">📈 InvestChat</div>
@@ -691,8 +702,41 @@ function copyAccount() {
   });
 }
 
-loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
-initialLoad();  // 최근 200개 한 번에 로드 → 맨 아래로 이동
+let isOwner = false;
+async function loadWhoami() {
+  try {
+    const r = await fetch('/api/whoami');
+    const d = await r.json();
+    isOwner = !!d.owner;
+    document.body.classList.toggle('readonly', !isOwner);
+  } catch (e) {
+    // 네트워크 오류 시 안전하게 읽기 전용으로 처리
+    document.body.classList.add('readonly');
+  }
+}
+
+// 읽기 전용일 때 호출되면 무시되도록 가드
+const _origFetch = window.fetch;
+window.fetch = function(input, init) {
+  const url = typeof input === 'string' ? input : input.url;
+  const method = (init && init.method) || 'GET';
+  const isWrite = method === 'POST' || method === 'DELETE';
+  const isOwnerEndpoint = !isOwner && isWrite && url.startsWith('/api/');
+  if (isOwnerEndpoint) {
+    // 익명이 쓰기 API 호출 시도 → 조용히 거부 (403 응답 흉내)
+    return Promise.resolve(new Response(
+      JSON.stringify({detail: 'owner only'}),
+      {status: 403, headers: {'Content-Type': 'application/json'}}
+    ));
+  }
+  return _origFetch.call(this, input, init);
+};
+
+// 첫 호출은 무조건 whoami 먼저 (다른 콜들이 fetch 가드를 통과하기 위해)
+loadWhoami().then(() => {
+  loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
+  initialLoad();
+});
 setInterval(poll, 3000);
 setInterval(loadState, 10000);
 setInterval(loadMarket, 60000);
@@ -700,6 +744,7 @@ setInterval(syncPlayStatus, 5000);
 setInterval(loadConsensus, 20000);
 setInterval(loadPortfolio, 15000);
 setInterval(loadTokenUsage, 10000);
+setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인
 </script>
 </body>
 </html>
