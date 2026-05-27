@@ -1,13 +1,14 @@
 import os
+import secrets
 import threading
 import time
 import logging
 
 logger = logging.getLogger("investchat")
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from db import (
@@ -28,6 +29,24 @@ from scheduler import start_scheduler
 
 load_dotenv()
 init_db()
+
+# ── 권한 (owner 토큰 기반) ──────────────────────────────────
+# .env의 OWNER_TOKEN을 사용. 없으면 매 부팅마다 새 토큰 생성 후 로그에 출력.
+OWNER_TOKEN = os.getenv("OWNER_TOKEN")
+if not OWNER_TOKEN:
+    OWNER_TOKEN = secrets.token_urlsafe(24)
+    logger.warning(f"OWNER_TOKEN env var not set — generated ephemeral token: {OWNER_TOKEN}")
+    logger.warning(f"Owner 모드 진입: http://localhost:8001/owner/{OWNER_TOKEN}")
+COOKIE_NAME = "investchat_owner"
+
+
+def is_owner(request: Request) -> bool:
+    return request.cookies.get(COOKIE_NAME) == OWNER_TOKEN
+
+
+def require_owner(request: Request):
+    if not is_owner(request):
+        raise HTTPException(status_code=403, detail="owner only — 읽기 전용 접속자는 조작 불가")
 
 _loop_running = False
 _loop_thread: threading.Thread | None = None
@@ -103,6 +122,64 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="InvestChat", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ── owner-only 미들웨어 ────────────────────────────────────
+# 아래 (method, path) 조합은 토큰 소비/시스템 변경을 일으키는 작업이라
+# OWNER_TOKEN 쿠키 없는 익명 접속자는 호출 차단.
+_OWNER_ONLY_ROUTES = {
+    ("POST", "/api/conversation/start"),
+    ("POST", "/api/conversation/stop"),
+    ("POST", "/api/user-message"),
+    ("POST", "/api/positions/evaluate"),
+    ("POST", "/api/holdings/review"),
+    ("POST", "/api/summary/request"),
+    ("POST", "/api/stop-on-credit/on"),
+    ("POST", "/api/stop-on-credit/off"),
+    ("POST", "/api/cycle/reset"),
+    ("POST", "/api/main-cycle/run"),
+    ("POST", "/api/lecture-note"),
+    ("DELETE", "/api/lecture-notes"),
+    ("POST", "/api/owner/logout"),
+}
+
+
+@app.middleware("http")
+async def owner_guard(request: Request, call_next):
+    if (request.method, request.url.path) in _OWNER_ONLY_ROUTES:
+        if request.cookies.get(COOKIE_NAME) != OWNER_TOKEN:
+            return JSONResponse(
+                {"detail": "owner only — 읽기 전용 접속자는 조작 불가"},
+                status_code=403,
+            )
+    return await call_next(request)
+
+
+# ── owner 로그인 / 신원 확인 ────────────────────────────────
+@app.get("/owner/{token}")
+def owner_login(token: str):
+    """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
+    이 URL은 본인만 알아야 하므로 .env에 OWNER_TOKEN을 직접 두고 사용."""
+    if token != OWNER_TOKEN:
+        raise HTTPException(status_code=403, detail="invalid owner token")
+    resp = RedirectResponse(url="/")
+    resp.set_cookie(
+        COOKIE_NAME, OWNER_TOKEN,
+        max_age=60 * 60 * 24 * 365,  # 1년
+        httponly=True, samesite="lax",
+    )
+    return resp
+
+
+@app.post("/api/owner/logout")
+def owner_logout(response: Response):
+    response.delete_cookie(COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/whoami")
+def whoami(request: Request):
+    return {"owner": is_owner(request)}
 
 
 @app.get("/")
