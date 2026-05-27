@@ -156,7 +156,64 @@ def init_db():
             notified INTEGER DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS token_usage_daily (
+            date TEXT PRIMARY KEY,
+            calls INTEGER DEFAULT 0,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cache_read_tokens INTEGER DEFAULT 0,
+            cache_create_tokens INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """)
+
+
+# ── 토큰 사용량 트래킹 ──────────────────────────────────────
+def record_token_usage(input_tokens: int, output_tokens: int,
+                        cache_read: int = 0, cache_create: int = 0,
+                        cost_usd: float = 0.0):
+    """Claude CLI 1회 호출 분량을 오늘 누적값에 더한다."""
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO token_usage_daily
+              (date, calls, input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, cost_usd, updated_at)
+            VALUES (date('now','localtime'), 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(date) DO UPDATE SET
+                calls = calls + 1,
+                input_tokens = input_tokens + EXCLUDED.input_tokens,
+                output_tokens = output_tokens + EXCLUDED.output_tokens,
+                cache_read_tokens = cache_read_tokens + EXCLUDED.cache_read_tokens,
+                cache_create_tokens = cache_create_tokens + EXCLUDED.cache_create_tokens,
+                cost_usd = cost_usd + EXCLUDED.cost_usd,
+                updated_at = CURRENT_TIMESTAMP
+        """, (input_tokens, output_tokens, cache_read, cache_create, cost_usd))
+
+
+def get_token_usage_today() -> dict:
+    """오늘 누적 토큰 사용량 (없으면 0)."""
+    with _conn() as con:
+        import sqlite3
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT * FROM token_usage_daily WHERE date=date('now','localtime')"
+        ).fetchone()
+        if row:
+            return dict(row)
+        return {"date": None, "calls": 0, "input_tokens": 0, "output_tokens": 0,
+                "cache_read_tokens": 0, "cache_create_tokens": 0, "cost_usd": 0.0,
+                "updated_at": None}
+
+
+def get_token_usage_recent(days: int = 7) -> list:
+    """최근 N일 사용량 (날짜 내림차순)."""
+    with _conn() as con:
+        import sqlite3
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM token_usage_daily ORDER BY date DESC LIMIT ?", (days,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── 기본 메시지/라운드 ─────────────────────────────────────

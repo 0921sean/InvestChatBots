@@ -76,6 +76,20 @@ def _call_claude_cli(system_prompt: str, user_prompt: str) -> str:
     if data.get("is_error"):
         raise RuntimeError(f"claude CLI 에러 응답: {data}")
 
+    # 토큰 사용량 누적 (실패 시 조용히 무시 — 메인 로직 영향 없도록)
+    try:
+        usage = data.get("usage", {}) or {}
+        from db import record_token_usage
+        record_token_usage(
+            input_tokens=usage.get("input_tokens", 0) or 0,
+            output_tokens=usage.get("output_tokens", 0) or 0,
+            cache_read=usage.get("cache_read_input_tokens", 0) or 0,
+            cache_create=usage.get("cache_creation_input_tokens", 0) or 0,
+            cost_usd=data.get("total_cost_usd", 0) or 0,
+        )
+    except Exception:
+        pass
+
     _clear_token_exhausted()
     return result_text.strip()
 
