@@ -169,6 +169,10 @@
   .cc.cc-legacy.open .cc-legacy-note::after { content: ' ▲'; }
   .cc.cc-legacy:not(.open) .cc-legacy-note::after { content: ' ▼'; }
 
+  /* 강제 표시 — 어떤 자식 요소도 .cc-body 숨기지 못하게 (디버그용) */
+  .cc .cc-body { display: block !important; visibility: visible !important; height: auto !important; }
+  .cc .cc-thesis { display: block !important; visibility: visible !important; }
+
   /* ── 우측 — 포트폴리오 ── */
   #portfolio-panel { width: 220px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
   .pf-summary { padding: 10px 12px; border-bottom: 1px solid #21262d; }
