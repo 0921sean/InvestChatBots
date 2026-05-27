@@ -235,7 +235,49 @@ def api_agents():
 
 @app.get("/api/consensus")
 def api_consensus():
-    return get_consensus_notes()
+    """섹터 합의 노트 — v2 JSON과 v1 옛 raw 텍스트 모두 통일된 구조로 변환."""
+    import json as _json
+    notes = get_consensus_notes()
+    result = []
+    for n in notes:
+        item = _normalize_consensus(n.get("content", ""), n.get("id"), n.get("created_at"))
+        result.append(item)
+    return result
+
+
+def _normalize_consensus(content: str, note_id, created_at) -> dict:
+    """v2 JSON이면 그대로, v1 raw 텍스트면 outlook 추출 시도."""
+    import json as _json, re as _re
+    content = (content or "").strip()
+    base = {"id": note_id, "created_at": created_at}
+    # v2 JSON?
+    if content.startswith("{") and content.endswith("}"):
+        try:
+            d = _json.loads(content)
+            if d.get("v") == 2:
+                return {**base, "v": 2, "sector": d.get("sector"),
+                        "outlook": d.get("outlook", "중립"),
+                        "decision": d.get("decision", "관망"),
+                        "thesis": d.get("thesis", ""),
+                        "risks": d.get("risks", ""),
+                        "key_picks": d.get("key_picks", [])}
+        except Exception:
+            pass
+    # v1 raw text — 섹터명·전망 추출 시도
+    sector_m = _re.search(r'\[([^\]]+?)\s*섹터\]', content)
+    sector = sector_m.group(1) if sector_m else None
+    # 전망: '긍정/중립/부정' 첫 번째 매칭
+    outlook = "중립"
+    o_m = _re.search(r'전망[^가-힣]*?(긍정|중립|부정)', content)
+    if o_m:
+        outlook = o_m.group(1)
+    # 결정: [결정] 매수/관망/매도
+    decision = "관망"
+    d_m = _re.search(r'\[결정\]\s*(매수|관망|매도)', content)
+    if d_m:
+        decision = d_m.group(1)
+    return {**base, "v": 1, "sector": sector, "outlook": outlook,
+            "decision": decision, "raw": content}
 
 
 @app.get("/api/state")
