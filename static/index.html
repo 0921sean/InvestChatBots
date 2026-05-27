@@ -797,9 +797,17 @@ async function loadConsensus() {
       }
       list.appendChild(card);
       if (idx === 0) {
-        console.log('[InvestChat] 첫 카드 outerHTML:', card.outerHTML.substring(0, 400));
         const body = card.querySelector('.cc-body');
-        console.log('[InvestChat] .cc-body 존재:', !!body, '내용길이:', body ? body.innerHTML.length : 0);
+        const cs = body ? getComputedStyle(body) : null;
+        console.log('[InvestChat] === 진단 ===');
+        console.log('[InvestChat] cc-body 존재:', !!body);
+        console.log('[InvestChat] cc-body innerHTML 길이:', body ? body.innerHTML.length : 'N/A');
+        console.log('[InvestChat] cc-body textContent 길이:', body ? body.textContent.length : 'N/A');
+        console.log('[InvestChat] cc-body display:', cs ? cs.display : 'N/A');
+        console.log('[InvestChat] cc-body 화면 높이:', body ? body.offsetHeight + 'px' : 'N/A');
+        console.log('[InvestChat] cc-body visibility:', cs ? cs.visibility : 'N/A');
+        console.log('[InvestChat] 카드 전체 높이:', card.offsetHeight + 'px');
+        console.log('[InvestChat] 카드 outerHTML 전체:\n' + card.outerHTML);
       }
     });
   } catch(e) {}
