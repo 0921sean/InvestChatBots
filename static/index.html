@@ -61,14 +61,14 @@
   #token-box .tb-summary { font-size: 10.5px; color: #8b949e; font-variant-numeric: tabular-nums; display: flex; gap: 8px; }
   #token-box .tb-summary .v { color: #e2e8f0; font-weight: 600; }
   #token-box .tb-summary .tb-cost { color: #ffa657; }
-  /* 펼침 디테일 — 클릭 시 표시 */
-  #token-box .tb-detail { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.6; }
-  #token-box.open .tb-detail { display: block; }
+  /* 후원 안내 — 기본 표시, 클릭 시 숨김 */
+  #token-box .tb-detail { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #30363d; font-size: 10px; color: #8b949e; line-height: 1.6; }
+  #token-box.collapsed .tb-detail { display: none; }
   #token-box .tb-detail b { color: #e2e8f0; }
   #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #79c0ff; font-size: 10.5px; margin-top: 3px; display: block; user-select: all; cursor: copy; word-break: break-all; }
   #token-box .tb-account:hover { text-decoration: underline; }
-  #token-box .tb-chev { font-size: 9px; color: #6e7681; transition: transform .15s; }
-  #token-box.open .tb-chev { transform: rotate(90deg); }
+  #token-box .tb-chev { font-size: 9px; color: #6e7681; transition: transform .15s; transform: rotate(90deg); }
+  #token-box.collapsed .tb-chev { transform: rotate(0deg); }
 
   /* Live 시황 */
   #market-ticker { padding: 8px 12px 10px; font-size: 11px; color: #6e7681; line-height: 1.6; max-height: 64px; overflow: hidden; }
@@ -81,7 +81,7 @@
   /* 채팅 입력 form은 보이되 입력 차단 + 안내문 표시 */
   body.readonly #input-area input { background: #1c2128; color: #6e7681; cursor: not-allowed; }
   body.readonly #input-area button { display: none; }
-  body.readonly #input-area::before { content: "👁"; font-size: 14px; color: #6e7681;
+  body.readonly #input-area::before { content: "🔒"; font-size: 13px; color: #6e7681;
     display: flex; align-items: center; padding: 0 4px; }
 
   /* ── 메인 채팅 ── */
@@ -655,18 +655,24 @@ async function loadState() {
     }
     document.getElementById('sector-phase').textContent = phaseText;
 
-    // 채팅 헤더 해시태그 — phase 따라 동적
+    // 채팅 헤더 해시태그 — activity 우선, 없으면 phase 기반
     const hashEl = document.getElementById('chat-hash');
     const subEl = document.getElementById('round-label');
     if (hashEl && subEl) {
-      if (s.phase === 'sector_discussion') {
+      if (s.activity === 'watchlist') {
+        hashEl.textContent = '# 워치리스트';
+        subEl.textContent = '텔레그램·뉴스 신규 종목 스캔 중';
+      } else if (s.activity === 'holdings_review') {
+        hashEl.textContent = '# 보유-점검';
+        subEl.textContent = '보유 종목 홀드/매도 판단 중';
+      } else if (s.phase === 'sector_discussion') {
         hashEl.textContent = '# 섹터-토론';
         subEl.textContent = `${s.sector || ''} · 라운드 ${s.discussion_round||0}/3`;
       } else if (s.phase === 'stock_analysis') {
         hashEl.textContent = '# 종목-분석';
         subEl.textContent = `${s.sector || ''} · ${s.stock || ''}`;
       } else if (s.phase === 'cycle_rest') {
-        hashEl.textContent = '# 채팅';
+        hashEl.textContent = '# 휴식';
         subEl.textContent = `오늘 분석 완료 · 다음 사이클 ${s.cooldown_remaining_h||0}h 후`;
       } else {
         hashEl.textContent = '# 채팅';
@@ -984,7 +990,7 @@ function copyAccount() {
 function toggleTokenBox(e) {
   // .tb-detail 내부 클릭은 무시 (계좌 복사 등 펼친 상태 유지)
   if (e && e.target && e.target.closest('.tb-detail')) return;
-  document.getElementById('token-box').classList.toggle('open');
+  document.getElementById('token-box').classList.toggle('collapsed');
 }
 
 // ───── 모바일 드로어 ─────

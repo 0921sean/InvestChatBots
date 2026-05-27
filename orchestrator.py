@@ -272,6 +272,16 @@ def get_current_state() -> dict:
         while next_start.weekday() >= 5:
             next_start += timedelta(days=1)
         cooldown_remaining_h = round((next_start - now).total_seconds() / 3600, 1)
+
+    # 워치리스트·보유 점검 진행 중 여부 (락 상태로 판별)
+    activity = None
+    try:
+        if _watchlist_lock.locked():
+            activity = "watchlist"
+        elif _holdings_review_lock.locked():
+            activity = "holdings_review"
+    except Exception:
+        pass
     return {
         "sector_idx": _sector_idx,
         "sector": sector["name"],
@@ -284,6 +294,7 @@ def get_current_state() -> dict:
         "market_status": is_market_open(),
         "cooldown_remaining_h": cooldown_remaining_h,
         "total_sectors": len(SECTORS),
+        "activity": activity,
     }
 
 
