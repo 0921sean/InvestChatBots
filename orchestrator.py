@@ -609,6 +609,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             for m in recent if m["agent_name"] not in ("System", "User")
         )
         # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단 + 구체적 내용 유도
+        bots_csv = ", ".join(AGENT_ORDER)
         summary_prompt = (
             f"{sector['name']} 섹터 토론 내용:\n{convo}\n\n"
             f"위 토론을 종합해 섹터 합의를 JSON으로만 출력하세요. 다른 텍스트·코드블록·마크다운 금지.\n\n"
@@ -618,15 +619,19 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f'"thesis":"3-4문장 핵심 합의 — 구체 수치·종목명·근거 포함", '
             f'"drivers":["촉진 요인 한 줄(구체적)", ...], '
             f'"risks":["리스크 한 줄(구체적)", ...], '
-            f'"key_picks":["주목 종목명들"]}}\n\n'
+            f'"key_picks":["주목 종목명들"], '
+            f'"spokesperson":"봇이름", '
+            f'"quote":"그 봇의 합의 결론 한 줄(20-40자, 봇 어투로)"}}\n\n'
             f"규칙:\n"
             f"- outlook: 정확히 '긍정/중립/부정' 셋 중 하나만. 중첩 표기('중립(부정 우위)') 금지.\n"
             f"- decision: 정확히 '매수/관망/매도' 셋 중 하나만. 섹터 전체 권고 기준.\n"
             f"- headline: 12-15자 요약 (예: 'HBM 사이클 초입, 매력적', '본업 정체·배당만 매력').\n"
             f"- thesis: 평서문 3-4문장. PER·ROE·EPS 등 구체 수치, 종목명, 다수 봇이 합의한 핵심 근거 포함. 봇 호명·이모지·**bold** 금지.\n"
-            f"- drivers: 2-4개. 각 한 줄로 구체적 촉진 요인(수치/이벤트/내러티브). 예: 'HBM 수주잔고 3년치 확보', 'PER 10배로 밸류 부담 낮음'.\n"
-            f"- risks: 1-3개. 각 한 줄로 구체적 리스크. 예: '사이클 피크아웃 시점 불투명', '한화에어로 PER 40배 선반영'.\n"
-            f"- key_picks: 다수가 동의한 종목 0-3개 (종목명만, 코멘트 X).\n"
+            f"- drivers: 2-4개. 각 한 줄로 구체적 촉진 요인.\n"
+            f"- risks: 1-3개. 각 한 줄로 구체적 리스크.\n"
+            f"- key_picks: 다수가 동의한 종목 0-3개 (종목명만).\n"
+            f"- spokesperson: 이번 합의를 가장 잘 대표하는 봇 1명. 다음 중 하나만 정확히: {bots_csv}\n"
+            f"- quote: spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
             f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
         raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
@@ -668,6 +673,10 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     picks = consensus_json.get("key_picks") or []
     if picks:
         lines.append(f"주목 종목: {', '.join(picks)}")
+    sp = consensus_json.get("spokesperson") or ""
+    qt = consensus_json.get("quote") or ""
+    if sp and qt:
+        lines.append(f"{sp} 한마디: \"{qt}\"")
     lines.append("")
     lines.append(f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
     _save_msg(round_id, "System", "\n".join(lines))
@@ -719,6 +728,10 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
             return [str(x).strip().lstrip("•-· ").strip() for x in v if str(x).strip()][:limit]
         return []
 
+    # spokesperson 화이트리스트 검증 — 9봇 중 하나만, 아니면 빈값
+    spokesperson_raw = (d.get("spokesperson") or "").strip()
+    spokesperson = spokesperson_raw if spokesperson_raw in AGENT_ORDER else ""
+
     return {
         "v": 2,
         "sector": sector_name,
@@ -729,6 +742,8 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
         "drivers": _to_list(d.get("drivers"), 4),
         "risks": _to_list(d.get("risks"), 3),
         "key_picks": [str(x).strip() for x in (d.get("key_picks") or []) if str(x).strip()][:5],
+        "spokesperson": spokesperson,
+        "quote": (d.get("quote") or "").strip()[:120],
     }
 
 
