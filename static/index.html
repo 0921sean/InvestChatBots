@@ -86,9 +86,9 @@
 
   /* 충전 안내 — 차분히 */
   #token-box .tb-tagline { font-size: 10px; color: #8b949e; margin-bottom: 7px; line-height: 1.55; }
-  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; font-size: 10.5px; display: block; user-select: all; cursor: copy; word-break: break-all;
-    background: transparent; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; text-align: center; transition: border-color .15s, color .15s; }
-  #token-box .tb-account:hover { border-color: #58a6ff; color: #58a6ff; }
+  #token-box .tb-account { font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; font-size: 11px; display: block; word-break: break-all; text-decoration: none;
+    background: transparent; border: 1px solid #30363d; border-radius: 4px; padding: 7px 8px; text-align: center; transition: border-color .15s, background .15s; cursor: pointer; }
+  #token-box .tb-account:hover { border-color: #3478f6; background: rgba(52,120,246,.08); }
   #token-box .tb-footnote { margin-top: 7px; color: #6e7681; font-size: 9.5px; line-height: 1.55; text-align: center; }
 
   #token-box .tb-owner-actions { margin-top: 8px; display: flex; justify-content: center; }
@@ -401,11 +401,13 @@
       <div class="tb-detail" onclick="event.stopPropagation()">
         <div id="tb-last-donation"></div>
         <div class="tb-tagline" id="tb-tagline">토큰이 떨어지면 봇들도 침묵해요. 충전 부탁드려요 🙏</div>
-        <div class="tb-account" id="tb-account" title="클릭해서 복사" onclick="copyAccount()">국민 000-00-0000000 천승범</div>
+        <a class="tb-account" id="tb-account" href="https://toss.me/0921sean" target="_blank" rel="noopener" title="토스로 송금하기">
+          <span style="color:#3478f6;font-weight:700">toss</span> 송금 → toss.me/0921sean
+        </a>
         <div class="tb-owner-actions" id="tb-owner-actions" style="display:none">
           <button class="tb-add-btn" onclick="openDonationModal()">+ 후원 추가</button>
         </div>
-        <div class="tb-footnote">개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.</div>
+        <div class="tb-footnote">개발자에게 보내주시면 Claude MAX 구독 유지에 도움이 됩니다.<br><span style="opacity:.7">(송금 받으면 수동으로 충전량 반영 — 보통 몇 분 내)</span></div>
       </div>
     </div>
     <div id="market-ticker"><span class="live">● 시황 로딩...</span></div>
