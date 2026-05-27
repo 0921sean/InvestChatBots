@@ -98,9 +98,17 @@
   /* 위급 — 펄스 제거, 보더 색만 변경 */
   #token-box.exhausted-warn { border-bottom-color: rgba(248,81,73,.4); }
 
-  /* Live 시황 */
-  #market-ticker { padding: 6px 11px 8px; font-size: 10.5px; color: #6e7681; line-height: 1.5; max-height: 56px; overflow: hidden; }
-  #market-ticker .live { color: #3fb950; font-weight: 600; }
+  /* Live 시황 — 여유로운 4줄 레이아웃 */
+  #market-ticker { padding: 10px 12px 12px; font-size: 11px; color: #adb6c0; line-height: 1.6; }
+  #market-ticker .live-head { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: #6e7681;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  #market-ticker .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; animation: live-pulse 2s ease-in-out infinite; }
+  @keyframes live-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  #market-ticker .live-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: baseline;
+    font-variant-numeric: tabular-nums; padding: 2px 0; font-size: 11px; }
+  #market-ticker .live-name { color: #c9d1d9; font-weight: 500; }
+  #market-ticker .live-price { color: #8b949e; font-size: 10.5px; }
+  #market-ticker .live-pct { font-weight: 600; min-width: 48px; text-align: right; font-size: 10.5px; }
 
   /* 읽기 전용 모드 — 익명 접속자 */
   body.readonly #btn-pause, body.readonly #btn-play,
@@ -697,14 +705,26 @@ async function loadMarket() {
       const d = JSON.parse(snap.data);
       const md = d.data || {};
       const showKeys = ['NASDAQ', 'S&P500', 'KOSPI', 'KOSDAQ'];
-      const lines = showKeys.map(k => {
+      const fmtPrice = (k, p) => {
+        if (p == null) return '—';
+        // 한국 지수는 정수, 미국 지수는 소수 1자리
+        if (k === 'KOSPI' || k === 'KOSDAQ') return Math.round(p).toLocaleString();
+        return Number(p).toLocaleString('en-US', {maximumFractionDigits: 2});
+      };
+      const rows = showKeys.map(k => {
         const v = md[k];
-        if (!v || v.price==null) return '';
-        const arrow = (v.change_pct||0)>=0 ? '▲' : '▼';
-        const col   = (v.change_pct||0)>=0 ? '#3fb950' : '#f85149';
-        return `<span style="color:${col}">${k} ${arrow}${Math.abs(v.change_pct||0).toFixed(1)}%</span>`;
-      }).filter(Boolean);
-      document.getElementById('market-ticker').innerHTML = `<span class="live">● Live</span><br>${lines.join(' &nbsp; ')}`;
+        if (!v || v.price == null) return '';
+        const ch = v.change_pct || 0;
+        const arrow = ch >= 0 ? '▲' : '▼';
+        const col = ch >= 0 ? '#3fb950' : '#f85149';
+        return `<div class="live-row">
+          <span class="live-name">${k}</span>
+          <span class="live-price">${fmtPrice(k, v.price)}</span>
+          <span class="live-pct" style="color:${col}">${arrow}${Math.abs(ch).toFixed(2)}%</span>
+        </div>`;
+      }).filter(Boolean).join('');
+      document.getElementById('market-ticker').innerHTML =
+        `<div class="live-head"><span class="live-dot"></span>Live 시황</div>${rows}`;
     }
   } catch(e) {}
 }
