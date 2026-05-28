@@ -952,9 +952,9 @@ async function loadPortfolio() {
         const posIdx = window._posData.length;
         window._posData.push(p);
         html += `<div class="pos-item" onclick="showPositionReason(${posIdx})">
-          <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div>
             <span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
-            <span style="color:${win?'#3fb950':'#f85149'};font-size:10px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span>
+            <span style="color:${win?'#3fb950':'#f85149'};font-size:10px;margin-left:6px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span>
           </div>
           <div class="pos-meta">${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수/매도 이유 보기</span></div>
         </div>`;
