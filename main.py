@@ -145,6 +145,8 @@ _OWNER_ONLY_ROUTES = {
     ("POST", "/api/donations"),
     ("POST", "/api/watchlist/pause"),
     ("POST", "/api/watchlist/resume"),
+    ("POST", "/api/main/pause"),
+    ("POST", "/api/main/resume"),
 }
 
 # /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
@@ -484,6 +486,30 @@ def api_watchlist_status():
     return {"disabled": is_watchlist_disabled()}
 
 
+@app.post("/api/main/pause")
+def api_main_pause():
+    """메인 사이클 즉시 중단 + 6시 reset도 스킵."""
+    from orchestrator import pause_main_cycle, request_pause
+    pause_main_cycle()
+    request_pause()  # 현재 진행 중인 봇 루프도 다음 봇 호출 직전 중단
+    return {"ok": True, "disabled": True}
+
+
+@app.post("/api/main/resume")
+def api_main_resume():
+    """메인 사이클 재가동."""
+    from orchestrator import resume_main_cycle, clear_pause
+    resume_main_cycle()
+    clear_pause()
+    return {"ok": True, "disabled": False}
+
+
+@app.get("/api/main/status")
+def api_main_status():
+    from orchestrator import is_main_disabled
+    return {"disabled": is_main_disabled()}
+
+
 @app.get("/api/token-usage")
 def api_token_usage():
     """오늘 + 최근 7일 Claude 토큰 사용량. 현재 소진 여부 포함."""
@@ -498,12 +524,13 @@ def api_token_usage():
 
 
 # ── 후원 누적 (수동 카운터) ─────────────────────────────────
-# 환산 기준 (대략):
-#   USD/KRW ≈ 1380 (변동성 있음, 고정값 사용)
-#   Haiku 4.5 평균 가격: input $1/1M + output $5/1M, in/out ≈ 80/20 → 평균 $1.80/1M
-#   → ₩1 ≈ 400 tokens (참고치)
+# 환산 기준 (실측 반영):
+#   USD/KRW ≈ 1380 (고정)
+#   Haiku 4.5: input $1/1M, output $5/1M
+#   실제 사용 패턴(output 비중 높음·cache 토큰 포함)으론 평균 ~$9/1M
+#   → ₩1 ≈ 80 tokens (₩50K 충전 ≈ 4M 토큰)
 USD_TO_KRW = 1380
-TOKENS_PER_KRW = 400
+TOKENS_PER_KRW = 80
 
 
 def _enrich_donations(d: dict) -> dict:
@@ -551,7 +578,7 @@ def _run_donation_thanks(amount: float, note: str):
     try:
         # 1) 시스템 알림 메시지 (별도 라운드)
         total = _enrich_donations(get_donations_total())
-        amount_tokens = int(amount * 400)
+        amount_tokens = int(amount * TOKENS_PER_KRW)
         donor = (note.strip() or "익명의 후원자")
         note_disp = f" · {note}" if note else ""
         round_id = create_round(f"후원 — {donor}")
