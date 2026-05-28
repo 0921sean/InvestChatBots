@@ -70,11 +70,11 @@
   #token-box .tb-gauge-fill.empty   { background: #30363d; }                                                    /* 충전 없음 */
   @keyframes gauge-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
-  /* 잔여/누적 한 줄 — 예전 구조 */
-  #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; margin-top: 7px; font-variant-numeric: tabular-nums; }
-  #token-box .tb-remain { font-size: 12px; font-weight: 700; color: #e2e8f0; }
-  #token-box .tb-remain-sub { font-size: 9.5px; color: #6e7681; margin-left: 4px; font-weight: 400; }
-  #token-box .tb-total { font-size: 10px; color: #6e7681; }
+  /* 잔여/누적 한 줄 — wrap 방지 */
+  #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; margin-top: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #token-box .tb-remain { font-size: 12px; font-weight: 700; color: #e2e8f0; white-space: nowrap; }
+  #token-box .tb-remain-sub { font-size: 9.5px; color: #6e7681; margin-left: 3px; font-weight: 400; }
+  #token-box .tb-total { font-size: 10px; color: #6e7681; flex-shrink: 0; white-space: nowrap; }
   #token-box .tb-sub { font-size: 9.5px; color: #6e7681; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
   /* 펼침 영역 */
@@ -1114,14 +1114,16 @@ async function loadTokenUsage() {
     const remainEl = document.getElementById('tb-remain');
     const remainSubEl = document.getElementById('tb-remain-sub');
     const totalEl = document.getElementById('tb-total');
+    // "토큰" 단어는 헤더에 이미 있어 생략, 숫자만
+    const tokNum = (n) => fmtTokens(n).replace(' 토큰', '');
     if (totalTokens === 0) {
       remainEl.textContent = '충전 없음';
       remainSubEl.textContent = '';
       totalEl.textContent = '';
     } else {
-      remainEl.textContent = fmtTokens(remainTokens);
+      remainEl.textContent = tokNum(remainTokens);
       remainSubEl.textContent = `남음 (${Math.round(remainPct)}%)`;
-      totalEl.textContent = '/ ' + fmtTokens(totalTokens);
+      totalEl.textContent = '/ ' + tokNum(totalTokens) + ' 토큰';
     }
 
     // 보조 — 오늘 호출만
