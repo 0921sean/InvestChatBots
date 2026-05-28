@@ -56,22 +56,26 @@
   #token-box .tb-title { font-size: 11px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px; letter-spacing: .01em; }
   #token-box .tb-chev { font-size: 8px; color: #6e7681; transition: transform .15s; transform: rotate(90deg); display: inline-block; }
   #token-box.collapsed .tb-chev { transform: rotate(0deg); }
-  #token-box .tb-status { font-size: 9.5px; padding: 2px 7px; border-radius: 4px; font-weight: 600; color: #8b949e; background: transparent; border: 1px solid #30363d; }
+  #token-box .tb-status { font-size: 9.5px; padding: 2px 7px 2px 6px; border-radius: 4px; font-weight: 600; color: #adb6c0; background: transparent; border: 1px solid #30363d; display: inline-flex; align-items: center; gap: 4px; }
+  #token-box .tb-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; display: inline-block; }
   #token-box .tb-status.exhausted { color: #f85149; border-color: rgba(248,81,73,.4); }
+  #token-box .tb-status.exhausted .tb-status-dot { background: #f85149; }
 
   /* 게이지 — 단색, 그라데이션 X */
-  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 6px; overflow: hidden; }
+  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 6px; overflow: hidden; cursor: help; }
   #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: #58a6ff; }
   #token-box .tb-gauge-fill.caution { background: #d29922; }
   #token-box .tb-gauge-fill.warn    { background: #db6d28; }
   #token-box .tb-gauge-fill.danger  { background: #da3633; }
   #token-box .tb-gauge-fill.empty   { background: #30363d; }
 
-  #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; margin-top: 7px; font-variant-numeric: tabular-nums; }
-  #token-box .tb-remain { font-size: 12px; font-weight: 600; color: #e2e8f0; }
-  #token-box .tb-remain-sub { font-size: 9.5px; color: #6e7681; margin-left: 4px; font-weight: 400; }
-  #token-box .tb-total { font-size: 10px; color: #6e7681; }
-  #token-box .tb-sub { font-size: 9.5px; color: #6e7681; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  /* 라벨·값 한 줄씩 */
+  #token-box .tb-row { display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 5px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  #token-box .tb-row.tb-row-faint .tb-val { color: #8b949e; }
+  #token-box .tb-label { color: #6e7681; }
+  #token-box .tb-val { color: #e2e8f0; font-weight: 600; }
+  #token-box .tb-hint { color: #6e7681; font-size: 9px; font-weight: 400; }
 
   /* 펼침 영역 */
   #token-box .tb-detail { display: block; margin-top: 11px; padding-top: 10px; border-top: 1px solid #21262d; font-size: 10px; color: #8b949e; line-height: 1.55; }
@@ -390,14 +394,13 @@
     <div id="token-box" onclick="toggleTokenBox(event)">
       <div class="tb-head">
         <div class="tb-title"><span class="tb-chev">▶</span>Claude 토큰</div>
-        <span class="tb-status" id="tb-status">활성</span>
+        <span class="tb-status" id="tb-status"><span class="tb-status-dot"></span>봇 활동 가능</span>
       </div>
-      <div class="tb-gauge-track"><div class="tb-gauge-fill" id="tb-gauge-fill" style="width:100%"></div></div>
-      <div class="tb-gauge-labels">
-        <span class="tb-remain"><span id="tb-remain">충전 없음</span><span class="tb-remain-sub" id="tb-remain-sub"></span></span>
-        <span class="tb-total" id="tb-total"></span>
-      </div>
-      <div class="tb-sub" id="tb-sub">오늘 호출 0</div>
+      <div class="tb-gauge-track" title="충전된 토큰 대비 남은 비율"><div class="tb-gauge-fill" id="tb-gauge-fill" style="width:100%"></div></div>
+      <div class="tb-row"><span class="tb-label">잔여 토큰</span><span class="tb-val" id="tb-remain-val">—</span></div>
+      <div class="tb-row"><span class="tb-label">누적 충전</span><span class="tb-val" id="tb-total-val">—</span></div>
+      <div class="tb-row"><span class="tb-label">오늘 호출</span><span class="tb-val" id="tb-calls-val">—</span></div>
+      <div class="tb-row tb-row-faint"><span class="tb-label">사용 비용 <span class="tb-hint">(참고)</span></span><span class="tb-val" id="tb-cost-val">—</span></div>
       <div class="tb-detail" onclick="event.stopPropagation()">
         <div id="tb-last-donation"></div>
         <div class="tb-tagline" id="tb-tagline">토큰이 떨어지면 봇들도 침묵해요. 충전 부탁드려요 🙏</div>
@@ -1106,36 +1109,29 @@ async function loadTokenUsage() {
       // 50%+ 정상(초록, 기본 클래스 없음)
     }
 
-    // 라벨 — 남은 양 / 충전 총량
-    const remainEl = document.getElementById('tb-remain');
-    const remainSubEl = document.getElementById('tb-remain-sub');
-    const totalEl = document.getElementById('tb-total');
+    // 라벨·값 행
+    const remainValEl = document.getElementById('tb-remain-val');
+    const totalValEl = document.getElementById('tb-total-val');
+    const callsValEl = document.getElementById('tb-calls-val');
+    const costValEl = document.getElementById('tb-cost-val');
+
     if (totalTokens === 0) {
-      remainEl.textContent = '충전 없음';
-      remainSubEl.textContent = '';
-      totalEl.textContent = '';
+      remainValEl.innerHTML = '<span style="color:#6e7681">충전 없음</span>';
+      totalValEl.textContent = '—';
     } else {
-      remainEl.textContent = fmtTokens(remainTokens);
-      remainSubEl.textContent = `남음 (${Math.round(remainPct)}%)`;
-      totalEl.textContent = '/ ' + fmtTokens(totalTokens);
+      remainValEl.innerHTML = `${fmtTokens(remainTokens)} <span style="color:#6e7681;font-weight:400;font-size:10px">(${Math.round(remainPct)}%)</span>`;
+      totalValEl.innerHTML = `${fmtTokens(totalTokens)} <span style="color:#6e7681;font-weight:400;font-size:10px">${fmtKrw(totalKrw)}</span>`;
     }
+    callsValEl.textContent = (t.calls || 0).toLocaleString();
+    costValEl.textContent = usedKrw > 0 ? fmtKrw(usedKrw) : '—';
 
-    // 보조 라인 — 오늘 호출 + KRW 환산 (참고)
-    const subparts = [`오늘 호출 ${fmtNum(t.calls || 0)}`];
-    if (totalKrw > 0) {
-      subparts.push(`${fmtKrw(usedKrw)} / ${fmtKrw(totalKrw)}`);
-    } else if (usedKrw > 0) {
-      subparts.push(`사용 ${fmtKrw(usedKrw)}`);
-    }
-    document.getElementById('tb-sub').textContent = subparts.join(' · ');
-
-    // 상태 뱃지
+    // 상태 뱃지 — 점 + 텍스트로 의미 명확하게
     const s = document.getElementById('tb-status');
     if (d.exhausted) {
-      s.textContent = '소진';
+      s.innerHTML = '<span class="tb-status-dot"></span>봇 활동 정지';
       s.className = 'tb-status exhausted';
     } else {
-      s.textContent = '활성';
+      s.innerHTML = '<span class="tb-status-dot"></span>봇 활동 가능';
       s.className = 'tb-status';
     }
     // 소진 시 박스 펄스 + 안내문
@@ -1159,7 +1155,7 @@ async function loadTokenUsage() {
       else if (diffMs < 86400000) rel = `${Math.floor(diffMs/3600000)}시간 전`;
       else rel = `${Math.floor(diffMs/86400000)}일 전`;
       const noteHtml = last.note ? ` · ${esc(last.note)}` : '';
-      const tokenEquiv = fmtTokens(last.amount * 400);
+      const tokenEquiv = fmtTokens(last.amount * 80);
       lastEl.innerHTML = `<div class="ld-row"><span class="ld-label">최근 충전</span><span class="ld-meta">${rel}</span></div><div class="ld-row"><span class="ld-tokens">+${tokenEquiv}</span><span class="ld-meta">${fmtKrw(last.amount)}${noteHtml}</span></div>`;
       lastEl.style.display = 'block';
     } else {
@@ -1193,7 +1189,7 @@ async function _refreshRecentDonations() {
       el.innerHTML = '<div style="font-size:11px;color:#6e7681">아직 후원 없음</div>';
       return;
     }
-    const TOKENS_PER_KRW = 400;  // backend 상수와 동기
+    const TOKENS_PER_KRW = 80;  // backend 상수와 동기
     el.innerHTML = '<div style="font-size:10.5px;font-weight:700;color:#6e7681;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">최근 5건</div>' +
       recent.map(r => {
         const tokenEquiv = fmtTokens(r.amount * TOKENS_PER_KRW);
