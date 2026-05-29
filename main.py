@@ -38,6 +38,8 @@ if not OWNER_TOKEN:
     OWNER_TOKEN = secrets.token_urlsafe(24)
     logger.warning(f"OWNER_TOKEN env var not set — generated ephemeral token: {OWNER_TOKEN}")
     logger.warning(f"Owner 모드 진입: http://localhost:8001/owner/{OWNER_TOKEN}")
+# /admin 로그인 페이지용 비번 (선택) — .env에 ADMIN_PASSWORD 설정 시 OWNER_TOKEN 대신 이걸 사용
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 COOKIE_NAME = "investchat_owner"
 
 
@@ -226,15 +228,21 @@ class AdminLoginBody(BaseModel):
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginBody):
-    """비번이 OWNER_TOKEN과 일치하면 쿠키 세팅. /admin 그대로 유지."""
-    if body.password.strip() != OWNER_TOKEN:
-        # brute force 방어 — 살짝 sleep
-        _time_module.sleep(0.4)
+    """ADMIN_PASSWORD가 설정돼 있으면 그것과 비교, 아니면 OWNER_TOKEN.
+    호환성: 옛 OWNER_TOKEN을 입력해도 통과 (URL 토큰 방식 사용자 대비)."""
+    pw = body.password.strip()
+    ok = False
+    if ADMIN_PASSWORD and pw == ADMIN_PASSWORD:
+        ok = True
+    elif pw == OWNER_TOKEN:
+        ok = True
+    if not ok:
+        _time_module.sleep(0.4)  # brute force 방어
         raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다")
     resp = JSONResponse({"ok": True, "redirect": "/admin"})
     resp.set_cookie(
-        COOKIE_NAME, OWNER_TOKEN,
-        max_age=60 * 60 * 24 * 365,  # 1년
+        COOKIE_NAME, OWNER_TOKEN,  # 쿠키 값은 OWNER_TOKEN 그대로 (모든 가드와 일치)
+        max_age=60 * 60 * 24 * 365,
         httponly=True, samesite="lax",
     )
     return resp
