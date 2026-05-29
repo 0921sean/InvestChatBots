@@ -146,6 +146,7 @@ _OWNER_ONLY_ROUTES = {
     ("POST", "/api/owner/logout"),
     ("POST", "/api/donations"),
     # /api/admin/login은 공개 (비번 검증 자체가 인증)
+    ("POST", "/api/watchlist/run"),
     ("POST", "/api/watchlist/pause"),
     ("POST", "/api/watchlist/resume"),
     ("POST", "/api/main/pause"),
@@ -511,6 +512,14 @@ def api_holdings_review():
     """월요일 보유 점검 수동 트리거 (요일 무관)."""
     threading.Thread(target=lambda: review_holdings(force=True), daemon=True).start()
     return {"ok": True}
+
+
+@app.post("/api/watchlist/run")
+def api_watchlist_run():
+    """서브 사이클 수동 트리거 — 스케줄 무관 즉시 1회 실행."""
+    from orchestrator import run_telegram_watchlist
+    threading.Thread(target=run_telegram_watchlist, daemon=True).start()
+    return {"ok": True, "triggered": True}
 
 
 @app.post("/api/watchlist/pause")
