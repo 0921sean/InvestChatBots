@@ -143,6 +143,7 @@ _OWNER_ONLY_ROUTES = {
     ("DELETE", "/api/lecture-notes"),
     ("POST", "/api/owner/logout"),
     ("POST", "/api/donations"),
+    # /api/admin/login은 공개 (비번 검증 자체가 인증)
     ("POST", "/api/watchlist/pause"),
     ("POST", "/api/watchlist/resume"),
     ("POST", "/api/main/pause"),
@@ -197,6 +198,38 @@ def owner_logout(response: Response):
 @app.get("/api/whoami")
 def whoami(request: Request):
     return {"owner": is_owner(request)}
+
+
+# ── /admin 로그인 페이지 ────────────────────────────────
+@app.get("/admin")
+def admin_page(request: Request):
+    """이미 owner면 메인 SPA로 리다이렉트. 아니면 로그인 폼."""
+    if is_owner(request):
+        return RedirectResponse(url="/")
+    return FileResponse(
+        "static/admin.html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+class AdminLoginBody(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/login")
+def admin_login(body: AdminLoginBody):
+    """비번이 OWNER_TOKEN과 일치하면 쿠키 세팅 + 메인으로 리다이렉트 URL 반환."""
+    if body.password.strip() != OWNER_TOKEN:
+        # brute force 방어 — 살짝 sleep
+        _time_module.sleep(0.4)
+        raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다")
+    resp = JSONResponse({"ok": True, "redirect": "/"})
+    resp.set_cookie(
+        COOKIE_NAME, OWNER_TOKEN,
+        max_age=60 * 60 * 24 * 365,  # 1년
+        httponly=True, samesite="lax",
+    )
+    return resp
 
 
 @app.get("/")
