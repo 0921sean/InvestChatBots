@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>관리자 로그인 — InvestChat</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117; color: #e2e8f0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    padding: 28px 28px 24px; width: 100%; max-width: 340px; }
+  .brand { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+  .brand-emoji { font-size: 22px; }
+  .brand-text { font-size: 16px; font-weight: 700; color: #e2e8f0; }
+  h1 { font-size: 15px; font-weight: 700; margin-bottom: 4px; color: #e2e8f0; }
+  .sub { font-size: 11px; color: #8b949e; margin-bottom: 20px; line-height: 1.5; }
+  .label { font-size: 11px; color: #8b949e; margin-bottom: 5px; font-weight: 600; letter-spacing: .02em; }
+  input { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+    padding: 10px 12px; color: #e2e8f0; font-size: 14px; outline: none; transition: border-color .15s;
+    font-family: ui-monospace, SFMono-Regular, monospace; }
+  input:focus { border-color: #58a6ff; }
+  button { width: 100%; background: #1f6feb; border: none; color: #fff; padding: 10px;
+    border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 600; margin-top: 14px;
+    transition: background .15s; }
+  button:hover:not(:disabled) { background: #388bfd; }
+  button:disabled { background: #30363d; cursor: not-allowed; }
+  .err { color: #f85149; font-size: 11px; margin-top: 10px; display: none; }
+  .err.show { display: block; }
+  .footer-link { display: block; text-align: center; margin-top: 16px; font-size: 11px;
+    color: #6e7681; text-decoration: none; }
+  .footer-link:hover { color: #58a6ff; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <span class="brand-emoji">📈</span>
+    <span class="brand-text">InvestChat</span>
+  </div>
+  <h1>관리자 로그인</h1>
+  <div class="sub">관리자 비밀번호로 로그인하면<br>봇 제어·후원 관리 기능이 활성화됩니다.</div>
+  <div class="label">비밀번호</div>
+  <input id="pw" type="password" placeholder="OWNER_TOKEN" autocomplete="current-password"
+    onkeydown="if(event.key==='Enter')doLogin()" autofocus />
+  <div class="err" id="err">비밀번호가 일치하지 않습니다.</div>
+  <button id="btn" onclick="doLogin()">로그인</button>
+  <a href="/" class="footer-link">← 방문자 모드로 돌아가기</a>
+</div>
+<script>
+async function doLogin() {
+  const pw = document.getElementById('pw').value;
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('err');
+  err.classList.remove('show');
+  if (!pw) {
+    err.textContent = '비밀번호를 입력하세요.';
+    err.classList.add('show');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '확인 중...';
+  try {
+    const r = await fetch('/api/admin/login', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    if (!r.ok) {
+      err.textContent = '비밀번호가 일치하지 않습니다.';
+      err.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = '로그인';
+      return;
+    }
+    const d = await r.json();
+    location.href = d.redirect || '/';
+  } catch (e) {
+    err.textContent = '네트워크 오류';
+    err.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = '로그인';
+  }
+}
+</script>
+</body>
+</html>

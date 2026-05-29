@@ -269,6 +269,15 @@
   .sched-next { font-size:10.5px; color:#3fb950; margin-top:4px; font-weight:600; }
   .sched-note { font-size:11px; color:#6e7681; margin-top:14px; padding-top:12px; border-top:1px dashed #30363d; line-height:1.6; }
 
+  /* 모드 라벨 — 우상단 작은 뱃지로 owner/visitor 구분 명시 */
+  #mode-badge { position: fixed; top: 8px; right: 14px; z-index: 100;
+    font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 12px;
+    letter-spacing: .04em; border: 1px solid; pointer-events: auto; }
+  #mode-badge.owner { background: rgba(31,111,235,.15); border-color: rgba(56,139,253,.4); color: #58a6ff; }
+  #mode-badge.visitor { background: rgba(139,148,158,.1); border-color: rgba(139,148,158,.3); color: #8b949e; }
+  #mode-badge a { color: inherit; text-decoration: none; }
+  #mode-badge a:hover { text-decoration: underline; }
+
   /* ───────── 모바일 토글 버튼 (기본은 숨김) ───────── */
   .mobile-only { display: none; }
   #mobile-menu-btn, #mobile-right-btn {
@@ -370,6 +379,7 @@
 </style>
 </head>
 <body>
+<div id="mode-badge" class="visitor"><a href="/admin">👁 방문자 모드</a></div>
 <div id="drawer-backdrop" onclick="closeDrawers()"></div>
 
 <div id="sidebar">
@@ -1420,9 +1430,27 @@ async function loadWhoami() {
       if (ph) input.placeholder = ph;
       input.readOnly = !isOwner;
     }
+    // 모드 라벨 갱신
+    const badge = document.getElementById('mode-badge');
+    if (badge) {
+      if (isOwner) {
+        badge.className = 'owner';
+        badge.innerHTML = '<a href="#" onclick="ownerLogout(event)">🔑 관리자 모드 · 로그아웃</a>';
+      } else {
+        badge.className = 'visitor';
+        badge.innerHTML = '<a href="/admin">👁 방문자 모드 · 관리자 로그인</a>';
+      }
+    }
   } catch (e) {
     document.body.classList.add('readonly');
   }
+}
+async function ownerLogout(e) {
+  if (e) e.preventDefault();
+  try {
+    await fetch('/api/owner/logout', {method: 'POST'});
+    location.reload();
+  } catch (err) {}
 }
 
 // 읽기 전용일 때 호출되면 무시되도록 가드
