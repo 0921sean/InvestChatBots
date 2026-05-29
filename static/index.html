@@ -108,7 +108,7 @@
 
   /* 읽기 전용 모드 — 익명 접속자 */
   body.readonly #btn-pause, body.readonly #btn-play,
-  body.readonly #btn-summary, body.readonly #btn-main-run { display: none !important; }
+  body.readonly #btn-summary, body.readonly #btn-main-run, body.readonly #btn-sub-run { display: none !important; }
   /* Members 행도 visitor엔 클릭 안 되는 느낌 */
   body.readonly .member { cursor: default; }
   body.readonly .member:hover { background: transparent; }
@@ -341,7 +341,8 @@
     #chat-header .btn-group { gap: 4px; }
     #chat-header .btn-group .btn-ghost,
     #chat-header .btn-group #btn-summary,
-    #chat-header .btn-group #btn-main-run { display: none; }
+    #chat-header .btn-group #btn-main-run,
+    #chat-header .btn-group #btn-sub-run { display: none; }
     /* play/pause만 유지 + 모바일 메뉴 버튼 */
 
     /* 모바일 전용 버튼들 표시 */
@@ -464,6 +465,7 @@
       <button class="btn btn-ghost" onclick="scrollToBottom()">↓ 최신</button>
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
       <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
+      <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클(워치리스트) 즉시 실행">▶ 서브 실행</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
   </div>
@@ -1033,6 +1035,23 @@ async function runMainCycle() {
     btn.textContent = '▶ 메인 실행';
     alert('오류: ' + e);
   } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runSubCycle() {
+  const btn = document.getElementById('btn-sub-run');
+  if (!confirm('서브 사이클(워치리스트) 즉시 실행할까요?')) return;
+  btn.disabled = true;
+  btn.textContent = '시작 중...';
+  try {
+    const res = await fetch('/api/watchlist/run', {method:'POST'});
+    if (!res.ok) throw new Error('실행 실패 — 워치리스트 비활성/이미 진행 중일 수 있음');
+    btn.textContent = '▶ 실행 됨';
+    setTimeout(() => { btn.textContent = '▶ 서브 실행'; btn.disabled = false; }, 4000);
+  } catch (e) {
+    alert('오류: ' + e.message);
+    btn.textContent = '▶ 서브 실행';
     btn.disabled = false;
   }
 }
