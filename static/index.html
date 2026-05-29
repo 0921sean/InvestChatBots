@@ -109,6 +109,19 @@
   /* 읽기 전용 모드 — 익명 접속자 */
   body.readonly #btn-pause, body.readonly #btn-play,
   body.readonly #btn-summary, body.readonly #btn-main-run { display: none; }
+  body.readonly #visitor-timers { display: flex !important; }
+  /* visitor 모드 카운트다운 (메인·서브 다음 실행 시간) */
+  #visitor-timers { display: none; gap: 12px; align-items: center; font-size: 11px;
+    color: #8b949e; font-variant-numeric: tabular-nums; }
+  #visitor-timers .vt-item { display: inline-flex; align-items: baseline; gap: 4px; }
+  #visitor-timers .vt-label { font-size: 9.5px; color: #6e7681; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  #visitor-timers .vt-val { color: #c9d1d9; font-weight: 600; font-size: 11.5px; }
+  #visitor-timers .vt-val.running { color: #3fb950; }
+  @media (max-width: 480px) {
+    #visitor-timers { font-size: 10px; gap: 8px; }
+    #visitor-timers .vt-label { font-size: 9px; }
+    #visitor-timers .vt-val { font-size: 10.5px; }
+  }
   body.readonly #typing { display: none; }
   /* 채팅 입력 form은 보이되 입력 차단 + 안내문 표시 */
   body.readonly #input-area input { background: #1c2128; color: #6e7681; cursor: not-allowed; }
@@ -439,6 +452,10 @@
       </div>
     </div>
     <div class="btn-group">
+      <div id="visitor-timers">
+        <div class="vt-item"><span class="vt-label">메인</span><span class="vt-val" id="vt-main">—</span></div>
+        <div class="vt-item"><span class="vt-label">서브</span><span class="vt-val" id="vt-sub">—</span></div>
+      </div>
       <button class="btn btn-play" id="btn-play" onclick="togglePlay()" style="display:none">▶ 재개</button>
       <button class="btn btn-play playing" id="btn-pause" onclick="togglePlay()">⏸ 일시정지</button>
       <button class="btn btn-ghost" onclick="scrollToBottom()">↓ 최신</button>
@@ -780,6 +797,9 @@ async function loadState() {
         subEl.textContent = 'AI 투자 토론방';
       }
     }
+
+    // visitor 모드 카운트다운 즉시 반영
+    updateVisitorTimers();
 
     const rawPct = s.phase === 'stock_analysis'
       ? Math.round(((s.stock_idx||0)/(s.stocks_total||3))*100)
@@ -1450,6 +1470,69 @@ async function ownerLogout(e) {
   } catch (err) {}
 }
 
+// ───── visitor 모드 카운트다운 (메인·서브) ─────
+function _kstNowMs() {
+  const n = new Date();
+  return n.getTime() + (n.getTimezoneOffset() * 60000) + (9 * 3600000);
+}
+function _fmtCountdown(ms) {
+  if (ms <= 0) return '곧';
+  const h = ms / 3600000;
+  if (h >= 24) return `${(h/24).toFixed(1)}일`;
+  if (h >= 1) return `${h.toFixed(1)}h`;
+  return `${Math.ceil(ms/60000)}분`;
+}
+function _nextMainStartMs() {
+  // 다음 평일 06:00 KST
+  const nowMs = _kstNowMs();
+  const n = new Date(nowMs);
+  const target = new Date(nowMs);
+  target.setUTCHours(6, 0, 0, 0);  // KST 06:00 (n은 이미 KST 보정)
+  if (target.getTime() <= nowMs) target.setUTCDate(target.getUTCDate() + 1);
+  while (target.getUTCDay() === 0 || target.getUTCDay() === 6) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+  return target.getTime() - nowMs;
+}
+function _nextSubStartMs() {
+  // 다음 12·18·24시 KST
+  const nowMs = _kstNowMs();
+  const slots = [0, 12, 18];
+  let best = null;
+  for (const h of slots) {
+    const t = new Date(nowMs);
+    t.setUTCHours(h, 0, 0, 0);
+    if (t.getTime() <= nowMs) t.setUTCDate(t.getUTCDate() + 1);
+    const diff = t.getTime() - nowMs;
+    if (best == null || diff < best) best = diff;
+  }
+  return best;
+}
+function updateVisitorTimers() {
+  if (!document.body.classList.contains('readonly')) return;  // visitor일 때만
+  const s = window._lastState || {};
+  const mainEl = document.getElementById('vt-main');
+  const subEl = document.getElementById('vt-sub');
+  if (!mainEl || !subEl) return;
+
+  // 메인: 진행 중이면 "진행 중", cycle_rest면 다음 6시까지
+  if (s.phase === 'sector_discussion' || s.phase === 'stock_analysis') {
+    mainEl.textContent = '진행 중';
+    mainEl.classList.add('running');
+  } else {
+    mainEl.textContent = _fmtCountdown(_nextMainStartMs());
+    mainEl.classList.remove('running');
+  }
+  // 서브: activity가 watchlist면 진행 중, 아니면 다음 슬롯까지
+  if (s.activity === 'watchlist') {
+    subEl.textContent = '진행 중';
+    subEl.classList.add('running');
+  } else {
+    subEl.textContent = _fmtCountdown(_nextSubStartMs());
+    subEl.classList.remove('running');
+  }
+}
+
 // 읽기 전용일 때 호출되면 무시되도록 가드
 const _origFetch = window.fetch;
 window.fetch = function(input, init) {
@@ -1480,6 +1563,7 @@ setInterval(loadConsensus, 20000);
 setInterval(loadPortfolio, 15000);
 setInterval(loadTokenUsage, 10000);
 setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인
+setInterval(updateVisitorTimers, 30000);  // 30초마다 카운트다운 갱신
 </script>
 </body>
 </html>
