@@ -963,12 +963,39 @@ def _handle_agent_error(agent_name: str, e: Exception):
         notify(f"🚨 {agent_name} 3회 연속 응답 실패", f"{type(e).__name__}", priority="high", cooldown=1800)
 
 
+# ── 메인 사이클 비활성 토글 ────────────────────────────
+_main_disabled = False
+
+
+def pause_main_cycle():
+    """메인 사이클 비활성 — 6시 reset도, run_round도 다음 호출부터 스킵."""
+    global _main_disabled
+    _main_disabled = True
+
+
+def resume_main_cycle():
+    global _main_disabled
+    _main_disabled = False
+
+
+def is_main_disabled() -> bool:
+    return _main_disabled
+
+
 # ── 일일 리셋 (스케줄러가 매일 6시에 1회 호출) ────────────
 def reset_daily_cycle():
-    """매일 아침 6시 스케줄러가 호출 — 사이클 리셋 후 루프 시작."""
+    """매일 아침 6시 스케줄러가 호출 — 평일에만 사이클 리셋 + 시작 안내."""
+    if _main_disabled:
+        logger.info("메인 사이클 비활성 — reset 스킵")
+        return
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
+
+    # 주말(토·일)엔 메인 사이클 안 돔 — reset도 안 함, 시작 안내도 안 함
+    if now.weekday() >= 5:
+        logger.info(f"주말({['월','화','수','목','금','토','일'][now.weekday()]}) — reset_daily_cycle 스킵")
+        return
 
     with _state_lock:
         globals()["_phase"] = "sector_discussion"
@@ -1278,6 +1305,8 @@ def _run_telegram_watchlist_inner():
 
 # ── 메인 루프 ─────────────────────────────────────────────
 def run_round(market_summary=None):
+    if _main_disabled:
+        return
     # 평일(월~금)에만 실행
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
