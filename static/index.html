@@ -269,14 +269,13 @@
   .sched-next { font-size:10.5px; color:#3fb950; margin-top:4px; font-weight:600; }
   .sched-note { font-size:11px; color:#6e7681; margin-top:14px; padding-top:12px; border-top:1px dashed #30363d; line-height:1.6; }
 
-  /* 모드 라벨 — 우상단 작은 뱃지로 owner/visitor 구분 명시 */
-  #mode-badge { position: fixed; top: 8px; right: 14px; z-index: 100;
-    font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 12px;
-    letter-spacing: .04em; border: 1px solid; pointer-events: auto; }
-  #mode-badge.owner { background: rgba(31,111,235,.15); border-color: rgba(56,139,253,.4); color: #58a6ff; }
-  #mode-badge.visitor { background: rgba(139,148,158,.1); border-color: rgba(139,148,158,.3); color: #8b949e; }
-  #mode-badge a { color: inherit; text-decoration: none; }
-  #mode-badge a:hover { text-decoration: underline; }
+  /* 사이드바 타이틀 옆 작은 admin 라벨 (admin URL일 때만) */
+  #sidebar-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  #admin-mark { display: none; font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+    background: rgba(31,111,235,.15); color: #58a6ff; border: 1px solid rgba(56,139,253,.3);
+    letter-spacing: .04em; cursor: pointer; }
+  #admin-mark:hover { background: rgba(31,111,235,.25); }
+  body.admin-mode #admin-mark { display: inline-block; }
 
   /* ───────── 모바일 토글 버튼 (기본은 숨김) ───────── */
   .mobile-only { display: none; }
@@ -379,11 +378,15 @@
 </style>
 </head>
 <body>
-<div id="mode-badge" class="visitor"><a href="/admin">👁 방문자 모드</a></div>
 <div id="drawer-backdrop" onclick="closeDrawers()"></div>
 
 <div id="sidebar">
-  <div id="sidebar-title">📈 InvestChat</div>
+  <div id="sidebar-title">
+    <div id="sidebar-title-row">
+      <span>📈 InvestChat</span>
+      <span id="admin-mark" title="클릭하면 로그아웃" onclick="ownerLogout(event)">ADMIN</span>
+    </div>
+  </div>
 
   <div id="sidebar-scroll">
     <div id="sector-box">
@@ -1417,12 +1420,16 @@ function _updateRightTabButtons() {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
 
 let isOwner = false;
+// 모드 결정: URL이 /admin 일 때만 admin 가능. / 는 항상 visitor.
+const _isAdminUrl = location.pathname.startsWith('/admin');
 async function loadWhoami() {
   try {
     const r = await fetch('/api/whoami');
     const d = await r.json();
-    isOwner = !!d.owner;
+    // URL이 /admin이고 쿠키 인증도 통과해야 owner
+    isOwner = _isAdminUrl && !!d.owner;
     document.body.classList.toggle('readonly', !isOwner);
+    document.body.classList.toggle('admin-mode', isOwner);
     // 입력창 placeholder + 비활성 처리
     const input = document.getElementById('msg-input');
     if (input) {
@@ -1430,26 +1437,16 @@ async function loadWhoami() {
       if (ph) input.placeholder = ph;
       input.readOnly = !isOwner;
     }
-    // 모드 라벨 갱신
-    const badge = document.getElementById('mode-badge');
-    if (badge) {
-      if (isOwner) {
-        badge.className = 'owner';
-        badge.innerHTML = '<a href="#" onclick="ownerLogout(event)">🔑 관리자 모드 · 로그아웃</a>';
-      } else {
-        badge.className = 'visitor';
-        badge.innerHTML = '<a href="/admin">👁 방문자 모드 · 관리자 로그인</a>';
-      }
-    }
   } catch (e) {
     document.body.classList.add('readonly');
   }
 }
 async function ownerLogout(e) {
   if (e) e.preventDefault();
+  if (!confirm('로그아웃하시겠습니까?')) return;
   try {
     await fetch('/api/owner/logout', {method: 'POST'});
-    location.reload();
+    location.href = '/';  // 로그아웃 후 방문자 페이지로
   } catch (err) {}
 }
 

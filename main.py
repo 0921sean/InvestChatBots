@@ -203,9 +203,17 @@ def whoami(request: Request):
 # ── /admin 로그인 페이지 ────────────────────────────────
 @app.get("/admin")
 def admin_page(request: Request):
-    """이미 owner면 메인 SPA로 리다이렉트. 아니면 로그인 폼."""
+    """인증 완료면 메인 SPA를 /admin URL 그대로 유지하며 서빙.
+    인증 안 됐으면 로그인 폼."""
     if is_owner(request):
-        return RedirectResponse(url="/")
+        return FileResponse(
+            "static/index.html",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     return FileResponse(
         "static/admin.html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
@@ -218,12 +226,12 @@ class AdminLoginBody(BaseModel):
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginBody):
-    """비번이 OWNER_TOKEN과 일치하면 쿠키 세팅 + 메인으로 리다이렉트 URL 반환."""
+    """비번이 OWNER_TOKEN과 일치하면 쿠키 세팅. /admin 그대로 유지."""
     if body.password.strip() != OWNER_TOKEN:
         # brute force 방어 — 살짝 sleep
         _time_module.sleep(0.4)
         raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다")
-    resp = JSONResponse({"ok": True, "redirect": "/"})
+    resp = JSONResponse({"ok": True, "redirect": "/admin"})
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,
         max_age=60 * 60 * 24 * 365,  # 1년
