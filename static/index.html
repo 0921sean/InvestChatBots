@@ -108,7 +108,10 @@
 
   /* 읽기 전용 모드 — 익명 접속자 */
   body.readonly #btn-pause, body.readonly #btn-play,
-  body.readonly #btn-summary, body.readonly #btn-main-run { display: none; }
+  body.readonly #btn-summary, body.readonly #btn-main-run { display: none !important; }
+  /* Members 행도 visitor엔 클릭 안 되는 느낌 */
+  body.readonly .member { cursor: default; }
+  body.readonly .member:hover { background: transparent; }
   body.readonly #visitor-timers { display: flex !important; }
   /* visitor 모드 카운트다운 (메인·서브 다음 실행 시간) */
   #visitor-timers { display: none; gap: 12px; align-items: center; font-size: 11px;
@@ -663,6 +666,7 @@ async function poll() {
 }
 
 function openBotModal(a) {
+  if (!isOwner) return;  // visitor에겐 봇 성격 모달 비공개
   const color = BOT_COLORS[a.name] || '#8b949e';
   document.getElementById('bm-dot').style.background = color;
   document.getElementById('bm-name').textContent = a.name;
@@ -703,7 +707,7 @@ async function loadAgents() {
       const color = BOT_COLORS[a.name] || '#8b949e';
       const row = document.createElement('div');
       row.className = 'member';
-      row.title = '클릭하면 투자 스타일 확인';
+      row.title = isOwner ? '클릭하면 투자 스타일 확인' : '';
       row.onclick = () => openBotModal(a);
       row.innerHTML = `<span class="dot" style="background:${color}"></span><span class="member-name" style="color:${color}">${a.name}</span>`;
       el.appendChild(row);
