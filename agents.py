@@ -45,14 +45,19 @@ def trim_at_sentence(text: str) -> str:
     return text
 
 
-def _call_claude_cli(system_prompt: str, user_prompt: str, timeout: int = 60) -> str:
+def _call_claude_cli(system_prompt: str, user_prompt: str, timeout: int = 60, model: str = None) -> str:
     """claude CLI subprocess으로 호출 — Claude Code 구독 토큰 사용.
-    `timeout`은 큰 prompt(섹터 합의 종합 등)에선 180~300초 권장."""
+    `timeout`은 큰 prompt(섹터 합의 종합 등)에선 180~300초 권장.
+    `model='haiku'`로 강제하면 큰 prompt에서도 빠른 응답 (합의 추출 권장)."""
     full_prompt = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)  # API 키 제거 → 구독 토큰 사용
+    cmd = [CLAUDE_CLI, "--print", "--output-format", "json"]
+    if model:
+        cmd += ["--model", model]
+    cmd += ["-p", full_prompt]
     result = subprocess.run(
-        [CLAUDE_CLI, "--print", "--output-format", "json", "-p", full_prompt],
+        cmd,
         capture_output=True, text=True, timeout=timeout,
         env=env,
         cwd="/tmp",  # 빈 디렉토리 → 프로젝트 컨텍스트 로딩 방지
@@ -120,8 +125,9 @@ def _get_gemini():
     return genai
 
 
-def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60):
-    """timeout: claude CLI subprocess 시간 한도. 큰 prompt(합의 종합)는 180~300초 권장."""
+def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model: str = None):
+    """timeout: claude CLI subprocess 시간 한도. 큰 prompt(합의 종합)는 180~300초 권장.
+    model: 'haiku' / 'sonnet' / 'opus' 명시. None이면 CLI default (opus)."""
     profile = AGENT_PROFILES[agent_name]
     provider = profile["model_provider"]
     model_id = profile["model_id"]
@@ -130,7 +136,7 @@ def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60):
         try:
             if provider == "claude":
                 # Claude Code 구독 토큰 사용 (API 크레딧 아님)
-                return trim_at_sentence(_call_claude_cli(system_prompt, user_prompt, timeout=timeout))
+                return trim_at_sentence(_call_claude_cli(system_prompt, user_prompt, timeout=timeout, model=model))
 
             elif provider == "openai":
                 client = _get_openai()
