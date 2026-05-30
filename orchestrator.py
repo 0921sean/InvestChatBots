@@ -216,25 +216,28 @@ def _format_portfolio_for_prompt() -> str:
         balance = 0
         invested = total_assets
 
-    # 같은 종목(코드) 중복 매수는 합산
+    # 같은 종목(code) 중복 매수는 합산 — KRX/KR 표기 차이는 무시
     by_code = {}
     for p in positions:
-        key = (p.get("symbol", "?"), p.get("code", ""), p.get("market", "KR"))
+        code = p.get("code", "") or ""
+        symbol = p.get("symbol", "?")
+        market = p.get("market", "KR")
+        # KRX와 KR은 같은 시장으로 통일
+        market_norm = "US" if market == "US" else "KR"
+        key = (symbol, code)  # market 빼고 합산
         amt = p.get("amount") or 0
         if key not in by_code:
-            by_code[key] = {"amount": 0, "count": 0}
+            by_code[key] = {"amount": 0, "count": 0, "market": market_norm}
         by_code[key]["amount"] += amt
         by_code[key]["count"] += 1
 
     lines = [f"잔액 ₩{balance/1_000_000:.1f}M · 투자 ₩{invested/1_000_000:.1f}M · 총 ₩{total_assets/1_000_000:.1f}M"]
-    # 비중 높은 순
     sorted_items = sorted(by_code.items(), key=lambda x: -x[1]["amount"])
-    for (symbol, code, market), info in sorted_items:
+    for (symbol, code), info in sorted_items:
         amt = info["amount"]
         pct = (amt / total_assets * 100) if total_assets else 0
         cnt_note = f" (×{info['count']})" if info["count"] > 1 else ""
-        market_tag = market if market in ("US", "KR", "KRX") else "KR"
-        lines.append(f"  · {symbol} ({market_tag}): ₩{amt/1_000_000:.1f}M, 비중 {pct:.1f}%{cnt_note}")
+        lines.append(f"  · {symbol} ({info['market']}): ₩{amt/1_000_000:.1f}M, 비중 {pct:.1f}%{cnt_note}")
     return "\n".join(lines)
 
 
