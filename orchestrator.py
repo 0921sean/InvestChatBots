@@ -269,6 +269,8 @@ _main_cycle_start_token: dict | None = None
 _main_cycle_start_epoch: float = 0.0
 _post_check_start_token: dict | None = None
 _post_check_start_epoch: float = 0.0
+# 세트 종료 후 토큰 회복 감지 polling (1시간 간격)
+_recovery_polling_active: bool = False
 
 
 def request_pause():
@@ -936,7 +938,65 @@ def _advance_stock(round_id: int, sector: dict):
                 _send_post_check_report()
             except Exception as e:
                 logger.exception(f"손절·점검 ntfy 실패: {e}")
+            # ④ 세트 종료 — 토큰 회복 polling 시작 (1시간 간격)
+            try:
+                _start_recovery_polling("메인+점검")
+            except Exception as e:
+                logger.exception(f"recovery polling 시작 실패: {e}")
         threading.Thread(target=_post_cycle_checks, daemon=True).start()
+
+
+def _start_recovery_polling(set_name: str):
+    """세트(메인+점검 / 서브) 종료 후 토큰 윈도우 회복 감지용 background polling.
+    1시간 간격 ping. 회복 감지 시 ntfy 보내고 종료. 다음 세트 시작 전까지 동작."""
+    global _recovery_polling_active
+    if _recovery_polling_active:
+        logger.info("recovery polling 이미 활성 — 중복 시작 skip")
+        return
+    globals()["_recovery_polling_active"] = True
+
+    def _loop():
+        import time as _t
+        from agents import _call_claude_cli, is_claude_token_exhausted, _clear_token_exhausted
+        from notifier import notify
+        from main import get_token_usage_today
+        start_epoch = _t.time()
+        try:
+            for _ in range(24):  # 최대 24시간
+                _t.sleep(3600)  # 1시간
+                if not _recovery_polling_active:
+                    return  # 외부에서 종료 요청 (다음 세트 시작 등)
+                try:
+                    _call_claude_cli("test", "ping", timeout=20)
+                    # ping 성공 → 윈도우 회복
+                    if is_claude_token_exhausted():
+                        _clear_token_exhausted()
+                    elapsed_min = int((_t.time() - start_epoch) / 60)
+                    try:
+                        cur = get_token_usage_today()
+                        cur_calls = cur.get("calls", 0)
+                        cur_cost = cur.get("cost_usd", 0)
+                        body = (f"{set_name} 세트 종료 후 {elapsed_min}분, ping OK\n"
+                                f"오늘 누적: {cur_calls}콜 · ${cur_cost:.2f}\n"
+                                f"다음 세트 풀로 준비됨")
+                    except Exception:
+                        body = f"{set_name} 세트 종료 후 {elapsed_min}분, ping OK"
+                    notify("✅ Claude 토큰 윈도우 회복", body,
+                           priority="default", cooldown=0)
+                    return
+                except Exception as e:
+                    logger.debug(f"recovery polling ping 실패: {e}")
+                    continue
+        finally:
+            globals()["_recovery_polling_active"] = False
+
+    threading.Thread(target=_loop, daemon=True).start()
+    logger.info(f"recovery polling 시작 — {set_name} (1시간 간격)")
+
+
+def _stop_recovery_polling():
+    """다음 세트 시작 시 polling 중단 (다음 세트가 새 polling 시작)."""
+    globals()["_recovery_polling_active"] = False
 
 
 def _send_post_check_report():
@@ -1219,6 +1279,9 @@ def reset_daily_cycle():
     except Exception as e:
         logger.debug(f"메인 시작 토큰 스냅샷 실패: {e}")
 
+    # 이전 세트의 recovery polling 중단
+    _stop_recovery_polling()
+
     with _state_lock:
         globals()["_phase"] = "sector_discussion"
         globals()["_sector_idx"] = 0
@@ -1296,6 +1359,9 @@ def _run_telegram_watchlist_inner(force: bool = False):
         if is_user_active() or _pause_requested:
             return
     # force=True는 모든 가드 우회 (측정·수동 트리거 의도)
+
+    # 이전 세트의 recovery polling 중단 (서브 시작)
+    _stop_recovery_polling()
 
     # 정기 cron으로 도는 경우(force=False)에도 토큰 사용량 ntfy 보고
     sub_start_token = None
@@ -1561,6 +1627,12 @@ def _run_telegram_watchlist_inner(force: bool = False):
                                    reason=f"정상 완료 (정기 {now.strftime('%H:%M')} KST)")
         except Exception as e:
             logger.exception(f"서브 사이클 ntfy 실패: {e}")
+
+    # 서브 세트 종료 — 토큰 회복 polling 시작 (1시간 간격)
+    try:
+        _start_recovery_polling(f"서브 {now.strftime('%H:%M')}")
+    except Exception as e:
+        logger.exception(f"recovery polling 시작 실패: {e}")
 
 
 # ── 메인 루프 ─────────────────────────────────────────────
