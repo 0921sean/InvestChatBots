@@ -645,15 +645,10 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt, timeout=240)
         consensus_json = _parse_consensus_json(raw, sector["name"])
 
-        # 검증 — thesis가 비어있거나 너무 짧거나 fallback 안내문이면 재시도
+        # 검증 — thesis가 명백히 비었거나 '⚠️ 합의 생성 오류'일 때만 재시도
+        # (잘 나오면 그대로, 못 나오면 '—'로 짧게 — 사용자 선호)
         thesis_now = (consensus_json.get("thesis") or "").strip()
-        needs_retry = (
-            thesis_now in ("", "—") or
-            len(thesis_now) < 30 or
-            thesis_now.startswith("⚠️") or
-            "추출하지 못했" in thesis_now or
-            "추출 실패" in thesis_now
-        )
+        needs_retry = thesis_now == "" or thesis_now.startswith("⚠️")
         if needs_retry:
             logger.warning(f"[{sector['name']}] thesis 부족/실패 → 재시도 (압축 컨텍스트)")
             retry_prompt = (
@@ -704,7 +699,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         f"📊 [{sector['name']}] 섹터 토론 완료",
         f"{o_emoji} 방향: {o} · 결론: {d}" + (f" · {headline}" if headline else ""),
         f"",
-        f"핵심: {consensus_json.get('thesis') or '핵심 합의 추출 실패 — 위 봇 발언을 직접 참고하세요.'}",
+        f"핵심: {consensus_json.get('thesis') or '—'}",
     ]
     drivers = consensus_json.get("drivers") or []
     if drivers:
@@ -776,7 +771,7 @@ def _consensus_fallback_regex(raw: str, sector_name: str) -> dict:
         "outlook": outlook,
         "decision": decision,
         "headline": _grab_str("headline", "")[:30],
-        "thesis": (thesis or "토론 합의를 형식대로 추출하지 못했습니다 — 위 봇 발언을 직접 참고하세요.")[:600],
+        "thesis": (thesis or "—")[:600],
         "drivers": _grab_array("drivers")[:4],
         "risks": _grab_array("risks")[:3],
         "key_picks": _grab_array("key_picks")[:5],
