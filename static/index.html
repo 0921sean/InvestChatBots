@@ -729,6 +729,9 @@ if ('serviceWorker' in navigator) {
     .then(rs => { if (rs.length) console.log('[sw] 옛 SW', rs.length, '개 제거'); rs.forEach(r => r.unregister()); })
     .catch(() => {});
 }
+// window.fetch 가로채기 감지 — native가 아니면 XHR로 직행하라고 플래그
+window._fetchHijacked = !window.fetch.toString().includes('[native code]');
+if (window._fetchHijacked) console.warn('[diag] window.fetch overridden — XHR fallback 사용');
 // 캐시 스토리지도 정리
 if ('caches' in window) {
   caches.keys().then(keys => { if (keys.length) console.log('[cache] 옛 캐시', keys.length, '개 제거'); keys.forEach(k => caches.delete(k)); }).catch(() => {});
@@ -1760,16 +1763,20 @@ async function sendFeedback() {
     xhr.send(JSON.stringify({content}));
   });
 
-  // 1차: fetch 3개 path
-  for (const p of PATHS) {
-    try {
-      const r = await tryFetch(p);
-      if (r.ok) { ok = true; console.log('[feedback] ✅', r.via); break; }
-      console.error('[feedback] fail', r);
-      lastErr = r.err;
-    } catch (e) { console.error('[feedback] fetch err', p, e); lastErr = `fetch ${p} → ${e.message}`; }
+  // 1차: fetch 시도 (이미 가로채진 환경이면 skip)
+  if (!window._fetchHijacked) {
+    for (const p of PATHS) {
+      try {
+        const r = await tryFetch(p);
+        if (r.ok) { ok = true; console.log('[feedback] ✅', r.via); break; }
+        console.error('[feedback] fail', r);
+        lastErr = r.err;
+      } catch (e) { console.error('[feedback] fetch err', p, e); lastErr = `fetch ${p} → ${e.message}`; }
+    }
+  } else {
+    console.log('[feedback] fetch skipped (overridden) → XHR 직행');
   }
-  // 2차: XHR 3개 path (fetch가 가로채진 경우 우회)
+  // 2차: XHR (fetch가 가로채진 경우 우회)
   if (!ok) {
     for (const p of PATHS) {
       const r = await tryXhr(p);
