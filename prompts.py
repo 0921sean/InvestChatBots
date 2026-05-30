@@ -336,20 +336,22 @@ def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, his
 
 
 def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, history_text,
-                                 agent_name, tg_context: str = ""):
+                                 agent_name, tg_context: str = "", portfolio_text: str = ""):
     tg_section = f"\n{tg_context}\n" if tg_context else ""
+    portfolio_section = f"\n[현재 포트폴리오]\n{portfolio_text}\n" if portfolio_text else ""
     return f"""[{sector_name} 섹터 — 종목 분석]
 
 {stock_data_text}
 
 시황 요약: {market_summary[:300]}
-{tg_section}
+{tg_section}{portfolio_section}
 [이전 의견]
 {history_text or "(첫 번째 의견)"}
 
 {agent_name}, 위 데이터를 바탕으로 투자 판단을 내려주세요.
 - 본인 관점에서 핵심 근거 제시
 - 텔레그램·블로그 여론 참고하되 맹목적으로 따르지 마세요
+- **위 [현재 포트폴리오] 비중을 반드시 고려**: 이미 같은 종목·같은 섹터 비중이 큰지, 분산 관점에서 추가 매수가 합리적인지
 - 반드시 [결정] 형식으로 마무리 (매수/관망/매도)
 2-3문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
 

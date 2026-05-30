@@ -199,6 +199,45 @@ def _build_system(agent_name: str) -> str:
     return base.replace("{evolution_notes}", injection)
 
 
+def _format_portfolio_for_prompt() -> str:
+    """현재 보유 포트폴리오 요약 — 봇이 매수 판단 시 종목·섹터 비중 확인용.
+    같은 종목 중복 보유는 합산. 비중 = (매수 금액 / 총 자산) %."""
+    from db import get_open_positions, get_shared_portfolio
+    positions = get_open_positions()
+    if not positions:
+        return "보유 종목 없음 (포트폴리오 비어있음)"
+    try:
+        portfolio = get_shared_portfolio()
+        balance = portfolio.get("balance", 0)
+        invested = portfolio.get("invested", 0)
+        total_assets = balance + invested
+    except Exception:
+        total_assets = sum((p.get("amount") or 0) for p in positions)
+        balance = 0
+        invested = total_assets
+
+    # 같은 종목(코드) 중복 매수는 합산
+    by_code = {}
+    for p in positions:
+        key = (p.get("symbol", "?"), p.get("code", ""), p.get("market", "KR"))
+        amt = p.get("amount") or 0
+        if key not in by_code:
+            by_code[key] = {"amount": 0, "count": 0}
+        by_code[key]["amount"] += amt
+        by_code[key]["count"] += 1
+
+    lines = [f"잔액 ₩{balance/1_000_000:.1f}M · 투자 ₩{invested/1_000_000:.1f}M · 총 ₩{total_assets/1_000_000:.1f}M"]
+    # 비중 높은 순
+    sorted_items = sorted(by_code.items(), key=lambda x: -x[1]["amount"])
+    for (symbol, code, market), info in sorted_items:
+        amt = info["amount"]
+        pct = (amt / total_assets * 100) if total_assets else 0
+        cnt_note = f" (×{info['count']})" if info["count"] > 1 else ""
+        market_tag = market if market in ("US", "KR", "KRX") else "KR"
+        lines.append(f"  · {symbol} ({market_tag}): ₩{amt/1_000_000:.1f}M, 비중 {pct:.1f}%{cnt_note}")
+    return "\n".join(lines)
+
+
 def _load_state():
     """DB에서 사이클 상태 복원."""
     s = load_cycle_state()
@@ -1032,6 +1071,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         prompt = build_stock_analysis_prompt(
             stock_data_text, sector["name"], market_summary, history_text, agent_name,
             tg_context=extra_context,
+            portfolio_text=_format_portfolio_for_prompt(),
         )
         resp = None
         for attempt in range(2):  # 최대 2회 시도
@@ -1441,6 +1481,7 @@ def _run_telegram_watchlist_inner(force: bool = False):
             prompt = build_stock_analysis_prompt(
                 stock_data_text, "워치리스트", market_summary, history_text, agent_name,
                 tg_context=tg_ctx,
+                portfolio_text=_format_portfolio_for_prompt(),
             )
             resp = None
             for attempt in range(2):  # 최대 2회 시도
