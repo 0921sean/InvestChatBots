@@ -473,7 +473,7 @@
       <button class="btn btn-ghost" onclick="scrollToBottom()">↓ 최신</button>
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
       <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
-      <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클(워치리스트) 즉시 실행">▶ 서브 실행</button>
+      <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
   </div>
@@ -1067,12 +1067,12 @@ async function runMainCycle() {
 
 async function runSubCycle() {
   const btn = document.getElementById('btn-sub-run');
-  if (!confirm('서브 사이클(워치리스트) 즉시 실행할까요?')) return;
+  if (!confirm('서브 사이클 즉시 실행할까요?')) return;
   btn.disabled = true;
   btn.textContent = '시작 중...';
   try {
     const res = await fetch('/api/watchlist/run', {method:'POST'});
-    if (!res.ok) throw new Error('실행 실패 — 워치리스트 비활성/이미 진행 중일 수 있음');
+    if (!res.ok) throw new Error('실행 실패 — 서브 사이클 비활성/이미 진행 중일 수 있음');
     btn.textContent = '▶ 실행 됨';
     setTimeout(() => { btn.textContent = '▶ 서브 실행'; btn.disabled = false; }, 4000);
   } catch (e) {
@@ -1341,16 +1341,21 @@ function toggleTokenBox(e) {
 function _kstNow() {
   return new Date(Date.now() + 9 * 3600000);
 }
-function _nextKstWeekdayAt(hour, minute) {
-  // 다음 평일 hour:minute KST. 토일은 월요일로 건너뜀.
+function _nextKstWeekdayAt(hours, minute = 0) {
+  // 다음 평일 시각 (KST). hours는 number 또는 number[] 모두 허용.
+  const hs = Array.isArray(hours) ? hours : [hours];
   const n = _kstNow();
-  const target = new Date(n);
-  target.setUTCHours(hour, minute, 0, 0);
-  if (target <= n) target.setUTCDate(target.getUTCDate() + 1);
-  while (target.getUTCDay() === 0 || target.getUTCDay() === 6) {
-    target.setUTCDate(target.getUTCDate() + 1);
+  let best = null;
+  for (const h of hs) {
+    const t = new Date(n);
+    t.setUTCHours(h, minute, 0, 0);
+    if (t <= n) t.setUTCDate(t.getUTCDate() + 1);
+    while (t.getUTCDay() === 0 || t.getUTCDay() === 6) {
+      t.setUTCDate(t.getUTCDate() + 1);
+    }
+    if (!best || t < best) best = t;
   }
-  return target;
+  return best;
 }
 function _nextKstDailyAt(hours, minute = 0) {
   // 다음 hours 중 가장 빠른 시각 (요일 무관, KST)
@@ -1400,9 +1405,9 @@ function openSchedule() {
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'sub', title: '서브 사이클 (워치리스트)', time: '매일 00:00 · 12:00 · 18:00',
+      key: 'sub', title: '서브 사이클', time: '평일 00:00 · 12:00 · 18:00',
       desc: '텔레그램·뉴스 신규 종목 스캔 + 7봇 분석. 메인 진행 중이면 자동 skip',
-      next: _nextKstDailyAt([0, 12, 18]),
+      next: _nextKstWeekdayAt([0, 12, 18]),
     },
     {
       key: 'stop', title: '손절 체크', time: '평일 메인 완료 직후',
@@ -1416,7 +1421,7 @@ function openSchedule() {
     },
     {
       key: 'rest', title: '주말 휴식', time: '토 · 일',
-      desc: '메인 사이클·손절 체크·종목 점검 정지. 워치리스트만 계속 동작',
+      desc: '모든 사이클 정지 (메인·서브·손절 체크·종목 점검). 월요일 06:00 자동 재개',
       next: null,
     },
   ];
@@ -1554,13 +1559,19 @@ function _nextMainStartMs() {
   return diffMin * 60000;
 }
 function _nextSubStartMs() {
-  // 다음 0·12·18시 KST (요일 무관, 워치리스트는 주말도 돔)
+  // 다음 평일 0·12·18시 KST (서브 사이클은 주말 비활성)
   const k = _kstNowParts();
   const slots = [0, 12 * 60, 18 * 60];
   let best = null;
   for (const sm of slots) {
     let diff = sm - k.minOfDay;
-    if (diff <= 0) diff += 24 * 60;  // 다음날
+    let wd = k.weekday;
+    if (diff <= 0) { diff += 24 * 60; wd = (wd + 1) % 7; }
+    // 주말이면 월요일로 건너뜀
+    while (wd === 0 || wd === 6) {
+      diff += 24 * 60;
+      wd = (wd + 1) % 7;
+    }
     if (best == null || diff < best) best = diff;
   }
   return best * 60000;

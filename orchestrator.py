@@ -1137,9 +1137,10 @@ def is_watchlist_disabled() -> bool:
     return _watchlist_disabled
 
 
-def run_telegram_watchlist():
-    """텔레그램·뉴스 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단."""
-    if _watchlist_disabled:
+def run_telegram_watchlist(force: bool = False):
+    """텔레그램·뉴스 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단.
+    `force=True`면 주말/phase 가드 우회 (측정 등 수동 트리거용)."""
+    if _watchlist_disabled and not force:
         logger.info("워치리스트 비활성 상태 — 이번 슬롯 스킵")
         return
     # 이미 실행 중이면 건너뜀 (동시 실행 방지)
@@ -1148,24 +1149,25 @@ def run_telegram_watchlist():
         return
 
     try:
-        _run_telegram_watchlist_inner()
+        _run_telegram_watchlist_inner(force=force)
     finally:
         _watchlist_lock.release()
 
 
-def _run_telegram_watchlist_inner():
+def _run_telegram_watchlist_inner(force: bool = False):
     """워치리스트 실제 실행 로직."""
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
 
-    # 주말엔 안 함
-    if now.weekday() >= 5:
-        return
-    # 메인 사이클이 실제로 진행 중인 시간대(오전 6시~오전 6시 이전)엔 막기
-    # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
-    if _phase != "cycle_rest" and now.hour >= 6:
-        return
+    if not force:
+        # 주말엔 안 함
+        if now.weekday() >= 5:
+            return
+        # 메인 사이클이 실제로 진행 중인 시간대(오전 6시~오전 6시 이전)엔 막기
+        # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
+        if _phase != "cycle_rest" and now.hour >= 6:
+            return
     if is_user_active() or _pause_requested:
         return
 
@@ -1173,12 +1175,12 @@ def _run_telegram_watchlist_inner():
     if is_claude_token_exhausted():
         from agents import _call_claude_cli
         from notifier import notify as _notify
-        _notify("⏸ 워치리스트 대기", "Claude 토큰 소진 — 충전 후 자동 재개", priority="default", cooldown=1800)
+        _notify("⏸ 서브 사이클 대기", "Claude 토큰 소진 — 충전 후 자동 재개", priority="default", cooldown=1800)
         for _ in range(60):  # 최대 60분 대기
             time.sleep(60)
             try:
                 _call_claude_cli("test", "ping")
-                _notify("▶ 워치리스트 재개", "토큰 복구됨", priority="default", cooldown=0)
+                _notify("▶ 서브 사이클 재개", "토큰 복구됨", priority="default", cooldown=0)
                 break
             except ClaudeTokenExhausted:
                 continue
@@ -1252,15 +1254,15 @@ def _run_telegram_watchlist_inner():
             pass
 
     # 스캔 결과 채팅에 기록 (유효 종목만 표시)
-    scan_round_id = create_round(f"{source_label} 워치리스트 스캔")
+    scan_round_id = create_round(f"{source_label} 서브 사이클 스캔")
     if valid_tickers:
         _save_msg(scan_round_id, "System",
-                  f"📡 [{source_label}] 워치리스트 스캔 완료\n"
+                  f"📡 [{source_label}] 서브 사이클 스캔 완료\n"
                   f"분석 대상: {', '.join(t['name'] for t in valid_tickers)}\n"
                   f"(메인 종목·가격없음 제외 후)")
     else:
         _save_msg(scan_round_id, "System",
-                  f"📡 [{source_label}] 워치리스트 스캔 완료\n→ 분석할 신규 종목 없음")
+                  f"📡 [{source_label}] 서브 사이클 스캔 완료\n→ 분석할 신규 종목 없음")
     complete_round(scan_round_id)
 
     if not valid_tickers:
@@ -1308,7 +1310,7 @@ def _run_telegram_watchlist_inner():
         except Exception:
             pass
 
-        round_id = create_round(f"워치리스트 — {name}")
+        round_id = create_round(f"서브 사이클 — {name}")
         tg_ctx = get_cached_context(max_msgs=10)
         _save_msg(round_id, "System",
                   f"📡 텔레그램 언급 종목: {name}\n{stock_data_text}\n\n빠르게 한 마디씩.")
@@ -1317,7 +1319,7 @@ def _run_telegram_watchlist_inner():
         token_exhausted = False
         for agent_name in get_speak_order():
             if _watchlist_disabled:
-                _save_msg(round_id, "System", f"⏸ 워치리스트 비활성화 — {name} 분석 중단")
+                _save_msg(round_id, "System", f"⏸ 서브 사이클 비활성화 — {name} 분석 중단")
                 complete_round(round_id)
                 logger.info("워치리스트 비활성 신호 — 봇 루프 중단")
                 return
@@ -1358,8 +1360,8 @@ def _run_telegram_watchlist_inner():
 
         if token_exhausted:
             _save_msg(round_id, "System",
-                      f"⏸ Claude 토큰 소진 — 워치리스트 중단 ({name} 분석 미완).\n"
-                      f"다음 워치리스트 슬롯(KST 12·18·24시) 또는 토큰 충전 후 자동 재개.")
+                      f"⏸ Claude 토큰 소진 — 서브 사이클 중단 ({name} 분석 미완).\n"
+                      f"다음 서브 사이클 슬롯(KST 00·12·18시) 또는 토큰 충전 후 자동 재개.")
             complete_round(round_id)
             break
 
@@ -1379,7 +1381,7 @@ def _run_telegram_watchlist_inner():
             buy_count = sum(1 for d, _ in decisions if d == "매수")
             vote_text = " | ".join(f"{n}: {_parse_decision(r)[0]}" for n, r in bot_responses)
             _save_msg(round_id, "System",
-                      f"🗳 워치리스트 투표: {vote_text}\n→ 최종: {final} ({buy_count}표)")
+                      f"🗳 서브 사이클 투표: {vote_text}\n→ 최종: {final} ({buy_count}표)")
             if final == "매수" and current_price > 0:
                 buy_votes = [(n, r) for (n, r) in bot_responses if _parse_decision(r)[0] == "매수"]
                 _execute_buy({"name": name, "code": code, "market": market}, current_price, buy_amount, buy_votes, round_id)
@@ -1394,10 +1396,10 @@ def _run_telegram_watchlist_inner():
     except Exception as e:
         logger.debug(f"멤버 분석 오류: {e}")
 
-    # 워치리스트 완료 메시지
-    done_round_id = create_round("텔레그램 워치리스트 완료")
+    # 서브 사이클 완료 메시지
+    done_round_id = create_round("서브 사이클 완료")
     _save_msg(done_round_id, "System",
-              f"✅ 워치리스트 스캔 완료 — 다음 실행 2시간 후")
+              f"✅ 서브 사이클 완료 — 다음 슬롯 대기 (KST 00·12·18시)")
     complete_round(done_round_id)
 
 

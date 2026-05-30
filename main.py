@@ -114,6 +114,28 @@ async def lifespan(app: FastAPI):
         if cleaned:
             logger.info(f"시작 시 미완료 라운드 {cleaned}개 정리")
     scheduler = start_scheduler()
+    app.state.scheduler = scheduler  # 디버그 API에서 참조
+
+    # ── 일회성 측정 잡 (수동 등록) ──────────────────────────
+    # 2026-05-30 20:00 KST 서브 사이클 토큰 측정
+    try:
+        from apscheduler.triggers.date import DateTrigger
+        from datetime import datetime, timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        target = datetime(2026, 5, 30, 20, 0, 0, tzinfo=KST)
+        if target > datetime.now(KST):
+            scheduler.add_job(
+                measure_watchlist,
+                DateTrigger(run_date=target),
+                id="oneoff_watchlist_measure_20h",
+                replace_existing=True,
+            )
+            print(f"[lifespan] 일회성 서브 측정 등록: {target.isoformat()}", flush=True)
+            logger.info(f"일회성 서브 측정 등록: {target.isoformat()}")
+    except Exception as e:
+        print(f"[lifespan] 일회성 잡 등록 실패: {e}", flush=True)
+        logger.error(f"일회성 잡 등록 실패: {e}")
+
     _loop_running = True
     _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
     _loop_thread.start()
@@ -684,9 +706,117 @@ def _fmt_n(n: int) -> str:
     return str(n)
 
 
+def measure_watchlist():
+    """서브 사이클 토큰 측정용 — force=True로 1회 실행 후 ntfy 보고."""
+    from datetime import datetime, timezone, timedelta
+    from db import create_round, save_message, complete_round
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    round_id = create_round(f"🔬 서브 사이클 측정 — {now.strftime('%Y-%m-%d %H:%M')}")
+    save_message(round_id, "System", None,
+                 f"🔬 토큰 측정 — 서브 사이클 1회 강제 실행\n"
+                 f"시작: {now.strftime('%Y-%m-%d %H:%M:%S KST')}\n"
+                 f"종료 시 ntfy 푸시로 자동 보고")
+    complete_round(round_id)
+
+    start_token = get_token_usage_today()
+    start_epoch = now.timestamp()
+
+    def _run():
+        from orchestrator import run_telegram_watchlist
+        reason = "정상 완료"
+        try:
+            run_telegram_watchlist(force=True)
+        except Exception as e:
+            reason = f"예외: {type(e).__name__}: {e}"
+            logger.exception(f"[서브 측정] 오류")
+        _send_watchlist_report(start_token, start_epoch, reason)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _send_watchlist_report(start_token: dict, start_epoch: float, reason: str = "정상 완료"):
+    """서브 사이클 측정 종료 후 토큰 차이 + 봇별 분해 ntfy."""
+    try:
+        from db import _conn
+        from notifier import notify
+        from datetime import datetime, timezone, timedelta
+        import sqlite3
+        KST = timezone(timedelta(hours=9))
+        end_dt = datetime.now(KST)
+        elapsed_min = (end_dt.timestamp() - start_epoch) / 60
+        end_token = get_token_usage_today()
+        calls = (end_token.get("calls") or 0) - (start_token.get("calls") or 0)
+        inp = (end_token.get("input_tokens") or 0) - (start_token.get("input_tokens") or 0)
+        out = (end_token.get("output_tokens") or 0) - (start_token.get("output_tokens") or 0)
+        cache_r = (end_token.get("cache_read_tokens") or 0) - (start_token.get("cache_read_tokens") or 0)
+        cache_c = (end_token.get("cache_create_tokens") or 0) - (start_token.get("cache_create_tokens") or 0)
+        cost = (end_token.get("cost_usd") or 0) - (start_token.get("cost_usd") or 0)
+        total = inp + out + cache_r + cache_c
+
+        bot_calls = {}
+        stock_cnt = 0
+        with _conn() as con:
+            con.row_factory = sqlite3.Row
+            rounds = con.execute("""
+                SELECT id, topic FROM rounds
+                WHERE started_at >= datetime(?, 'unixepoch')
+            """, (start_epoch,)).fetchall()
+            for r in rounds:
+                topic = r["topic"] or ""
+                if "서브" in topic or "워치" in topic or "watchlist" in topic.lower():
+                    stock_cnt += 1
+                rows = con.execute("""
+                    SELECT agent_name, COUNT(*) c FROM messages
+                    WHERE round_id=? AND agent_name NOT IN ('System','User')
+                    GROUP BY agent_name
+                """, (r["id"],)).fetchall()
+                for row in rows:
+                    bot_calls[row["agent_name"]] = bot_calls.get(row["agent_name"], 0) + row["c"]
+
+        from prompts import AGENT_ORDER
+        bot_summary = " · ".join(f"{n} {bot_calls.get(n,0)}" for n in AGENT_ORDER)
+        title_prefix = "🔬 서브 측정 완료" if "정상" in reason else "⚠️ 서브 측정 비정상 종료"
+        title = f"{title_prefix} — {elapsed_min:.0f}분"
+        body = (
+            f"종료 사유: {reason}\n"
+            f"분석 종목 수: {stock_cnt}개\n"
+            f"총: {calls}콜 · {_fmt_n(total)} 토큰 · ${cost:.2f}\n"
+            f"{bot_summary}\n"
+            f"하루 3슬롯(00·12·18시) 기준 ≈ ₩{cost*3*1380:,.0f}/일"
+        )
+        notify(title, body, priority="high", cooldown=0)
+        logger.info(f"[서브 측정] ntfy 발송 완료: {title}")
+    except Exception as e:
+        logger.error(f"[서브 측정] 결과 보고 실패: {e}")
+
+
+@app.post("/api/sub-cycle/measure")
+def api_sub_cycle_measure():
+    """수동 — 서브 사이클 토큰 측정 즉시 1회 실행 (force, 토큰 사용량 ntfy)."""
+    measure_watchlist()
+    from datetime import datetime, timezone, timedelta
+    return {"ok": True, "started_at": datetime.now(timezone(timedelta(hours=9))).isoformat()}
+
+
+@app.get("/api/_debug/jobs")
+def api_debug_jobs():
+    """디버그 — 현재 스케줄러 잡 목록 + 다음 실행 시각."""
+    try:
+        sch = app.state.scheduler
+    except AttributeError:
+        return {"jobs": [], "error": "scheduler not initialized"}
+    return {"jobs": [
+        {"id": j.id, "next_run": j.next_run_time.isoformat() if j.next_run_time else None,
+         "trigger": str(j.trigger)}
+        for j in sch.get_jobs()
+    ]}
+
+
 @app.post("/api/watchlist/pause")
 def api_watchlist_pause():
-    """서브 사이클(워치리스트) 즉시 중단 + 다음 슬롯도 스킵."""
+    """서브 사이클 즉시 중단 + 다음 슬롯도 스킵."""
     from orchestrator import pause_watchlist
     pause_watchlist()
     return {"ok": True, "disabled": True}
