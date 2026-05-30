@@ -838,9 +838,18 @@ def _advance_stock(round_id: int, sector: dict):
             _save_msg(round_id, "System", f"다음 종목 → {next_stock}")
         _persist_state()
 
-    # 메인 사이클이 방금 끝났으면 → 보유 종목 점검 백그라운드 실행
+    # 메인 사이클이 방금 끝났으면 → 손절 체크 → 보유 종목 점검 (순차 백그라운드)
     if cycle_just_finished:
-        threading.Thread(target=review_holdings, daemon=True).start()
+        def _post_cycle_checks():
+            try:
+                evaluate_positions()  # -20% 도달 종목 자동 손절
+            except Exception as e:
+                logger.exception(f"손절 체크 실패: {e}")
+            try:
+                review_holdings()  # 매도 4표 이상 청산
+            except Exception as e:
+                logger.exception(f"보유 점검 실패: {e}")
+        threading.Thread(target=_post_cycle_checks, daemon=True).start()
 
 
 # ── 종목 분석 라운드 ──────────────────────────────────────
