@@ -184,6 +184,15 @@ def init_db():
             note TEXT,
             added_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS token_capacity (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            estimated_max_cost_usd REAL DEFAULT 0,
+            last_calibrated_at DATETIME,
+            last_known_pct REAL DEFAULT 0,
+            last_known_cost_usd REAL DEFAULT 0,
+            notes TEXT
+        );
+        INSERT OR IGNORE INTO token_capacity (id, estimated_max_cost_usd) VALUES (1, 0);
         CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
@@ -816,3 +825,38 @@ def feedback_unread_count() -> int:
     with _conn() as con:
         row = con.execute("SELECT COUNT(*) FROM feedback WHERE is_read=0").fetchone()
         return row[0] if row else 0
+
+
+# ── Claude 토큰 한도 추정 (사용자 calibrate) ───────────────
+def get_token_capacity() -> dict:
+    """현재 추정 최대 토큰 한도 + 마지막 calibrate 정보."""
+    with _conn() as con:
+        import sqlite3
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM token_capacity WHERE id=1").fetchone()
+        return dict(row) if row else {"estimated_max_cost_usd": 0}
+
+
+def calibrate_token_capacity(percent_used: float, current_cost: float, notes: str = "") -> dict:
+    """사용자가 알려준 사용률 + 현재 누적 비용으로 최대 한도 추정.
+    estimated_max = current_cost / (percent_used/100)
+    예: 85% 사용 시점 누적 $170 → max ≈ $200
+    """
+    if percent_used <= 0 or percent_used > 100:
+        raise ValueError("percent_used는 0~100 사이")
+    est_max = current_cost / (percent_used / 100.0)
+    with _conn() as con:
+        con.execute("""
+            UPDATE token_capacity
+            SET estimated_max_cost_usd=?,
+                last_calibrated_at=CURRENT_TIMESTAMP,
+                last_known_pct=?,
+                last_known_cost_usd=?,
+                notes=?
+            WHERE id=1
+        """, (est_max, percent_used, current_cost, notes[:200]))
+    return {
+        "estimated_max_cost_usd": est_max,
+        "last_known_pct": percent_used,
+        "last_known_cost_usd": current_cost,
+    }

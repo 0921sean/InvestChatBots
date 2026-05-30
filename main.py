@@ -1136,6 +1136,17 @@ def api_token_usage():
     else:
         set_state = "idle"
 
+    # 토큰 한도 추정 (사용자 calibrate 기반)
+    from db import get_token_capacity
+    cap = get_token_capacity()
+    est_max = cap.get("estimated_max_cost_usd", 0) or 0
+    cur_cost = today.get("cost_usd", 0) or 0
+    # 마지막 회복 이후 사용량 = 누적 - 회복 시점 추정. 회복 시점에 0으로 리셋되는 게 정확.
+    # 단순화: 누적 cost를 estimated_max에서 차감.
+    # max=0이면 한도 모름 → pct=0
+    pct_used = (cur_cost / est_max * 100) if est_max > 0 else 0
+    pct_remaining = max(0, 100 - pct_used)
+
     return {
         "today": today,
         "recent": recent,
@@ -1144,7 +1155,38 @@ def api_token_usage():
         "polling_active": o._recovery_polling_active,
         "last_recovery_at": o._last_recovery_at,
         "last_set_ended_at": o._last_set_ended_at,
+        "capacity": {
+            "estimated_max_cost_usd": est_max,
+            "current_cost_usd": cur_cost,
+            "pct_used": round(pct_used, 1),
+            "pct_remaining": round(pct_remaining, 1),
+            "last_calibrated_at": cap.get("last_calibrated_at"),
+            "last_known_pct": cap.get("last_known_pct"),
+            "last_known_cost_usd": cap.get("last_known_cost_usd"),
+        },
     }
+
+
+class CalibrateBody(BaseModel):
+    percent_used: float  # 사용자가 Claude에서 본 사용률 (0~100)
+    notes: str = ""
+
+
+@app.post("/api/admin/token-capacity/calibrate")
+def api_calibrate_capacity(body: CalibrateBody, request: Request):
+    """사용자가 Claude에서 본 사용률(%) → 최대 한도 추정.
+    예: '85% 사용 중' 알려주면 → 현재 누적 cost / 0.85 = max 추정."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    if body.percent_used <= 0 or body.percent_used > 100:
+        raise HTTPException(400, "percent_used는 0~100")
+    today = get_token_usage_today()
+    cur_cost = today.get("cost_usd", 0) or 0
+    if cur_cost <= 0:
+        raise HTTPException(400, "오늘 사용량이 아직 없어 calibrate 불가")
+    from db import calibrate_token_capacity
+    result = calibrate_token_capacity(body.percent_used, cur_cost, body.notes)
+    return {"ok": True, **result}
 
 
 # ── 후원 누적 (수동 카운터) ─────────────────────────────────

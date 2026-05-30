@@ -1384,7 +1384,19 @@ async function loadTokenUsage() {
     const fill = document.getElementById('tb-gauge-fill');
     fill.className = 'tb-gauge-fill';
     if (info.fillClass) fill.classList.add(info.fillClass);
-    fill.style.width = '100%';  // 모든 상태에서 풀 — 색·애니메이션으로 구분
+    // 한도가 calibrate되어 있으면 게이지 = 남은 % (사용 중일 때만)
+    const cap = d.capacity || {};
+    const estMax = cap.estimated_max_cost_usd || 0;
+    const pctRemain = cap.pct_remaining || 0;
+    const runningStates = ['main_running','sub_running','post_check_running'];
+    if (estMax > 0 && runningStates.includes(state)) {
+      // 사용 중: 남은 비율로 게이지 표시
+      fill.style.width = Math.max(5, pctRemain) + '%';
+    } else if (state === 'exhausted') {
+      fill.style.width = '15%';  // 소진: 작게 빨강
+    } else {
+      fill.style.width = '100%';  // idle/polling/recovered: 풀
+    }
 
     // 라벨 — 현재 세트 사용량 + 누적
     const remainEl = document.getElementById('tb-remain');
@@ -1392,21 +1404,29 @@ async function loadTokenUsage() {
     const totalEl = document.getElementById('tb-total');
     const calls = t.calls || 0;
     const cost = t.cost_usd || 0;
-    remainEl.textContent = `${fmtNum(calls)}콜`;
-    remainSubEl.textContent = ` · $${cost.toFixed(2)}`;
-    // 회복 시점 텍스트
+    if (estMax > 0) {
+      // 한도 calibrate된 경우: '$X.XX / $Y 한도 (Z%)'
+      remainEl.textContent = `$${cost.toFixed(2)}`;
+      remainSubEl.textContent = ` / $${estMax.toFixed(0)} 한도`;
+      totalEl.textContent = `${cap.pct_used.toFixed(1)}% 사용`;
+    } else {
+      // 한도 모름: '콜 수 · $X' + 한도 calibrate 안내
+      remainEl.textContent = `${fmtNum(calls)}콜`;
+      remainSubEl.textContent = ` · $${cost.toFixed(2)}`;
+      totalEl.textContent = '한도 미설정';
+    }
+    // 회복/polling 시점은 sub에 표시
+    let subText = info.label;
     if (state === 'recovered' && d.last_recovery_at > 0) {
       const ago = Math.round((Date.now() / 1000 - d.last_recovery_at) / 60);
-      totalEl.textContent = `${ago}분 전 회복`;
+      subText = `${info.label} · ${ago}분 전`;
     } else if (state === 'polling' && d.last_set_ended_at > 0) {
       const ago = Math.round((Date.now() / 1000 - d.last_set_ended_at) / 60);
-      totalEl.textContent = `세트 종료 ${ago}분`;
-    } else {
-      totalEl.textContent = '';
+      subText = `${info.label} · 세트 종료 ${ago}분`;
     }
 
-    // 보조 — 마지막 업데이트
-    document.getElementById('tb-sub').textContent = info.label;
+    // 보조 — 상태 라벨 (회복/polling 경과 시간 포함)
+    document.getElementById('tb-sub').textContent = subText;
 
     // 상태 뱃지
     const s = document.getElementById('tb-status');
