@@ -1388,14 +1388,19 @@ function _fmtKstRelative(target) {
 }
 
 function openSchedule() {
-  // 현재 활동(activity / phase)에 따라 active 표시
+  // 현재 활동(activity / phase / running / 요일)에 따라 active 표시
   let activeKey = null;
+  const wd = _kstNow().getUTCDay();  // 0=일, 6=토
+  const isWeekend = (wd === 0 || wd === 6);
   if (window._lastState) {
     const s = window._lastState;
     if (s.activity === 'watchlist') activeKey = 'sub';
     else if (s.activity === 'holdings_review') activeKey = 'check';
-    else if (s.phase === 'sector_discussion' || s.phase === 'stock_analysis') activeKey = 'main';
-    else if (s.phase === 'cycle_rest') activeKey = 'rest';
+    else if (s.running && (s.phase === 'sector_discussion' || s.phase === 'stock_analysis')) activeKey = 'main';
+    else if (isWeekend) activeKey = 'rest';
+    // running=false + 평일 + phase가 stock_analysis 등 → 정지 상태. active 표시 없음.
+  } else if (isWeekend) {
+    activeKey = 'rest';
   }
 
   const items = [
