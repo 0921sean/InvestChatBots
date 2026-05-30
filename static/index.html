@@ -111,17 +111,10 @@
   body.readonly #btn-summary, body.readonly #btn-main-run, body.readonly #btn-sub-run { display: none !important; }
   /* owner 전용 — visitor 모드면 숨김 (재사용 클래스) */
   body.readonly .owner-only { display: none !important; }
-  /* 방문자 모드 — 계좌·후원 관련 UI 전부 숨김 (운영 안정화 전까지 외부 노출 X) */
-  body.readonly #tb-account,
-  body.readonly #tb-tagline,
-  body.readonly #tb-footnote,
-  body.readonly #tb-last-donation,
-  body.readonly #tb-owner-actions,
+  /* 방문자 모드 — 토큰/계좌/후원 관련 UI 전부 숨김 (운영 안정화 전까지 외부 노출 X) */
+  body.readonly #token-box { display: none !important; }
   body.readonly .msg-donation,
   body.readonly .msg-donation-system { display: none !important; }
-  /* 후원 관련 detail 영역 자체도 visitor엔 의미 없으면 접기 */
-  body.readonly #token-box .tb-detail:empty,
-  body.readonly #token-box .tb-detail { padding-bottom: 4px; }
   /* Members 행도 visitor엔 클릭 안 되는 느낌 */
   body.readonly .member { cursor: default; }
   body.readonly .member:hover { background: transparent; }
@@ -621,6 +614,17 @@
 </div>
 
 <script>
+// 출처 표식(?s=…) 정리 — 서버가 이미 첫 진입 시 기록함. 주소창은 깨끗하게.
+// 사용자가 이 URL 그대로 복사·재공유하면 출처 식별이 잘못 섞임 방지.
+try {
+  const u = new URL(window.location.href);
+  if (u.searchParams.has('s')) {
+    u.searchParams.delete('s');
+    const clean = u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '') + u.hash;
+    window.history.replaceState({}, '', clean);
+  }
+} catch (e) { /* old browser */ }
+
 const BOT_COLORS = {
   드가자:'#ef4444', INTJ:'#3b82f6', 퀀트중독자:'#8b5cf6',
   빅픽처:'#f59e0b', 차트천재:'#10b981',
