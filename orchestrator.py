@@ -1188,11 +1188,8 @@ def _run_telegram_watchlist_inner(force: bool = False):
     now = datetime.now(KST)
 
     if not force:
-        # 주말엔 안 함
-        if now.weekday() >= 5:
-            return
-        # 메인 사이클이 실제로 진행 중인 시간대(오전 6시~오전 6시 이전)엔 막기
-        # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
+        # 요일 가드는 scheduler.py cron이 책임 (월요일 0시 제외 / 12·18시 평일만)
+        # 여기선 메인 진행 중일 때만 막음
         if _phase != "cycle_rest" and now.hour >= 6:
             return
         # 사용자 활동/일시정지 중에도 정기 cron은 막음 (측정·수동 트리거는 force=True로 우회)

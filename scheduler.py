@@ -12,12 +12,21 @@ def start_scheduler():
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
     # 매일 6시: 사이클 리셋 후 시작
     scheduler.add_job(reset_daily_cycle, CronTrigger(hour=6, minute=0), misfire_grace_time=300)
-    # 워치리스트: 0, 12, 18시 (메인 진행 중이면 자동 skip, KST 기준)
+    # 서브 사이클 (워치리스트) — KST 기준
+    # 0시: 월요일 제외 (월요일 0시는 메인 시작 6시까지 대기, 안 돎)
+    #      금→토 넘어가는 0시, 토→일 0시, 화·수·목·금 0시 모두 동작
+    # 12·18시: 평일만 (월~금 메인 cycle_rest 시 신호 수집)
     scheduler.add_job(
         run_telegram_watchlist,
-        CronTrigger(hour='0,12,18', minute=0),
-        id="telegram_watchlist",
-        misfire_grace_time=600,  # 10분 이내 놓친 것도 실행
+        CronTrigger(hour=0, minute=0, day_of_week='tue,wed,thu,fri,sat,sun'),
+        id="sub_cycle_midnight",
+        misfire_grace_time=600,
+    )
+    scheduler.add_job(
+        run_telegram_watchlist,
+        CronTrigger(hour='12,18', minute=0, day_of_week='mon-fri'),
+        id="sub_cycle_day",
+        misfire_grace_time=600,
     )
     # 손절 체크(-20% 자동 매도)·보유 종목 점검은 메인 사이클 완료 직후 자동 트리거
     # (_advance_stock → cycle_rest 진입 시 _post_cycle_checks 실행).

@@ -121,7 +121,7 @@
   /* Members 행도 visitor엔 클릭 안 되는 느낌 */
   body.readonly .member { cursor: default; }
   body.readonly .member:hover { background: transparent; }
-  body.readonly #visitor-timers { display: flex !important; }
+  body.readonly #visitor-timers { display: none !important; }
   /* visitor 모드 카운트다운 (메인·서브 다음 실행 시간) */
   #visitor-timers { display: none; gap: 12px; align-items: center; font-size: 11px;
     color: #8b949e; font-variant-numeric: tabular-nums; }
@@ -1573,9 +1573,9 @@ function openSchedule() {
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'sub', title: '서브 사이클', time: '평일 00:00 · 12:00 · 18:00',
-      desc: '텔레그램·뉴스 신규 종목 후보 중 무작위 20개 선정 → 7봇 분석. 메인 진행 중이면 자동 skip',
-      next: _nextKstWeekdayAt([0, 12, 18]),
+      key: 'sub', title: '서브 사이클', time: '00시(화·수·목·금·토·일) · 12·18시(평일)',
+      desc: '텔레그램·뉴스 신규 종목 후보 중 무작위 20개 선정 → 7봇 분석. 월요일 00시는 안 돎(6시 메인 시작), 토·일 00시는 동작',
+      next: null,
     },
     {
       key: 'holdings', title: '보유 종목 점검', time: '평일 메인 완료 직후',
