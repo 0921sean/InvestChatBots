@@ -881,10 +881,7 @@ def _advance_stock(round_id: int, sector: dict):
             pass
 
         def _post_cycle_checks():
-            try:
-                evaluate_positions()  # -20% 도달 종목 자동 손절
-            except Exception as e:
-                logger.exception(f"손절 체크 실패: {e}")
+            # 자동 -20% 손절 제거 (사용자 결정) — 봇 매수/관망/매도 투표로 일원화
             try:
                 review_holdings()  # 매도 4표 이상 청산
             except Exception as e:
@@ -1777,12 +1774,29 @@ def _review_holdings_inner(force: bool = False):
         complete_round(intro_round_id)
         return
 
-    names = ", ".join(p["symbol"] for p in positions)
+    # 오늘 메인 사이클에서 분석·매수된 종목은 점검 패스 (이미 매수 결정 났음)
+    today_str = now.strftime("%Y-%m-%d")
+    positions_to_review = []
+    skipped_today = []
+    for p in positions:
+        opened_at = (p.get("opened_at") or "")[:10]
+        if opened_at == today_str:
+            skipped_today.append(p["symbol"])
+        else:
+            positions_to_review.append(p)
+
+    names = ", ".join(p["symbol"] for p in positions_to_review) if positions_to_review else "(없음)"
+    skip_note = f"\n오늘 매수 → 패스: {', '.join(skipped_today)}" if skipped_today else ""
     _save_msg(intro_round_id, "System",
-              f"📋 보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
-              f"대상: {names}\n"
-              f"각 종목별로 9봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
+              f"📋 보유 종목 점검 — 대상 {len(positions_to_review)}개 / 전체 {len(positions)}개\n"
+              f"대상: {names}{skip_note}\n"
+              f"각 종목별 7봇 매수/관망/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
     complete_round(intro_round_id)
+
+    if not positions_to_review:
+        return
+
+    positions = positions_to_review
 
     market_summary, _ = _get_or_refresh_market_summary()
     sold, kept = [], []
