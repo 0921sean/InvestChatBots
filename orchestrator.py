@@ -271,6 +271,8 @@ _post_check_start_token: dict | None = None
 _post_check_start_epoch: float = 0.0
 # 세트 종료 후 토큰 회복 감지 polling (1시간 간격)
 _recovery_polling_active: bool = False
+_last_recovery_at: float = 0.0  # 마지막 회복 감지 시각 (epoch)
+_last_set_ended_at: float = 0.0  # 마지막 세트 종료 시각
 
 
 def request_pause():
@@ -953,7 +955,9 @@ def _start_recovery_polling(set_name: str):
     if _recovery_polling_active:
         logger.info("recovery polling 이미 활성 — 중복 시작 skip")
         return
+    import time as _t_init
     globals()["_recovery_polling_active"] = True
+    globals()["_last_set_ended_at"] = _t_init.time()
 
     def _loop():
         import time as _t
@@ -971,6 +975,7 @@ def _start_recovery_polling(set_name: str):
                     # ping 성공 → 윈도우 회복
                     if is_claude_token_exhausted():
                         _clear_token_exhausted()
+                    globals()["_last_recovery_at"] = _t.time()
                     elapsed_min = int((_t.time() - start_epoch) / 60)
                     try:
                         cur = get_token_usage_today()

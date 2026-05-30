@@ -1113,14 +1113,37 @@ def api_random_speak_status():
 
 @app.get("/api/token-usage")
 def api_token_usage():
-    """오늘 + 최근 7일 Claude 토큰 사용량. 현재 소진 여부 포함."""
+    """오늘 + 최근 7일 Claude 토큰 사용량 + 세트 상태."""
     from agents import is_claude_token_exhausted
+    import orchestrator as o
+    import time as _t
     today = get_token_usage_today()
     recent = get_token_usage_recent(7)
+
+    # 세트 상태 판정
+    if is_claude_token_exhausted():
+        set_state = "exhausted"
+    elif o._phase in ("sector_discussion", "stock_analysis"):
+        set_state = "main_running"
+    elif o.is_watchlist_running() if hasattr(o, "is_watchlist_running") else o._watchlist_lock.locked():
+        set_state = "sub_running"
+    elif o._holdings_review_lock.locked():
+        set_state = "post_check_running"
+    elif o._recovery_polling_active:
+        set_state = "polling"  # 세트 종료 후 회복 대기
+    elif o._last_recovery_at > 0 and (_t.time() - o._last_recovery_at) < 3600:
+        set_state = "recovered"  # 회복 감지 후 1시간 안 — 풀 시각화
+    else:
+        set_state = "idle"
+
     return {
         "today": today,
         "recent": recent,
         "exhausted": is_claude_token_exhausted(),
+        "set_state": set_state,
+        "polling_active": o._recovery_polling_active,
+        "last_recovery_at": o._last_recovery_at,
+        "last_set_ended_at": o._last_set_ended_at,
     }
 
 
