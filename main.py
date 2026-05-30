@@ -276,15 +276,20 @@ def admin_login(body: AdminLoginBody):
 
 @app.get("/")
 def root(request: Request, s: str = ""):
-    # 인라인 JS·CSS라 캐시되면 화면이 안 갱신됨 → 매번 새로 받게 함
-    resp = FileResponse(
-        "static/index.html",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
+    # 모바일 브라우저(iOS Safari·카카오톡 인앱)는 Cache-Control: no-cache 무시하고
+    # ETag·Last-Modified로 304 보내는 경우 있음. 매번 다른 마커를 박아
+    # ETag 자체를 매번 다르게 만들어 강제로 새 HTML 받게 함.
+    import time as _t
+    with open("static/index.html", "rb") as f:
+        html = f.read()
+    marker = f"<!-- build {int(_t.time()*1000)} -->".encode()
+    html = html.replace(b"</head>", marker + b"</head>", 1)
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    resp = Response(content=html, media_type="text/html; charset=utf-8", headers=headers)
     # 방문 로그 — ?s=kakao|kora|insta|mail 출처 기록 (없으면 'direct')
     try:
         from db import log_visit
