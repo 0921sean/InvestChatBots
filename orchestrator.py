@@ -222,6 +222,11 @@ _user_active_until: float = 0.0
 _stop_on_credit: bool = False
 _agent_fail_count: dict = {}
 _pause_requested: bool = False  # 일시정지 플래그
+# 메인·서브 사이클 시작 시점 토큰 스냅샷 (정기 cron으로 도는 경우 ntfy 보고용)
+_main_cycle_start_token: dict | None = None
+_main_cycle_start_epoch: float = 0.0
+_post_check_start_token: dict | None = None
+_post_check_start_epoch: float = 0.0
 
 
 def request_pause():
@@ -862,8 +867,24 @@ def _advance_stock(round_id: int, sector: dict):
             _save_msg(round_id, "System", f"다음 종목 → {next_stock}")
         _persist_state()
 
-    # 메인 사이클이 방금 끝났으면 → 손절 체크 → 보유 종목 점검 (순차 백그라운드)
+    # 메인 사이클이 방금 끝났으면 → 메인 토큰 ntfy → 손절·점검 (순차 백그라운드)
     if cycle_just_finished:
+        # ① 메인 사이클 토큰 사용량 ntfy (정기 cron으로 도는 경우)
+        if _main_cycle_start_token is not None:
+            try:
+                from main import _send_baseline_report
+                _send_baseline_report(_main_cycle_start_token, _main_cycle_start_epoch,
+                                      reason="정상 완료 (정기 06:00 메인)")
+            except Exception as e:
+                logger.exception(f"메인 사이클 ntfy 실패: {e}")
+        # ② 손절·점검 직전 토큰 스냅샷
+        try:
+            from main import get_token_usage_today
+            globals()["_post_check_start_token"] = get_token_usage_today()
+            globals()["_post_check_start_epoch"] = time.time()
+        except Exception:
+            pass
+
         def _post_cycle_checks():
             try:
                 evaluate_positions()  # -20% 도달 종목 자동 손절
@@ -873,7 +894,39 @@ def _advance_stock(round_id: int, sector: dict):
                 review_holdings()  # 매도 4표 이상 청산
             except Exception as e:
                 logger.exception(f"보유 점검 실패: {e}")
+            # ③ 손절·점검 끝나면 토큰 사용량 ntfy
+            try:
+                _send_post_check_report()
+            except Exception as e:
+                logger.exception(f"손절·점검 ntfy 실패: {e}")
         threading.Thread(target=_post_cycle_checks, daemon=True).start()
+
+
+def _send_post_check_report():
+    """손절 체크 + 보유 종목 점검 후 토큰 차이 ntfy."""
+    if _post_check_start_token is None:
+        return
+    from main import get_token_usage_today
+    from notifier import notify
+    end_token = get_token_usage_today()
+    elapsed_min = (time.time() - _post_check_start_epoch) / 60
+    calls = (end_token.get("calls") or 0) - (_post_check_start_token.get("calls") or 0)
+    inp = (end_token.get("input_tokens") or 0) - (_post_check_start_token.get("input_tokens") or 0)
+    out = (end_token.get("output_tokens") or 0) - (_post_check_start_token.get("output_tokens") or 0)
+    cache_r = (end_token.get("cache_read_tokens") or 0) - (_post_check_start_token.get("cache_read_tokens") or 0)
+    cache_c = (end_token.get("cache_create_tokens") or 0) - (_post_check_start_token.get("cache_create_tokens") or 0)
+    cost = (end_token.get("cost_usd") or 0) - (_post_check_start_token.get("cost_usd") or 0)
+    total = inp + out + cache_r + cache_c
+    def _fmt_n(n):
+        if n >= 1_000_000: return f"{n/1_000_000:.2f}M"
+        if n >= 1_000: return f"{n/1_000:.1f}K"
+        return str(n)
+    notify(
+        f"🛡 보유 종목 점검 완료 — {elapsed_min:.0f}분",
+        f"손절 + 7봇 점검\n"
+        f"총: {calls}콜 · {_fmt_n(total)} 토큰 · ${cost:.2f}",
+        priority="high", cooldown=0,
+    )
 
 
 # ── 종목 분석 라운드 ──────────────────────────────────────
@@ -1120,6 +1173,14 @@ def reset_daily_cycle():
         logger.info(f"주말({['월','화','수','목','금','토','일'][now.weekday()]}) — reset_daily_cycle 스킵")
         return
 
+    # 메인 시작 시점 토큰 스냅샷 — cycle_just_finished 시 ntfy 보고용
+    try:
+        from main import get_token_usage_today
+        globals()["_main_cycle_start_token"] = get_token_usage_today()
+        globals()["_main_cycle_start_epoch"] = now.timestamp()
+    except Exception as e:
+        logger.debug(f"메인 시작 토큰 스냅샷 실패: {e}")
+
     with _state_lock:
         globals()["_phase"] = "sector_discussion"
         globals()["_sector_idx"] = 0
@@ -1197,6 +1258,17 @@ def _run_telegram_watchlist_inner(force: bool = False):
         if is_user_active() or _pause_requested:
             return
     # force=True는 모든 가드 우회 (측정·수동 트리거 의도)
+
+    # 정기 cron으로 도는 경우(force=False)에도 토큰 사용량 ntfy 보고
+    sub_start_token = None
+    sub_start_epoch = None
+    if not force:
+        try:
+            from main import get_token_usage_today
+            sub_start_token = get_token_usage_today()
+            sub_start_epoch = now.timestamp()
+        except Exception:
+            pass
 
     # 토큰 소진 시 — force(측정/수동)면 즉시 종료, 정기 cron이면 60분 대기
     if is_claude_token_exhausted():
@@ -1441,6 +1513,15 @@ def _run_telegram_watchlist_inner(force: bool = False):
     _save_msg(done_round_id, "System",
               f"✅ 서브 사이클 완료 — 다음 슬롯 대기 (KST 00·12·18시)")
     complete_round(done_round_id)
+
+    # 정기 cron(force=False) 끝나면 토큰 사용량 ntfy
+    if sub_start_token is not None:
+        try:
+            from main import _send_watchlist_report
+            _send_watchlist_report(sub_start_token, sub_start_epoch,
+                                   reason=f"정상 완료 (정기 {now.strftime('%H:%M')} KST)")
+        except Exception as e:
+            logger.exception(f"서브 사이클 ntfy 실패: {e}")
 
 
 # ── 메인 루프 ─────────────────────────────────────────────
