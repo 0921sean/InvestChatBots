@@ -132,10 +132,8 @@
     #visitor-timers .vt-val { font-size: 10.5px; }
   }
   body.readonly #typing { display: none; }
-  /* 채팅 입력 form — visitor 모드: input/button 숨김, 명시적 안내 박스로 통일 */
-  body.readonly #input-area input,
-  body.readonly #input-area button { display: none !important; }
-  body.readonly #readonly-notice { display: flex !important; }
+  /* visitor 모드 — 채팅 입력 영역 자체 숨김 (안내 banner도 제거) */
+  body.readonly #input-area { display: none !important; }
 
   /* 안내 박스 — owner엔 숨김, visitor에선 표시 */
   #readonly-notice { display: none; align-items: center; gap: 8px; flex: 1;
@@ -526,10 +524,6 @@
   <div id="messages"><div id="msg-anchor"></div></div>
   <div id="typing"><span class="typing-dots" id="typing-text">분석 중...</span></div>
   <div id="input-area">
-    <div id="readonly-notice">
-      <span class="rn-icon">🔒</span>
-      <span class="rn-text"><b>현재는 읽기 전용</b> — 채팅 입력은 추후 개방 예정입니다</span>
-    </div>
     <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" data-owner-placeholder="투자 의견이나 질문을 입력하세요..." data-readonly-placeholder="현재는 읽기 전용입니다 — 추후 개방 예정" />
     <button onclick="sendMessage()">전송</button>
   </div>
