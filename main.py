@@ -842,6 +842,13 @@ class FeedbackBody(BaseModel):
     content: str
 
 
+# 우회 endpoint — 어떤 환경(SW·확장·차단기)이 '/api/feedback'를 가로채면 이쪽으로 시도
+@app.post("/api/contact")
+@app.post("/api/note")
+def api_feedback_aliases(body: FeedbackBody, request: Request):
+    return api_feedback_create(body, request)
+
+
 @app.post("/api/feedback")
 def api_feedback_create(body: FeedbackBody, request: Request):
     """누구나 — 피드백 1건 전송. ntfy 알림 + DB 저장. 5분 내 3건 초과 시 차단."""

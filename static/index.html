@@ -1734,23 +1734,28 @@ async function sendFeedback() {
   }
   btn.disabled = true;
   btn.textContent = '보내는 중…';
-  try {
-    // cache: 'no-store' — Cloudflare·브라우저·서비스워커 일체 캐시 우회
-    const r = await fetch('/api/feedback?_=' + Date.now(), {
-      method: 'POST',
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-      body: JSON.stringify({content}),
-    });
-    if (!r.ok) {
+  // 옛 SW·확장·차단기가 '/api/feedback' 가로채는 환경 대응: 3개 path 순차 시도
+  const PATHS = ['/api/feedback', '/api/contact', '/api/note'];
+  let lastErr = null, ok = false, lastResp = null;
+  for (const p of PATHS) {
+    try {
+      const r = await fetch(p + '?_=' + Date.now(), {
+        method: 'POST', cache: 'no-store', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({content}),
+      });
+      lastResp = r;
+      if (r.ok) { ok = true; console.log('[feedback] ok via', p); break; }
       const d = await r.json().catch(() => ({}));
-      const responseText = await r.text().catch(() => '');
-      console.error('[feedback] failed', {requestUrl: '/api/feedback', responseUrl: r.url, status: r.status, detail: d.detail, redirected: r.redirected, type: r.type, body: responseText});
-      // 화면엔 응답 URL 전체와 redirected 여부 같이 표시
-      const urlShort = r.url.length > 80 ? r.url.slice(0, 77) + '…' : r.url;
-      throw new Error(`HTTP ${r.status}${r.redirected ? ' (redirected)' : ''} · ${urlShort} · ${d.detail || '(no body)'}`);
+      console.error('[feedback] failed via', p, {url: r.url, status: r.status, detail: d.detail, redirected: r.redirected, type: r.type});
+      lastErr = `HTTP ${r.status} (${p}): ${d.detail || '(no body)'}`;
+    } catch (e) {
+      console.error('[feedback] network error via', p, e);
+      lastErr = `네트워크 오류 (${p}): ${e.message}`;
     }
+  }
+  try {
+    if (!ok) throw new Error(lastErr || '모든 경로 실패');
     status.textContent = '✅ 보냈습니다. 감사합니다!';
     status.className = 'ok';
     ta.value = '';
