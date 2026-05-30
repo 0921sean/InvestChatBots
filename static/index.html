@@ -723,6 +723,17 @@
 </div>
 
 <script>
+// 옛 Service Worker가 fetch 가로채서 잘못된 응답 줄 수 있음 — 모두 제거
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(rs => { if (rs.length) console.log('[sw] 옛 SW', rs.length, '개 제거'); rs.forEach(r => r.unregister()); })
+    .catch(() => {});
+}
+// 캐시 스토리지도 정리
+if ('caches' in window) {
+  caches.keys().then(keys => { if (keys.length) console.log('[cache] 옛 캐시', keys.length, '개 제거'); keys.forEach(k => caches.delete(k)); }).catch(() => {});
+}
+
 // 출처 표식(?s=…) 정리 — 서버가 이미 첫 진입 시 기록함. 주소창은 깨끗하게.
 // 사용자가 이 URL 그대로 복사·재공유하면 출처 식별이 잘못 섞임 방지.
 try {
