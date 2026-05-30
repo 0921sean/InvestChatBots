@@ -492,7 +492,7 @@ def _run_feedback_round(stock_info: dict, pnl: float, sell_reasoning: str, buy_r
                   f"매수 근거: {buy_reasoning[:200]}\n\n{news_text}")
 
         # 2. 봇별 반성 생성 + evolution_notes 업데이트
-        for agent_name in AGENT_ORDER:
+        for agent_name in get_speak_order():
             try:
                 current_notes = get_evolution_notes(agent_name)
                 reflection_prompt = f"""[{stock_name}] 투자 피드백
@@ -568,7 +568,7 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
     blog_context = get_recent_blog_context(days=30, max_posts=10)
     extra_context = "\n\n".join(filter(None, [tg_context, blog_context]))
 
-    for i, agent_name in enumerate(AGENT_ORDER):
+    for i, agent_name in enumerate(get_speak_order()):
         if _pause_requested:
             break
         # 현재 라운드 메시지만 히스토리로 사용 (이전 섹터/종목 오염 방지)
@@ -876,7 +876,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
             decision_summary.append(f"{m['agent_name']}: {d}")
             bot_responses.append((m["agent_name"], m["content"]))
 
-    for i, agent_name in enumerate(AGENT_ORDER):
+    for i, agent_name in enumerate(get_speak_order()):
         if agent_name in already_responded:
             continue  # 이미 응답한 봇 스킵
         if _pause_requested:
@@ -965,6 +965,34 @@ def _handle_agent_error(agent_name: str, e: Exception):
 
 # ── 메인 사이클 비활성 토글 ────────────────────────────
 _main_disabled = False
+
+# ── 봇 발언 순서 랜덤화 토글 ────────────────────────────
+_random_speak_order = False
+
+
+def enable_random_speak_order():
+    """다음 라운드부터 봇 발언 순서를 랜덤화."""
+    global _random_speak_order
+    _random_speak_order = True
+
+
+def disable_random_speak_order():
+    global _random_speak_order
+    _random_speak_order = False
+
+
+def is_random_speak_order() -> bool:
+    return _random_speak_order
+
+
+def get_speak_order() -> list:
+    """현재 라운드의 봇 발언 순서. 토글 OFF면 AGENT_ORDER 그대로,
+    ON이면 매 호출마다 shuffled 새 리스트."""
+    if _random_speak_order:
+        bots = list(AGENT_ORDER)
+        random.shuffle(bots)
+        return bots
+    return list(AGENT_ORDER)
 
 
 def pause_main_cycle():
@@ -1217,7 +1245,7 @@ def _run_telegram_watchlist_inner():
 
         decisions, bot_responses = [], []
         token_exhausted = False
-        for agent_name in AGENT_ORDER:
+        for agent_name in get_speak_order():
             if _watchlist_disabled:
                 _save_msg(round_id, "System", f"⏸ 워치리스트 비활성화 — {name} 분석 중단")
                 complete_round(round_id)
@@ -1304,21 +1332,21 @@ def _run_telegram_watchlist_inner():
 
 
 # ── 메인 루프 ─────────────────────────────────────────────
-def run_round(market_summary=None):
-    if _main_disabled:
+def run_round(market_summary=None, force=False):
+    """force=True면 weekday/시간 체크 우회 (측정용 1회 실행)."""
+    if _main_disabled and not force:
         return
-    # 평일(월~금)에만 실행
-    from datetime import datetime, timezone, timedelta
-    KST = timezone(timedelta(hours=9))
-    now = datetime.now(KST)
-    if now.weekday() >= 5:
-        return
-
-    if now.hour < 6:
-        return
-
-    if is_user_active():
-        return
+    # 평일(월~금)에만 실행 — force 시 우회
+    if not force:
+        from datetime import datetime, timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        now = datetime.now(KST)
+        if now.weekday() >= 5:
+            return
+        if now.hour < 6:
+            return
+        if is_user_active():
+            return
 
 
     # 사이클 휴식 중 → 아무것도 하지 않음
@@ -1432,7 +1460,7 @@ def _run_stoploss_feedback(symbol: str):
                      f"📋 {symbol} 손절(-20%) 후 피드백 라운드\n"
                      f"매수 당시 어떤 판단이 틀렸는지, 앞으로 같은 실수를 피하려면 어떻게 해야 하는지 짧게 의견을 주세요.")
 
-        for agent_name in AGENT_ORDER:
+        for agent_name in get_speak_order():
             if is_claude_token_exhausted() or _pause_requested:
                 break
             system = _build_system(agent_name)
@@ -1644,7 +1672,7 @@ def _review_holdings_inner(force: bool = False):
         _save_msg(round_id, "System", header)
 
         decisions, bot_responses = [], []
-        for agent_name in AGENT_ORDER:
+        for agent_name in get_speak_order():
             if _pause_requested:
                 break
             if is_claude_token_exhausted():
