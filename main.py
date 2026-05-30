@@ -147,10 +147,13 @@ _OWNER_ONLY_ROUTES = {
     ("POST", "/api/donations"),
     # /api/admin/login은 공개 (비번 검증 자체가 인증)
     ("POST", "/api/watchlist/run"),
+    ("POST", "/api/main-cycle/measure"),
     ("POST", "/api/watchlist/pause"),
     ("POST", "/api/watchlist/resume"),
     ("POST", "/api/main/pause"),
     ("POST", "/api/main/resume"),
+    ("POST", "/api/random-speak/on"),
+    ("POST", "/api/random-speak/off"),
 }
 
 # /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
@@ -522,6 +525,131 @@ def api_watchlist_run():
     return {"ok": True, "triggered": True}
 
 
+@app.post("/api/main-cycle/measure")
+def api_main_cycle_measure():
+    """측정용 — weekday/시간 체크 우회해서 메인 사이클 강제 1회 실행.
+    백그라운드 스레드로 끝까지 (cycle_rest까지) 자동 진행 + 완료 시 ntfy 발송."""
+    global _loop_running
+    import orchestrator as o
+    from db import create_round, save_message, complete_round
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    # 일반 conversation_loop 정지 (중복 라운드 방지) + pause 풀어주기
+    with _loop_lock:
+        _loop_running = False
+    o.clear_pause()  # measure_loop은 _pause_requested 영향 안 받게
+
+    # 상태 리셋
+    with o._state_lock:
+        vars(o)["_phase"] = "sector_discussion"
+        vars(o)["_sector_idx"] = 0
+        vars(o)["_discussion_round"] = 0
+        vars(o)["_cycle_done_at"] = 0.0
+        o._persist_state()
+
+    # 시작 안내 (채팅 메시지)
+    round_id = create_round(f"📐 측정용 메인 사이클 — {now.strftime('%Y-%m-%d %H:%M')}")
+    save_message(round_id, "System", None,
+                 f"🔬 토큰 baseline 측정 — 메인 사이클 강제 1회 실행\n"
+                 f"시작: {now.strftime('%Y-%m-%d %H:%M:%S KST')}\n"
+                 f"대상: {len(o.SECTORS)}섹터 × (3라운드 토론 + 종목 분석)\n"
+                 f"종료 시 ntfy 푸시로 자동 보고")
+    complete_round(round_id)
+
+    # 시작 시점 토큰 스냅샷 + 시작 시각
+    start_token = get_token_usage_today()
+    start_epoch = now.timestamp()
+
+    # 백그라운드 — force run_round 반복 (cycle_rest까지)
+    def _loop():
+        import time as _t
+        while o._phase != "cycle_rest":
+            try:
+                o.run_round(force=True)
+            except Exception as e:
+                logger.error(f"[측정] 라운드 오류: {e}")
+                break
+            _t.sleep(0.5)
+        logger.info("[측정] cycle_rest 도달 — 결과 분석 시작")
+        _send_baseline_report(start_token, start_epoch)
+
+    threading.Thread(target=_loop, daemon=True).start()
+    return {"ok": True, "started_at": now.isoformat()}
+
+
+def _send_baseline_report(start_token: dict, start_epoch: float):
+    """측정 종료 후 토큰 차이 계산 + 봇별/단계별 분해 + ntfy 푸시."""
+    try:
+        from db import _conn
+        from notifier import notify
+        from datetime import datetime, timezone, timedelta
+        import sqlite3
+
+        KST = timezone(timedelta(hours=9))
+        end_dt = datetime.now(KST)
+        elapsed_min = (end_dt.timestamp() - start_epoch) / 60
+
+        # 현재 token_usage_daily
+        end_token = get_token_usage_today()
+        calls = (end_token.get("calls") or 0) - (start_token.get("calls") or 0)
+        inp = (end_token.get("input_tokens") or 0) - (start_token.get("input_tokens") or 0)
+        out = (end_token.get("output_tokens") or 0) - (start_token.get("output_tokens") or 0)
+        cache_r = (end_token.get("cache_read_tokens") or 0) - (start_token.get("cache_read_tokens") or 0)
+        cache_c = (end_token.get("cache_create_tokens") or 0) - (start_token.get("cache_create_tokens") or 0)
+        cost = (end_token.get("cost_usd") or 0) - (start_token.get("cost_usd") or 0)
+        total_tokens = inp + out + cache_r + cache_c
+
+        # 단계별·봇별 분해 (messages 기반)
+        sector_disc_calls = 0
+        stock_analysis_calls = 0
+        bot_calls = {}
+        with _conn() as con:
+            con.row_factory = sqlite3.Row
+            rounds = con.execute("""
+                SELECT id, topic FROM rounds
+                WHERE started_at >= datetime(?, 'unixepoch')
+            """, (start_epoch,)).fetchall()
+            for r in rounds:
+                topic = r["topic"] or ""
+                ids_in_round = con.execute("""
+                    SELECT agent_name, COUNT(*) c FROM messages
+                    WHERE round_id=? AND agent_name NOT IN ('System','User')
+                    GROUP BY agent_name
+                """, (r["id"],)).fetchall()
+                cnt = sum(row["c"] for row in ids_in_round)
+                if "sector_discussion" in topic:
+                    sector_disc_calls += cnt
+                elif "stock_analysis" in topic:
+                    stock_analysis_calls += cnt
+                for row in ids_in_round:
+                    bot_calls[row["agent_name"]] = bot_calls.get(row["agent_name"], 0) + row["c"]
+
+        # 봇별 요약 (순서 유지)
+        from prompts import AGENT_ORDER
+        bot_summary = " · ".join(f"{n} {bot_calls.get(n,0)}" for n in AGENT_ORDER)
+
+        # ntfy 메시지 (간결하게)
+        title = f"📐 baseline 완료 — {elapsed_min:.0f}분"
+        body = (
+            f"총: {calls}콜 · {_fmt_n(total_tokens)} 토큰 · ${cost:.2f}\n"
+            f"섹터토론 {sector_disc_calls}콜 · 종목분석 {stock_analysis_calls}콜\n"
+            f"{bot_summary}\n"
+            f"하루 1회 기준 ≈ ₩{cost*1380:,.0f}/일"
+        )
+        notify(title, body, priority="high", cooldown=0)
+        logger.info(f"[측정] ntfy 발송 완료: {title}")
+    except Exception as e:
+        logger.error(f"[측정] 결과 보고 실패: {e}")
+
+
+def _fmt_n(n: int) -> str:
+    if n >= 1_000_000: return f"{n/1_000_000:.2f}M"
+    if n >= 1_000: return f"{n/1_000:.1f}K"
+    return str(n)
+
+
 @app.post("/api/watchlist/pause")
 def api_watchlist_pause():
     """서브 사이클(워치리스트) 즉시 중단 + 다음 슬롯도 스킵."""
@@ -566,6 +694,28 @@ def api_main_resume():
 def api_main_status():
     from orchestrator import is_main_disabled
     return {"disabled": is_main_disabled()}
+
+
+@app.post("/api/random-speak/on")
+def api_random_speak_on():
+    """봇 발언 순서 랜덤화 ON — 다음 라운드부터 매 호출 shuffle."""
+    from orchestrator import enable_random_speak_order
+    enable_random_speak_order()
+    return {"ok": True, "random": True}
+
+
+@app.post("/api/random-speak/off")
+def api_random_speak_off():
+    """봇 발언 순서를 AGENT_ORDER 고정 순서로."""
+    from orchestrator import disable_random_speak_order
+    disable_random_speak_order()
+    return {"ok": True, "random": False}
+
+
+@app.get("/api/random-speak/status")
+def api_random_speak_status():
+    from orchestrator import is_random_speak_order
+    return {"random": is_random_speak_order()}
 
 
 @app.get("/api/token-usage")
