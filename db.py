@@ -704,16 +704,21 @@ def get_watched_stocks(limit: int = 50) -> list[dict]:
 
 
 # ── 방문 로그 (출처 트래킹) ────────────────────────────────
+# 같은 (visitor_id, source) 조합 → VISIT_DEDUP_SECONDS 이내는 1건으로 합침
+# (너무 짧으면 polling·연타로 부풀려지고, 너무 길면 PV가 안 늘어 의미 없음)
+VISIT_DEDUP_SECONDS = 60  # 1분
+
+
 def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
               referer: str = "", path: str = "/") -> bool:
-    """방문 1건 기록. 같은 visitor_id + 같은 source는 24h 내 중복 기록 안 함.
+    """방문 1건 기록. 동일 (visitor_id, source)가 VISIT_DEDUP_SECONDS 이내면 skip.
     반환값: 실제로 새로 기록했으면 True, 중복으로 skip했으면 False."""
     with _conn() as con:
         if visitor_id:
-            row = con.execute("""
+            row = con.execute(f"""
                 SELECT 1 FROM visit_log
                 WHERE visitor_id=? AND COALESCE(source,'')=COALESCE(?,'')
-                  AND ts > datetime('now', '-1 day')
+                  AND ts > datetime('now', '-{VISIT_DEDUP_SECONDS} seconds')
                 LIMIT 1
             """, (visitor_id, source)).fetchone()
             if row:
