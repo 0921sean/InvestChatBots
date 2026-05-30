@@ -608,11 +608,12 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     chat_summary = None  # 채팅 메시지용 사람 읽기 좋은 텍스트
 
     try:
+        # 봇 발언 21개(7봇 × 3라운드) × 100자 ≈ 2.1KB로 압축
+        # → claude가 JSON 출력 형식 안 깨고 thesis 추출 성공률 ↑
         recent = get_recent_messages(30)
-        convo = "\n".join(
-            f"{m['agent_name']}: {m['content'][:150]}"
-            for m in recent if m["agent_name"] not in ("System", "User")
-        )
+        bot_msgs = [m for m in recent if m["agent_name"] not in ("System", "User")]
+        bot_msgs = bot_msgs[-21:]  # 마지막 21개 (가장 최근 합의 흐름)
+        convo = "\n".join(f"{m['agent_name']}: {m['content'][:100]}" for m in bot_msgs)
         # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단 + 구체적 내용 유도
         bots_csv = ", ".join(AGENT_ORDER)
         summary_prompt = (
