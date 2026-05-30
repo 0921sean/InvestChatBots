@@ -45,14 +45,15 @@ def trim_at_sentence(text: str) -> str:
     return text
 
 
-def _call_claude_cli(system_prompt: str, user_prompt: str) -> str:
-    """claude CLI subprocess으로 호출 — Claude Code 구독 토큰 사용."""
+def _call_claude_cli(system_prompt: str, user_prompt: str, timeout: int = 60) -> str:
+    """claude CLI subprocess으로 호출 — Claude Code 구독 토큰 사용.
+    `timeout`은 큰 prompt(섹터 합의 종합 등)에선 180~300초 권장."""
     full_prompt = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)  # API 키 제거 → 구독 토큰 사용
     result = subprocess.run(
         [CLAUDE_CLI, "--print", "--output-format", "json", "-p", full_prompt],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, timeout=timeout,
         env=env,
         cwd="/tmp",  # 빈 디렉토리 → 프로젝트 컨텍스트 로딩 방지
     )
@@ -119,7 +120,8 @@ def _get_gemini():
     return genai
 
 
-def call_agent(agent_name, system_prompt, user_prompt):
+def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60):
+    """timeout: claude CLI subprocess 시간 한도. 큰 prompt(합의 종합)는 180~300초 권장."""
     profile = AGENT_PROFILES[agent_name]
     provider = profile["model_provider"]
     model_id = profile["model_id"]
@@ -128,7 +130,7 @@ def call_agent(agent_name, system_prompt, user_prompt):
         try:
             if provider == "claude":
                 # Claude Code 구독 토큰 사용 (API 크레딧 아님)
-                return trim_at_sentence(_call_claude_cli(system_prompt, user_prompt))
+                return trim_at_sentence(_call_claude_cli(system_prompt, user_prompt, timeout=timeout))
 
             elif provider == "openai":
                 client = _get_openai()
