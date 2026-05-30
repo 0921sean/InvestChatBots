@@ -193,13 +193,24 @@ async def owner_guard(request: Request, call_next):
             if method == m and path.startswith(prefix):
                 is_owner_only = True
                 break
+
+    # 피드백 관련 요청만 상세 로그 (디버그)
+    is_fb = "feedback" in path
+    if is_fb:
+        client_host = request.client.host if request.client else "?"
+        is_owner_cookie = request.cookies.get(COOKIE_NAME) == OWNER_TOKEN
+        print(f"[fb-req] {method} {path} from={client_host} cookie={'owner' if is_owner_cookie else 'visitor'} ua={request.headers.get('user-agent','')[:40]}", flush=True)
+
     if is_owner_only and request.cookies.get(COOKIE_NAME) != OWNER_TOKEN:
         print(f"[owner_guard] 차단: {method} {path} (UA: {request.headers.get('user-agent','')[:60]})", flush=True)
         return JSONResponse(
             {"detail": "owner only — 읽기 전용 접속자는 조작 불가"},
             status_code=403,
         )
-    return await call_next(request)
+    response = await call_next(request)
+    if is_fb:
+        print(f"[fb-resp] {method} {path} → {response.status_code}", flush=True)
+    return response
 
 
 # ── owner 로그인 / 신원 확인 ────────────────────────────────

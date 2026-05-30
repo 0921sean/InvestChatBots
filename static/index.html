@@ -1734,9 +1734,11 @@ async function sendFeedback() {
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      // 디버그 콘솔에도 찍음
-      console.error('[feedback] failed', {url: r.url, status: r.status, detail: d.detail});
-      throw new Error(`HTTP ${r.status} · ${r.url.split('/').slice(-1)[0].split('?')[0]} · ${d.detail || '(no detail)'}`);
+      const responseText = await r.text().catch(() => '');
+      console.error('[feedback] failed', {requestUrl: '/api/feedback', responseUrl: r.url, status: r.status, detail: d.detail, redirected: r.redirected, type: r.type, body: responseText});
+      // 화면엔 응답 URL 전체와 redirected 여부 같이 표시
+      const urlShort = r.url.length > 80 ? r.url.slice(0, 77) + '…' : r.url;
+      throw new Error(`HTTP ${r.status}${r.redirected ? ' (redirected)' : ''} · ${urlShort} · ${d.detail || '(no body)'}`);
     }
     status.textContent = '✅ 보냈습니다. 감사합니다!';
     status.className = 'ok';
