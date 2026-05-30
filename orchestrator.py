@@ -1192,13 +1192,21 @@ def _run_telegram_watchlist_inner(force: bool = False):
         # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
         if _phase != "cycle_rest" and now.hour >= 6:
             return
-    if is_user_active() or _pause_requested:
+        # 사용자 활동 중에도 정기 cron은 막음 (측정·수동 트리거는 force=True로 우회)
+        if is_user_active() or _pause_requested:
+            return
+    elif _pause_requested:
+        # force여도 명시적 일시정지면 막음 (안전)
         return
 
-    # 토큰 소진 시 복구될 때까지 대기 후 재개
+    # 토큰 소진 시 — force(측정/수동)면 즉시 종료, 정기 cron이면 60분 대기
     if is_claude_token_exhausted():
         from agents import _call_claude_cli
         from notifier import notify as _notify
+        if force:
+            _notify("⏸ 서브 사이클 측정 중단", "Claude 토큰 소진 — 회복 후 다시 트리거하세요",
+                    priority="high", cooldown=0)
+            return
         _notify("⏸ 서브 사이클 대기", "Claude 토큰 소진 — 충전 후 자동 재개", priority="default", cooldown=1800)
         for _ in range(60):  # 최대 60분 대기
             time.sleep(60)
