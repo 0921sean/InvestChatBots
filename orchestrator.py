@@ -639,7 +639,8 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f"- quote: spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
             f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
-        raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt, timeout=240)
+        # 합의 추출 — claude haiku 사용 (opus는 큰 한국어 prompt에 60s+ 걸려 timeout)
+        raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt, timeout=120, model="haiku")
         consensus_json = _parse_consensus_json(raw, sector["name"])
     except Exception as e:
         logger.error(f"합의 추출 오류: {e}")
