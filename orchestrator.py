@@ -688,9 +688,64 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         _persist_state()
 
 
+def _consensus_fallback_regex(raw: str, sector_name: str) -> dict:
+    """JSON 파싱 다 실패했을 때 — 정규식으로 필드별 개별 추출."""
+    import re as _re
+
+    def _grab_str(key, default=""):
+        # "key": "value" 추출. value 안의 escaped 따옴표도 어느 정도 처리
+        m = _re.search(rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*?)"', raw, _re.DOTALL)
+        return (m.group(1).replace('\\"', '"').replace('\\n', ' ') if m else default).strip()
+
+    def _grab_array(key):
+        m = _re.search(rf'"{key}"\s*:\s*\[(.*?)\]', raw, _re.DOTALL)
+        if not m: return []
+        # 배열 안 문자열 항목들 추출
+        items = _re.findall(r'"((?:[^"\\]|\\.)*?)"', m.group(1))
+        return [it.replace('\\"', '"').strip() for it in items if it.strip()]
+
+    outlook = _grab_str("outlook", "중립")
+    if outlook not in ["긍정", "중립", "부정"]:
+        # 텍스트 내 첫 매칭
+        m = _re.search(r'(긍정|중립|부정)', raw)
+        outlook = m.group(1) if m else "중립"
+
+    decision = _grab_str("decision", "관망")
+    if decision not in ["매수", "관망", "매도"]:
+        m = _re.search(r'"decision"[^"]*"(매수|관망|매도)"', raw)
+        decision = m.group(1) if m else "관망"
+
+    thesis = _grab_str("thesis", "")
+    if not thesis:
+        # 본문에서 따옴표 안 가장 긴 문자열을 thesis로
+        candidates = _re.findall(r'"((?:[^"\\]|\\.){50,})"', raw)
+        if candidates:
+            thesis = max(candidates, key=len)[:400]
+
+    spokesperson = _grab_str("spokesperson", "")
+    if spokesperson not in AGENT_ORDER:
+        spokesperson = ""
+
+    return {
+        "v": 2,
+        "sector": sector_name,
+        "outlook": outlook,
+        "decision": decision,
+        "headline": _grab_str("headline", "")[:30],
+        "thesis": (thesis or "—")[:600],
+        "drivers": _grab_array("drivers")[:4],
+        "risks": _grab_array("risks")[:3],
+        "key_picks": _grab_array("key_picks")[:5],
+        "spokesperson": spokesperson,
+        "quote": _grab_str("quote", "")[:120],
+        "parse_recovered": True,  # 정규식 fallback으로 복구됨 표시
+    }
+
+
 def _parse_consensus_json(raw: str, sector_name: str) -> dict:
-    """LLM 응답에서 JSON 추출·정규화. 실패 시 fallback dict 반환."""
+    """LLM 응답에서 JSON 추출·정규화. 실패 시 raw에서 정규식으로 필드 재추출."""
     import json, re as _re
+    raw_original = raw  # fallback용 백업
     raw = (raw or "").strip()
     # ```json ... ``` 블록 제거
     raw = _re.sub(r'^```(?:json)?\s*', '', raw)
@@ -700,15 +755,21 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
     if s != -1 and e != -1 and e > s:
         raw = raw[s:e+1]
 
+    # 1차 시도: 순수 JSON
     try:
         d = json.loads(raw)
     except Exception:
-        return {
-            "v": 2, "sector": sector_name,
-            "outlook": "중립", "decision": "관망",
-            "thesis": (raw[:200] or "—"), "risks": "", "key_picks": [],
-            "parse_error": True,
-        }
+        # 2차 시도: 흔한 LLM 오류 수정
+        cleaned = raw
+        # 작은따옴표를 큰따옴표로 (단 한국어 안의 따옴표는 보존 어려움)
+        cleaned = _re.sub(r"(?<=[\{\,]\s)'(\w+)'(?=\s*:)", r'"\1"', cleaned)
+        # 마지막 콤마 제거 (}, 또는 ,])
+        cleaned = _re.sub(r',(\s*[}\]])', r'\1', cleaned)
+        try:
+            d = json.loads(cleaned)
+        except Exception:
+            # 3차 fallback: 정규식으로 필드별 재추출
+            return _consensus_fallback_regex(raw, sector_name)
 
     # 정규화
     def _norm(val, allowed, default):
