@@ -616,8 +616,10 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         convo = "\n".join(f"{m['agent_name']}: {m['content'][:100]}" for m in bot_msgs)
         # JSON 강제 프롬프트 — 옛 포맷 잡담·중첩 평가 차단 + 구체적 내용 유도
         bots_csv = ", ".join(AGENT_ORDER)
+        sector_stocks_csv = ", ".join(s["name"] for s in sector["stocks"])
         summary_prompt = (
             f"{sector['name']} 섹터 토론 내용:\n{convo}\n\n"
+            f"이 섹터의 종목 목록: {sector_stocks_csv}\n\n"
             f"위 토론을 종합해 섹터 합의를 JSON으로만 출력하세요. 다른 텍스트·코드블록·마크다운 금지.\n\n"
             f"형식:\n"
             f'{{"outlook":"긍정|중립|부정", "decision":"매수|관망|매도", '
@@ -636,9 +638,9 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f"- thesis: **반드시 평서문 3-4문장으로 채울 것**. PER·ROE·EPS 등 구체 수치, 종목명, 다수 봇이 합의한 핵심 근거 포함. 봇 호명·이모지·**bold** 금지. 빈 값 절대 금지.\n"
             f"- drivers: **최소 2개 이상**. 각 한 줄로 구체적 촉진 요인.\n"
             f"- risks: **최소 1개 이상**. 각 한 줄로 구체적 리스크.\n"
-            f"- key_picks: 다수가 동의한 종목 1-3개 (종목명만).\n"
-            f"- spokesperson: 이번 합의를 가장 잘 대표하는 봇 1명. 다음 중 하나만 정확히: {bots_csv}\n"
-            f"- quote: spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
+            f"- key_picks: 적절한 후보 없으면 빈 배열 []. 종목 추천 시엔 **반드시 위 '이 섹터의 종목 목록'에서만 0-3개**. 카테고리·테마·산업 단어(예: 'K-푸드', '핀테크', '파운드리') 절대 금지.\n"
+            f"- spokesperson: **반드시 채울 것** — 이번 합의를 가장 잘 대표하는 봇 1명. 다음 중 하나만 정확히: {bots_csv}\n"
+            f"- quote: **반드시 채울 것** — spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
             f"- JSON 내부 문자열에 줄바꿈·이스케이프 안 된 따옴표 금지.\n"
             f"- 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
@@ -654,12 +656,13 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             logger.warning(f"[{sector['name']}] thesis 부족/실패 → 재시도 (압축 컨텍스트)")
             retry_prompt = (
                 f"{sector['name']} 섹터 합의를 JSON 한 줄로만 출력. 다른 텍스트 금지.\n\n"
+                f"이 섹터 종목 목록 (key_picks는 여기서만): {sector_stocks_csv}\n\n"
                 f"토론 요지(축약):\n{convo[:1200]}\n\n"
                 f'{{"outlook":"긍정|중립|부정","decision":"매수|관망|매도",'
                 f'"headline":"15자 요약","thesis":"3문장 이상, 구체 근거 포함",'
                 f'"drivers":["요인1","요인2"],"risks":["리스크1"],'
-                f'"key_picks":["종목명"],"spokesperson":"{AGENT_ORDER[0]}","quote":"한 줄 인용"}}\n'
-                f"필수: 모든 필드 비울 수 없음. thesis는 반드시 3문장 이상."
+                f'"key_picks":["{sector["stocks"][0]["name"]}"],"spokesperson":"{AGENT_ORDER[0]}","quote":"한 줄 인용"}}\n'
+                f"필수: 모든 필드 비울 수 없음. thesis 3문장 이상. key_picks는 카테고리/테마 단어 금지, 위 종목명만."
             )
             try:
                 # 축약 prompt + 더 긴 timeout
@@ -713,8 +716,28 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     picks = consensus_json.get("key_picks") or []
     if picks:
         lines.append(f"주목 종목: {', '.join(picks)}")
-    sp = consensus_json.get("spokesperson") or ""
-    qt = consensus_json.get("quote") or ""
+    # 봇 한마디 — claude가 채웠으면 그대로, 안 채웠으면 최근 봇 발언으로 fallback
+    sp = (consensus_json.get("spokesperson") or "").strip()
+    qt = (consensus_json.get("quote") or "").strip()
+    if not (sp and qt):
+        # 토론 마지막 봇 발언에서 추출 (한 봇의 가장 최근 발언)
+        try:
+            bot_msgs_fb = [m for m in get_recent_messages(30)
+                           if m["agent_name"] not in ("System", "User")]
+            if bot_msgs_fb:
+                last_bot = bot_msgs_fb[-1]
+                sp = sp or last_bot["agent_name"]
+                if not qt:
+                    raw_q = (last_bot["content"] or "").strip().replace("\n", " ")
+                    # 너무 길면 첫 문장만
+                    import re as _re
+                    m_end = _re.search(r"[.?!…]", raw_q)
+                    if m_end and m_end.end() < 80:
+                        qt = raw_q[:m_end.end()]
+                    else:
+                        qt = raw_q[:60] + ("…" if len(raw_q) > 60 else "")
+        except Exception:
+            pass
     if sp and qt:
         lines.append(f"{sp} 한마디: \"{qt}\"")
     lines.append("")
