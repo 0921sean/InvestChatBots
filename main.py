@@ -123,7 +123,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="InvestChat", lifespan=lifespan)
+app = FastAPI(title="InvestChatBots", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -926,7 +926,7 @@ def _generate_summary():
 🎯 포지션:
 반드시 한국어."""
         )
-        notify("📋 InvestChat 요약", result, priority="default", cooldown=0)
+        notify("📋 InvestChatBots 요약", result, priority="default", cooldown=0)
     except Exception as e:
         notify("📋 요약 실패", str(e)[:100], priority="low", cooldown=0)
 
