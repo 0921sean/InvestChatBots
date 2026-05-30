@@ -184,6 +184,16 @@ def init_db():
             note TEXT,
             added_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            visitor_id TEXT,
+            user_agent TEXT,
+            referer TEXT,
+            is_read INTEGER DEFAULT 0,
+            ts DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(ts);
         """)
 
 
@@ -749,3 +759,55 @@ def get_visit_stats(days: int = 30) -> dict:
             "by_source": [dict(r) for r in by_source],
             "by_day": [dict(r) for r in by_day],
         }
+
+
+# ── 피드백 ────────────────────────────────────────────────
+def add_feedback(content: str, visitor_id: str = None,
+                 user_agent: str = "", referer: str = "") -> int:
+    """피드백 1건 저장. ID 반환."""
+    with _conn() as con:
+        cur = con.execute("""
+            INSERT INTO feedback (content, visitor_id, user_agent, referer)
+            VALUES (?, ?, ?, ?)
+        """, (content[:5000], visitor_id, user_agent[:200], referer[:300]))
+        return cur.lastrowid
+
+
+def feedback_rate_limited(visitor_id: str, window_min: int = 5, max_n: int = 3) -> bool:
+    """같은 visitor가 window_min 내 max_n 건 이상이면 True (차단)."""
+    if not visitor_id:
+        return False
+    with _conn() as con:
+        row = con.execute("""
+            SELECT COUNT(*) FROM feedback
+            WHERE visitor_id=? AND ts > datetime('now', '-' || ? || ' minutes')
+        """, (visitor_id, window_min)).fetchone()
+        return (row[0] if row else 0) >= max_n
+
+
+def list_feedback(limit: int = 100, unread_only: bool = False) -> list[dict]:
+    """피드백 목록 (최신순)."""
+    with _conn() as con:
+        import sqlite3
+        con.row_factory = sqlite3.Row
+        sql = "SELECT id, content, visitor_id, user_agent, is_read, ts FROM feedback"
+        if unread_only:
+            sql += " WHERE is_read=0"
+        sql += " ORDER BY id DESC LIMIT ?"
+        rows = con.execute(sql, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_feedback_read(fid: int = None):
+    """fid 주면 그것만, 아니면 전체 읽음 처리."""
+    with _conn() as con:
+        if fid:
+            con.execute("UPDATE feedback SET is_read=1 WHERE id=?", (fid,))
+        else:
+            con.execute("UPDATE feedback SET is_read=1 WHERE is_read=0")
+
+
+def feedback_unread_count() -> int:
+    with _conn() as con:
+        row = con.execute("SELECT COUNT(*) FROM feedback WHERE is_read=0").fetchone()
+        return row[0] if row else 0
