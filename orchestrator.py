@@ -1146,7 +1146,7 @@ _watchlist_lock = threading.Lock()
 _watchlist_disabled = False  # True면 새 슬롯은 스킵, 진행 중도 다음 봇 호출 직전 중단
 
 # 서브 사이클 1회당 분석할 최대 종목 수 (후보가 많으면 무작위 샘플)
-SUB_CYCLE_MAX_STOCKS = 5
+SUB_CYCLE_MAX_STOCKS = 20
 
 
 def pause_watchlist():
