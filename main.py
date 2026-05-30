@@ -830,6 +830,72 @@ def _send_watchlist_report(start_token: dict, start_epoch: float, reason: str = 
         logger.error(f"[서브 측정] 결과 보고 실패: {e}")
 
 
+@app.post("/api/main-cycle/resume-force")
+def api_main_cycle_resume_force():
+    """현재 phase 유지하면서 force=True로 메인 사이클 재개.
+    측정 도중 코드 패치를 위해 서버 재시작한 경우 이어가기."""
+    global _loop_running
+    import orchestrator as o
+    from db import create_round, save_message, complete_round
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+
+    with _loop_lock:
+        _loop_running = False
+    o.clear_pause()
+
+    sector_name = o.SECTORS[o._sector_idx]["name"] if 0 <= o._sector_idx < len(o.SECTORS) else "?"
+    round_id = create_round(f"▶ 메인 사이클 재개 — {now.strftime('%H:%M')}")
+    save_message(round_id, "System", None,
+                 f"▶ 메인 사이클 재개 (코드 패치 후 이어가기)\n"
+                 f"sector {o._sector_idx + 1}/{len(o.SECTORS)} ({sector_name}) · phase={o._phase}\n"
+                 f"force=True 모드로 끝까지 진행")
+    complete_round(round_id)
+
+    start_token = get_token_usage_today()
+    start_epoch = now.timestamp()
+
+    def _loop():
+        import time as _t
+        from agents import is_claude_token_exhausted
+        max_iter = 2000
+        no_progress_count = 0
+        last_state = (o._phase, o._sector_idx, o._stock_idx, o._discussion_round)
+        terminated_reason = None
+        for _ in range(max_iter):
+            if o._phase == "cycle_rest":
+                terminated_reason = "정상 완료 (cycle_rest 도달)"
+                break
+            if is_claude_token_exhausted():
+                terminated_reason = "Claude 토큰 소진"
+                break
+            try:
+                o.run_round(force=True)
+            except Exception as e:
+                logger.error(f"[재개] {e}")
+                terminated_reason = f"예외: {type(e).__name__}"
+                break
+            cur_state = (o._phase, o._sector_idx, o._stock_idx, o._discussion_round)
+            if cur_state == last_state:
+                no_progress_count += 1
+                if no_progress_count >= 10:
+                    terminated_reason = "진척 없음"
+                    break
+            else:
+                no_progress_count = 0
+                last_state = cur_state
+            _t.sleep(0.5)
+        else:
+            terminated_reason = f"최대 반복({max_iter}) 도달"
+        _send_baseline_report(start_token, start_epoch, terminated_reason)
+
+    threading.Thread(target=_loop, daemon=True).start()
+    return {"ok": True, "started_at": now.isoformat(),
+            "resumed_at_sector": o._sector_idx,
+            "sector_name": sector_name, "phase": o._phase}
+
+
 @app.post("/api/sub-cycle/measure")
 def api_sub_cycle_measure():
     """수동 — 서브 사이클 토큰 측정 즉시 1회 실행 (force, 토큰 사용량 ntfy)."""
