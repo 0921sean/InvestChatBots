@@ -1494,9 +1494,17 @@ async function ownerLogout(e) {
 }
 
 // ───── visitor 모드 카운트다운 (메인·서브) ─────
-function _kstNowMs() {
-  const n = new Date();
-  return n.getTime() + (n.getTimezoneOffset() * 60000) + (9 * 3600000);
+// KST 기준 현재 시각·요일을 분 단위로 — 브라우저 시간대 무관
+function _kstNowParts() {
+  const now = new Date();
+  const kstMs = now.getTime() + 9 * 3600000;
+  const d = new Date(kstMs);
+  return {
+    weekday: d.getUTCDay(),         // 0=일 ... 6=토
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    minOfDay: d.getUTCHours() * 60 + d.getUTCMinutes(),
+  };
 }
 function _fmtCountdown(ms) {
   if (ms <= 0) return '곧';
@@ -1506,30 +1514,30 @@ function _fmtCountdown(ms) {
   return `${Math.ceil(ms/60000)}분`;
 }
 function _nextMainStartMs() {
-  // 다음 평일 06:00 KST
-  const nowMs = _kstNowMs();
-  const n = new Date(nowMs);
-  const target = new Date(nowMs);
-  target.setUTCHours(6, 0, 0, 0);  // KST 06:00 (n은 이미 KST 보정)
-  if (target.getTime() <= nowMs) target.setUTCDate(target.getUTCDate() + 1);
-  while (target.getUTCDay() === 0 || target.getUTCDay() === 6) {
-    target.setUTCDate(target.getUTCDate() + 1);
+  // 다음 평일 06:00 KST까지 분
+  const k = _kstNowParts();
+  const targetMin = 6 * 60;
+  let daysToAdd = (k.minOfDay >= targetMin) ? 1 : 0;
+  let nextWd = (k.weekday + daysToAdd) % 7;
+  // 주말(토=6, 일=0) 건너뜀
+  while (nextWd === 0 || nextWd === 6) {
+    daysToAdd++;
+    nextWd = (nextWd + 1) % 7;
   }
-  return target.getTime() - nowMs;
+  const diffMin = daysToAdd * 24 * 60 + (targetMin - k.minOfDay);
+  return diffMin * 60000;
 }
 function _nextSubStartMs() {
-  // 다음 12·18·24시 KST
-  const nowMs = _kstNowMs();
-  const slots = [0, 12, 18];
+  // 다음 0·12·18시 KST (요일 무관, 워치리스트는 주말도 돔)
+  const k = _kstNowParts();
+  const slots = [0, 12 * 60, 18 * 60];
   let best = null;
-  for (const h of slots) {
-    const t = new Date(nowMs);
-    t.setUTCHours(h, 0, 0, 0);
-    if (t.getTime() <= nowMs) t.setUTCDate(t.getUTCDate() + 1);
-    const diff = t.getTime() - nowMs;
+  for (const sm of slots) {
+    let diff = sm - k.minOfDay;
+    if (diff <= 0) diff += 24 * 60;  // 다음날
     if (best == null || diff < best) best = diff;
   }
-  return best;
+  return best * 60000;
 }
 function updateVisitorTimers() {
   if (!document.body.classList.contains('readonly')) return;  // visitor일 때만
@@ -1538,15 +1546,22 @@ function updateVisitorTimers() {
   const subEl = document.getElementById('vt-sub');
   if (!mainEl || !subEl) return;
 
-  // 메인: 진행 중이면 "진행 중", cycle_rest면 다음 6시까지
-  if (s.phase === 'sector_discussion' || s.phase === 'stock_analysis') {
+  const k = _kstNowParts();
+  const isWeekend = (k.weekday === 0 || k.weekday === 6);
+
+  // 메인: 주말이거나 봇 진행 안 되는 상태면 카운트다운, 진짜 도는 중일 때만 "진행 중"
+  // 진짜 도는 조건: 평일 + running + phase=토론/분석
+  const mainRunning = !isWeekend && s.running &&
+                      (s.phase === 'sector_discussion' || s.phase === 'stock_analysis');
+  if (mainRunning) {
     mainEl.textContent = '진행 중';
     mainEl.classList.add('running');
   } else {
     mainEl.textContent = _fmtCountdown(_nextMainStartMs());
     mainEl.classList.remove('running');
   }
-  // 서브: activity가 watchlist면 진행 중, 아니면 다음 슬롯까지
+
+  // 서브: activity=watchlist면 진행 중, 아니면 다음 슬롯
   if (s.activity === 'watchlist') {
     subEl.textContent = '진행 중';
     subEl.classList.add('running');
