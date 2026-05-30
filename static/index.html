@@ -114,6 +114,8 @@
   body.readonly #btn-summary, body.readonly #btn-main-run, body.readonly #btn-sub-run { display: none !important; }
   /* owner 전용 — visitor 모드면 숨김 (재사용 클래스) */
   body.readonly .owner-only { display: none !important; }
+  /* visitor 전용 — admin 모드면 숨김 */
+  body.admin-mode .visitor-only { display: none !important; }
   /* 방문자 모드 — 토큰/계좌/후원 관련 UI 전부 숨김 (운영 안정화 전까지 외부 노출 X) */
   body.readonly #token-box { display: none !important; }
   body.readonly .msg-donation,
@@ -583,7 +585,7 @@
       <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
       <button class="btn btn-ghost owner-only" id="btn-stats" onclick="openStats()" title="방문 통계">📊 통계</button>
       <button class="btn btn-ghost owner-only" id="btn-feedback-list" onclick="openFeedbackList()" title="피드백 목록">📨 피드백 <span id="fb-badge" style="display:none"></span></button>
-      <button class="btn btn-feedback" id="btn-feedback-send" onclick="openFeedbackSend()" title="피드백 보내기">💬 피드백</button>
+      <button class="btn btn-feedback visitor-only" id="btn-feedback-send" onclick="openFeedbackSend()" title="피드백 보내기">💬 피드백</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
   </div>
