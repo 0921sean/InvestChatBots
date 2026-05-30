@@ -109,6 +109,19 @@
   /* 읽기 전용 모드 — 익명 접속자 */
   body.readonly #btn-pause, body.readonly #btn-play,
   body.readonly #btn-summary, body.readonly #btn-main-run, body.readonly #btn-sub-run { display: none !important; }
+  /* owner 전용 — visitor 모드면 숨김 (재사용 클래스) */
+  body.readonly .owner-only { display: none !important; }
+  /* 방문자 모드 — 계좌·후원 관련 UI 전부 숨김 (운영 안정화 전까지 외부 노출 X) */
+  body.readonly #tb-account,
+  body.readonly #tb-tagline,
+  body.readonly #tb-footnote,
+  body.readonly #tb-last-donation,
+  body.readonly #tb-owner-actions,
+  body.readonly .msg-donation,
+  body.readonly .msg-donation-system { display: none !important; }
+  /* 후원 관련 detail 영역 자체도 visitor엔 의미 없으면 접기 */
+  body.readonly #token-box .tb-detail:empty,
+  body.readonly #token-box .tb-detail { padding-bottom: 4px; }
   /* Members 행도 visitor엔 클릭 안 되는 느낌 */
   body.readonly .member { cursor: default; }
   body.readonly .member:hover { background: transparent; }
@@ -288,6 +301,33 @@
   .sched-desc { font-size:11px; color:#8b949e; margin-top:4px; line-height:1.5; }
   .sched-next { font-size:10.5px; color:#3fb950; margin-top:4px; font-weight:600; }
   .sched-note { font-size:11px; color:#6e7681; margin-top:14px; padding-top:12px; border-top:1px dashed #30363d; line-height:1.6; }
+
+  /* 방문 통계 모달 (admin only) — schedule와 같은 톤 */
+  #stats-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; padding: 20px; }
+  #stats-modal.open { display:flex; }
+  #stats-box { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:24px 26px; max-width:520px; width:100%; position:relative; max-height:85vh; overflow-y:auto; }
+  #stats-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; color:#e2e8f0; }
+  #stats-box .stats-sub { font-size:11px; color:#6e7681; margin-bottom:18px; }
+  #stats-close { position:absolute; top:14px; right:16px; background:none; border:none; color:#6e7681; font-size:20px; cursor:pointer; }
+  .stats-block { margin-bottom: 16px; }
+  .stats-block-title { font-size: 10.5px; font-weight: 700; color: #8b949e; letter-spacing: .06em;
+    text-transform: uppercase; margin-bottom: 6px; }
+  .stats-totals { display: flex; gap: 16px; padding: 10px 12px; background:#0d1117; border:1px solid #21262d; border-radius:8px; }
+  .stats-totals .stat { flex: 1; }
+  .stats-totals .stat-num { font-size: 22px; font-weight: 700; color: #58a6ff; font-variant-numeric: tabular-nums; }
+  .stats-totals .stat-label { font-size: 10px; color: #8b949e; margin-top: 2px; letter-spacing: .04em; }
+  .stats-bar-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; }
+  .stats-bar-src { width: 60px; flex-shrink: 0; color: #e2e8f0; font-weight: 600; }
+  .stats-bar-track { flex: 1; height: 8px; background: #0d1117; border: 1px solid #21262d; border-radius: 4px; overflow: hidden; }
+  .stats-bar-fill { height: 100%; background: linear-gradient(90deg, #1f6feb, #58a6ff); border-radius: 3px; transition: width .3s; }
+  .stats-bar-num { width: 70px; text-align: right; color: #79c0ff; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+  .stats-day-row { display: grid; grid-template-columns: 90px 70px 1fr; gap: 8px; padding: 4px 0; font-size: 11.5px;
+    border-bottom: 1px dashed #21262d; }
+  .stats-day-row:last-child { border-bottom: none; }
+  .stats-day-date { color: #c9d1d9; font-variant-numeric: tabular-nums; }
+  .stats-day-src { color: #79c0ff; font-weight: 600; }
+  .stats-day-cnt { color: #8b949e; text-align: right; font-variant-numeric: tabular-nums; }
+  .stats-empty { color: #6e7681; font-size: 12px; padding: 20px 0; text-align: center; }
 
   /* 사이드바 타이틀 옆 작은 admin 라벨 (admin URL일 때만) */
   #sidebar-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -474,6 +514,7 @@
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
       <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
       <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
+      <button class="btn btn-ghost owner-only" id="btn-stats" onclick="openStats()" title="방문 통계">📊 통계</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
   </div>
@@ -544,6 +585,15 @@
       • 종목 점검은 메인 사이클 완료 직후 자동 실행됩니다.<br>
       • 토큰 소진 시 충전될 때까지 대기하고 자동 재개됩니다.
     </div>
+  </div>
+</div>
+
+<div id="stats-modal" onclick="if(event.target===this)closeStats()">
+  <div id="stats-box">
+    <button id="stats-close" onclick="closeStats()">✕</button>
+    <h3>📊 방문 통계</h3>
+    <div class="stats-sub" id="stats-window">최근 30일 · KST</div>
+    <div id="stats-content">로딩 중...</div>
   </div>
 </div>
 
@@ -1451,6 +1501,85 @@ function openSchedule() {
 }
 function closeSchedule() {
   document.getElementById('schedule-modal').classList.remove('open');
+}
+
+// ───── 방문 통계 모달 (owner only) ─────
+async function openStats() {
+  const modal = document.getElementById('stats-modal');
+  const content = document.getElementById('stats-content');
+  modal.classList.add('open');
+  content.innerHTML = '<div class="stats-empty">불러오는 중…</div>';
+  try {
+    const res = await fetch('/api/admin/visits?days=30');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderStats(data);
+  } catch (e) {
+    content.innerHTML = `<div class="stats-empty">통계를 불러오지 못함: ${e.message}</div>`;
+  }
+}
+function closeStats() {
+  document.getElementById('stats-modal').classList.remove('open');
+}
+function renderStats(data) {
+  const c = document.getElementById('stats-content');
+  const t = data.totals || {};
+  const bySource = data.by_source || [];
+  const byDay = data.by_day || [];
+
+  // 출처별 가로 바 — UV 최댓값 기준 비율
+  const maxUv = Math.max(1, ...bySource.map(r => r.uv));
+  const sourceBars = bySource.length
+    ? bySource.map(r => {
+        const pct = Math.round(r.uv / maxUv * 100);
+        return `<div class="stats-bar-row">
+          <div class="stats-bar-src">${r.source}</div>
+          <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%"></div></div>
+          <div class="stats-bar-num">${r.uv}명 · ${r.pv}회</div>
+        </div>`;
+      }).join('')
+    : '<div class="stats-empty">아직 방문 기록 없음</div>';
+
+  // 일자별 — 최근 14일까지만
+  const dayRows = byDay.slice(0, 30).map(r =>
+    `<div class="stats-day-row">
+       <div class="stats-day-date">${r.day}</div>
+       <div class="stats-day-src">${r.source}</div>
+       <div class="stats-day-cnt">${r.uv}명 · ${r.pv}회</div>
+     </div>`
+  ).join('');
+  const dayBlock = byDay.length
+    ? `<div class="stats-block">
+         <div class="stats-block-title">일자별 (KST · 최근 30일)</div>
+         ${dayRows}
+       </div>`
+    : '';
+
+  c.innerHTML = `
+    <div class="stats-block">
+      <div class="stats-block-title">총 합 (최근 ${data.window_days || 30}일)</div>
+      <div class="stats-totals">
+        <div class="stat">
+          <div class="stat-num">${t.unique_visitors ?? 0}</div>
+          <div class="stat-label">고유 방문자 (UV)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num">${t.page_views ?? 0}</div>
+          <div class="stat-label">페이지뷰 (PV)</div>
+        </div>
+      </div>
+    </div>
+    <div class="stats-block">
+      <div class="stats-block-title">출처별 (UV 많은 순)</div>
+      ${sourceBars}
+    </div>
+    ${dayBlock}
+    <div class="sched-note">
+      • 같은 방문자 + 같은 출처는 24시간 내 중복 카운트 안 됨<br>
+      • 출처 표식: ?s=kakao / ?s=kora / ?s=insta / ?s=mail<br>
+      • URL에 ?s= 없으면 <b>direct</b>로 분류
+    </div>
+  `;
 }
 
 // ───── 모바일 드로어 ─────
