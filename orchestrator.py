@@ -1061,7 +1061,8 @@ def _handle_agent_error(agent_name: str, e: Exception):
 _main_disabled = False
 
 # ── 봇 발언 순서 랜덤화 토글 ────────────────────────────
-_random_speak_order = False
+# 서버 재시작 시에도 켜진 상태 유지 (사용자 선호)
+_random_speak_order = True
 
 
 def enable_random_speak_order():
