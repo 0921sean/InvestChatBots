@@ -1395,7 +1395,7 @@ function openSchedule() {
   if (window._lastState) {
     const s = window._lastState;
     if (s.activity === 'watchlist') activeKey = 'sub';
-    else if (s.activity === 'holdings_review') activeKey = 'check';
+    else if (s.activity === 'holdings_review') activeKey = 'holdings';
     else if (s.running && (s.phase === 'sector_discussion' || s.phase === 'stock_analysis')) activeKey = 'main';
     else if (isWeekend) activeKey = 'rest';
     // running=false + 평일 + phase가 stock_analysis 등 → 정지 상태. active 표시 없음.
@@ -1415,13 +1415,8 @@ function openSchedule() {
       next: _nextKstWeekdayAt([0, 12, 18]),
     },
     {
-      key: 'stop', title: '손절 체크', time: '평일 메인 완료 직후',
-      desc: '보유 포지션 -20% 도달 시 자동 매도. 메인 사이클 종료 시 자동 트리거',
-      next: null,  // 메인 완료 시점에 동적
-    },
-    {
-      key: 'check', title: '종목 점검', time: '평일 메인 완료 직후',
-      desc: '보유 종목 전체에 대해 홀드/매도 판단. 매도 4표 이상이면 자동 청산',
+      key: 'holdings', title: '보유 종목 점검', time: '평일 메인 완료 직후',
+      desc: '① 손절 (-20% 도달 종목 자동 매도) → ② 7봇 투표 (매도 4표 이상이면 청산)',
       next: null,  // 메인 완료 시점에 동적
     },
     {
