@@ -565,21 +565,48 @@ def api_main_cycle_measure():
     # 백그라운드 — force run_round 반복 (cycle_rest까지)
     def _loop():
         import time as _t
-        while o._phase != "cycle_rest":
+        from agents import is_claude_token_exhausted
+        max_iter = 2000          # 안전망 — 무한 루프 방지
+        no_progress_count = 0
+        last_state = (o._phase, o._sector_idx, o._stock_idx, o._discussion_round)
+        terminated_reason = None
+        for _ in range(max_iter):
+            if o._phase == "cycle_rest":
+                terminated_reason = "정상 완료 (cycle_rest 도달)"
+                break
+            # 토큰 소진 감지 → 안전 종료
+            if is_claude_token_exhausted():
+                terminated_reason = "Claude 토큰 소진 — 부분 결과로 종료"
+                logger.warning(f"[측정] {terminated_reason}")
+                break
             try:
                 o.run_round(force=True)
             except Exception as e:
                 logger.error(f"[측정] 라운드 오류: {e}")
+                terminated_reason = f"예외: {type(e).__name__}"
                 break
+            # 진척이 없으면(같은 phase·sector·stock 10번 반복) 강제 종료
+            cur_state = (o._phase, o._sector_idx, o._stock_idx, o._discussion_round)
+            if cur_state == last_state:
+                no_progress_count += 1
+                if no_progress_count >= 10:
+                    terminated_reason = "진척 없음 (토큰·네트워크·로직 이상)"
+                    logger.warning(f"[측정] {terminated_reason}: {cur_state}")
+                    break
+            else:
+                no_progress_count = 0
+                last_state = cur_state
             _t.sleep(0.5)
-        logger.info("[측정] cycle_rest 도달 — 결과 분석 시작")
-        _send_baseline_report(start_token, start_epoch)
+        else:
+            terminated_reason = f"최대 반복({max_iter}) 도달"
+        logger.info(f"[측정] 종료: {terminated_reason}")
+        _send_baseline_report(start_token, start_epoch, terminated_reason)
 
     threading.Thread(target=_loop, daemon=True).start()
     return {"ok": True, "started_at": now.isoformat()}
 
 
-def _send_baseline_report(start_token: dict, start_epoch: float):
+def _send_baseline_report(start_token: dict, start_epoch: float, reason: str = "정상 완료"):
     """측정 종료 후 토큰 차이 계산 + 봇별/단계별 분해 + ntfy 푸시."""
     try:
         from db import _conn
@@ -630,9 +657,16 @@ def _send_baseline_report(start_token: dict, start_epoch: float):
         from prompts import AGENT_ORDER
         bot_summary = " · ".join(f"{n} {bot_calls.get(n,0)}" for n in AGENT_ORDER)
 
-        # ntfy 메시지 (간결하게)
-        title = f"📐 baseline 완료 — {elapsed_min:.0f}분"
+        # ntfy 메시지 (간결하게) — 종료 사유에 따라 제목 변형
+        if "토큰 소진" in reason:
+            title_prefix = "⏸ baseline 토큰소진 종료"
+        elif "정상" in reason:
+            title_prefix = "📐 baseline 완료"
+        else:
+            title_prefix = "⚠️ baseline 비정상 종료"
+        title = f"{title_prefix} — {elapsed_min:.0f}분"
         body = (
+            f"종료 사유: {reason}\n"
             f"총: {calls}콜 · {_fmt_n(total_tokens)} 토큰 · ${cost:.2f}\n"
             f"섹터토론 {sector_disc_calls}콜 · 종목분석 {stock_analysis_calls}콜\n"
             f"{bot_summary}\n"
