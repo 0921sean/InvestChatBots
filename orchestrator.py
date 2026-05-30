@@ -1145,6 +1145,9 @@ def reset_daily_cycle():
 _watchlist_lock = threading.Lock()
 _watchlist_disabled = False  # True면 새 슬롯은 스킵, 진행 중도 다음 봇 호출 직전 중단
 
+# 서브 사이클 1회당 분석할 최대 종목 수 (후보가 많으면 무작위 샘플)
+SUB_CYCLE_MAX_STOCKS = 5
+
 
 def pause_watchlist():
     """워치리스트 비활성 + 현재 진행 중 즉시 중단 요청."""
@@ -1192,12 +1195,10 @@ def _run_telegram_watchlist_inner(force: bool = False):
         # 단, 오전 6시 이전이면 메인이 아직 안 시작했으니 워치리스트는 돌아도 됨
         if _phase != "cycle_rest" and now.hour >= 6:
             return
-        # 사용자 활동 중에도 정기 cron은 막음 (측정·수동 트리거는 force=True로 우회)
+        # 사용자 활동/일시정지 중에도 정기 cron은 막음 (측정·수동 트리거는 force=True로 우회)
         if is_user_active() or _pause_requested:
             return
-    elif _pause_requested:
-        # force여도 명시적 일시정지면 막음 (안전)
-        return
+    # force=True는 모든 가드 우회 (측정·수동 트리거 의도)
 
     # 토큰 소진 시 — force(측정/수동)면 즉시 종료, 정기 cron이면 60분 대기
     if is_claude_token_exhausted():
@@ -1285,13 +1286,22 @@ def _run_telegram_watchlist_inner(force: bool = False):
         except Exception:
             pass
 
-    # 스캔 결과 채팅에 기록 (유효 종목만 표시)
+    # 후보가 많으면 무작위 N개만 선정 (토큰 절약 + 하루 3슬롯 × N = 적정 분량)
+    import random as _random
+    candidate_count = len(valid_tickers)
+    if candidate_count > SUB_CYCLE_MAX_STOCKS:
+        valid_tickers = _random.sample(valid_tickers, SUB_CYCLE_MAX_STOCKS)
+
+    # 스캔 결과 채팅에 기록 — "오늘 분석 시작" 명시
     scan_round_id = create_round(f"{source_label} 서브 사이클 스캔")
     if valid_tickers:
+        sample_note = (f"후보 {candidate_count}개 → 무작위 {len(valid_tickers)}개 선정"
+                       if candidate_count > SUB_CYCLE_MAX_STOCKS
+                       else f"후보 {candidate_count}개 전체 분석")
         _save_msg(scan_round_id, "System",
                   f"📡 [{source_label}] 서브 사이클 스캔 완료\n"
-                  f"분석 대상: {', '.join(t['name'] for t in valid_tickers)}\n"
-                  f"(메인 종목·가격없음 제외 후)")
+                  f"{sample_note}\n\n"
+                  f"🎯 오늘 분석 시작 → {', '.join(t['name'] for t in valid_tickers)}")
     else:
         _save_msg(scan_round_id, "System",
                   f"📡 [{source_label}] 서브 사이클 스캔 완료\n→ 분석할 신규 종목 없음")

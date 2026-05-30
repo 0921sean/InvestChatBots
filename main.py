@@ -724,7 +724,10 @@ def measure_watchlist():
     start_epoch = now.timestamp()
 
     def _run():
+        import orchestrator as o
         from orchestrator import run_telegram_watchlist
+        # 측정용 — 일시정지 명시적으로 해제 (force=True가 가드 무시하지만 안전망)
+        o.clear_pause()
         reason = "정상 완료"
         try:
             run_telegram_watchlist(force=True)
@@ -798,6 +801,27 @@ def api_sub_cycle_measure():
     measure_watchlist()
     from datetime import datetime, timezone, timedelta
     return {"ok": True, "started_at": datetime.now(timezone(timedelta(hours=9))).isoformat()}
+
+
+@app.get("/api/_debug/state")
+def api_debug_state():
+    """디버그 — 서버 프로세스 내부 상태."""
+    import time as _t
+    import orchestrator as o
+    from agents import _claude_token_exhausted, _claude_retry_after, is_claude_token_exhausted
+    return {
+        "now_epoch": _t.time(),
+        "claude_token_exhausted": _claude_token_exhausted,
+        "claude_retry_after": _claude_retry_after,
+        "claude_retry_after_relative": _claude_retry_after - _t.time(),
+        "is_exhausted_now": is_claude_token_exhausted(),
+        "pause_requested": o._pause_requested,
+        "watchlist_disabled": o._watchlist_disabled,
+        "user_active": o.is_user_active(),
+        "user_active_until": o._user_active_until,
+        "phase": o._phase,
+        "watchlist_lock_locked": o._watchlist_lock.locked(),
+    }
 
 
 @app.get("/api/_debug/jobs")
