@@ -1400,23 +1400,23 @@ function openSchedule() {
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'stop', title: '손절 체크', time: '매일 09:30',
-      desc: '보유 포지션 -20% 도달 시 자동 매도',
-      next: _nextKstDailyAt([9], 30),
-    },
-    {
       key: 'sub', title: '서브 사이클 (워치리스트)', time: '매일 00:00 · 12:00 · 18:00',
       desc: '텔레그램·뉴스 신규 종목 스캔 + 7봇 분석. 메인 진행 중이면 자동 skip',
       next: _nextKstDailyAt([0, 12, 18]),
     },
     {
-      key: 'check', title: '종목 점검', time: '메인 완료 직후',
+      key: 'stop', title: '손절 체크', time: '평일 메인 완료 직후',
+      desc: '보유 포지션 -20% 도달 시 자동 매도. 메인 사이클 종료 시 자동 트리거',
+      next: null,  // 메인 완료 시점에 동적
+    },
+    {
+      key: 'check', title: '종목 점검', time: '평일 메인 완료 직후',
       desc: '보유 종목 전체에 대해 홀드/매도 판단. 매도 4표 이상이면 자동 청산',
       next: null,  // 메인 완료 시점에 동적
     },
     {
       key: 'rest', title: '주말 휴식', time: '토 · 일',
-      desc: '메인 사이클·종목 점검 정지. 워치리스트와 손절 체크는 계속 동작',
+      desc: '메인 사이클·손절 체크·종목 점검 정지. 워치리스트만 계속 동작',
       next: null,
     },
   ];
