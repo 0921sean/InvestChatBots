@@ -995,6 +995,40 @@ def api_debug_state():
     }
 
 
+@app.post("/api/_debug/claude-ping")
+def api_debug_claude_ping(request: Request):
+    """Claude 토큰 상태 확인 — 작은 prompt 호출해서 회복 여부 즉시 판단.
+    owner-only. 비용 ~$0.001, 5-10초 소요. 자동 polling X (수동 호출만)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import time as _t
+    from agents import _call_claude_cli, _clear_token_exhausted, is_claude_token_exhausted
+    start = _t.time()
+    try:
+        result = _call_claude_cli("test", "ping back: pong", timeout=20)
+        elapsed = _t.time() - start
+        # 이전이 exhausted였다면 클리어
+        was_exhausted = is_claude_token_exhausted()
+        if was_exhausted:
+            _clear_token_exhausted()
+        return {
+            "ok": True,
+            "status": "토큰 정상 (회복됨)" if was_exhausted else "토큰 정상",
+            "previously_exhausted": was_exhausted,
+            "ping_response": (result or "")[:80],
+            "elapsed_seconds": round(elapsed, 1),
+        }
+    except Exception as e:
+        elapsed = _t.time() - start
+        msg = str(e)[:200]
+        return {
+            "ok": False,
+            "status": "토큰 소진 또는 오류",
+            "error": msg,
+            "elapsed_seconds": round(elapsed, 1),
+        }
+
+
 @app.get("/api/_debug/jobs")
 def api_debug_jobs():
     """디버그 — 현재 스케줄러 잡 목록 + 다음 실행 시각."""
