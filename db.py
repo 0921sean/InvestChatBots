@@ -119,6 +119,17 @@ def init_db():
             round_count INTEGER DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS visit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
+            visitor_id TEXT,
+            user_agent TEXT,
+            referer TEXT,
+            path TEXT,
+            ts DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_visit_log_ts ON visit_log(ts);
+        CREATE INDEX IF NOT EXISTS idx_visit_log_source ON visit_log(source);
         CREATE TABLE IF NOT EXISTS daily_analysis_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -680,3 +691,61 @@ def get_watched_stocks(limit: int = 50) -> list[dict]:
             LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── 방문 로그 (출처 트래킹) ────────────────────────────────
+def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
+              referer: str = "", path: str = "/") -> bool:
+    """방문 1건 기록. 같은 visitor_id + 같은 source는 24h 내 중복 기록 안 함.
+    반환값: 실제로 새로 기록했으면 True, 중복으로 skip했으면 False."""
+    with _conn() as con:
+        if visitor_id:
+            row = con.execute("""
+                SELECT 1 FROM visit_log
+                WHERE visitor_id=? AND COALESCE(source,'')=COALESCE(?,'')
+                  AND ts > datetime('now', '-1 day')
+                LIMIT 1
+            """, (visitor_id, source)).fetchone()
+            if row:
+                return False
+        con.execute("""
+            INSERT INTO visit_log (source, visitor_id, user_agent, referer, path)
+            VALUES (?, ?, ?, ?, ?)
+        """, (source or None, visitor_id, user_agent[:200], referer[:300], path[:200]))
+        return True
+
+
+def get_visit_stats(days: int = 30) -> dict:
+    """방문 통계 — 출처별 / 일자별 / 총합. KST 기준."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        totals = con.execute("""
+            SELECT COUNT(DISTINCT visitor_id) AS uv, COUNT(*) AS pv
+            FROM visit_log
+            WHERE ts > datetime('now', '-' || ? || ' day')
+        """, (days,)).fetchone()
+        by_source = con.execute("""
+            SELECT COALESCE(source,'direct') AS source,
+                   COUNT(DISTINCT visitor_id) AS uv,
+                   COUNT(*) AS pv
+            FROM visit_log
+            WHERE ts > datetime('now', '-' || ? || ' day')
+            GROUP BY COALESCE(source,'direct')
+            ORDER BY uv DESC
+        """, (days,)).fetchall()
+        by_day = con.execute("""
+            SELECT date(ts, '+9 hours') AS day,
+                   COALESCE(source,'direct') AS source,
+                   COUNT(DISTINCT visitor_id) AS uv,
+                   COUNT(*) AS pv
+            FROM visit_log
+            WHERE ts > datetime('now', '-' || ? || ' day')
+            GROUP BY day, COALESCE(source,'direct')
+            ORDER BY day DESC, uv DESC
+        """, (days,)).fetchall()
+        return {
+            "window_days": days,
+            "totals": {"unique_visitors": totals["uv"], "page_views": totals["pv"]},
+            "by_source": [dict(r) for r in by_source],
+            "by_day": [dict(r) for r in by_day],
+        }

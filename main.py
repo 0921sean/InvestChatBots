@@ -275,9 +275,9 @@ def admin_login(body: AdminLoginBody):
 
 
 @app.get("/")
-def root():
+def root(request: Request, s: str = ""):
     # 인라인 JS·CSS라 캐시되면 화면이 안 갱신됨 → 매번 새로 받게 함
-    return FileResponse(
+    resp = FileResponse(
         "static/index.html",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -285,6 +285,24 @@ def root():
             "Expires": "0",
         },
     )
+    # 방문 로그 — ?s=kakao|kora|insta|mail 출처 기록 (없으면 'direct')
+    try:
+        from db import log_visit
+        vsid = request.cookies.get("vsid")
+        if not vsid:
+            vsid = secrets.token_urlsafe(12)
+            resp.set_cookie("vsid", vsid, max_age=60 * 60 * 24 * 365,
+                            httponly=True, samesite="lax")
+        log_visit(
+            source=(s or "").strip().lower()[:32] or "direct",
+            visitor_id=vsid,
+            user_agent=request.headers.get("user-agent", ""),
+            referer=request.headers.get("referer", ""),
+            path="/",
+        )
+    except Exception as e:
+        logger.debug(f"visit log 실패: {e}")
+    return resp
 
 
 @app.get("/api/messages")
@@ -801,6 +819,15 @@ def api_sub_cycle_measure():
     measure_watchlist()
     from datetime import datetime, timezone, timedelta
     return {"ok": True, "started_at": datetime.now(timezone(timedelta(hours=9))).isoformat()}
+
+
+@app.get("/api/admin/visits")
+def api_admin_visits(request: Request, days: int = 30):
+    """방문 통계 (owner-only) — 출처별 / 일자별 / 총합."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_visit_stats
+    return get_visit_stats(days=days)
 
 
 @app.get("/api/_debug/state")
