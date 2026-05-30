@@ -13,12 +13,11 @@ def start_scheduler():
     # 매일 6시: 사이클 리셋 후 시작
     scheduler.add_job(reset_daily_cycle, CronTrigger(hour=6, minute=0), misfire_grace_time=300)
     # 서브 사이클 (워치리스트) — KST 기준
-    # 0시: 화·수·목·금·토만 (= 평일 마치는 자정. 토 0시는 '금요일 24시' 의미)
-    #      월요일 0시는 안 돎(6시 메인 시작), 일요일 0시도 안 돔(토요일 신호 없음)
-    # 12·18시: 평일만 (월~금 메인 cycle_rest 시 신호 수집)
+    # 0시: 화·수·목·금만 (월요일 0시는 6시 메인 시작 직전이라 제외)
+    # 12·18시: 평일 (월~금 메인 cycle_rest 시 신호 수집)
     scheduler.add_job(
         run_telegram_watchlist,
-        CronTrigger(hour=0, minute=0, day_of_week='tue,wed,thu,fri,sat'),
+        CronTrigger(hour=0, minute=0, day_of_week='tue,wed,thu,fri'),
         id="sub_cycle_midnight",
         misfire_grace_time=600,
     )

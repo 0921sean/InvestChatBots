@@ -1587,14 +1587,14 @@ function openSchedule() {
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'sub', title: '서브 사이클', time: '평일·토 00시 · 평일 12·18시',
-      desc: '텔레그램·뉴스 신규 종목 후보 중 무작위 20개 선정 → 7봇 분석',
-      next: null,
-    },
-    {
       key: 'holdings', title: '보유 종목 점검', time: '평일 메인 완료 직후',
       desc: '① 손절 (-20% 도달 종목 자동 매도) → ② 7봇 투표 (매도 4표 이상이면 청산)',
       next: null,  // 메인 완료 시점에 동적
+    },
+    {
+      key: 'sub', title: '서브 사이클', time: '평일 12 · 18 · 24시',
+      desc: '텔레그램·뉴스 신규 종목 후보 중 무작위 20개 선정 → 7봇 분석',
+      next: null,
     },
     {
       key: 'rest', title: '주말 휴식', time: '토 · 일',
