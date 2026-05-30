@@ -641,16 +641,24 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f"- JSON 내부 문자열에 줄바꿈·이스케이프 안 된 따옴표 금지.\n"
             f"- 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
-        raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
+        # 합의 종합 — 토론 컨텍스트 큼. timeout 240초 (개별 봇 호출은 60초 default)
+        raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt, timeout=240)
         consensus_json = _parse_consensus_json(raw, sector["name"])
 
-        # 검증 — thesis가 비어있거나 너무 짧으면 1회 재시도 (간결 프롬프트)
+        # 검증 — thesis가 비어있거나 너무 짧거나 fallback 안내문이면 재시도
         thesis_now = (consensus_json.get("thesis") or "").strip()
-        if thesis_now in ("", "—") or len(thesis_now) < 30:
-            logger.warning(f"[{sector['name']}] thesis 부족 → 재시도")
+        needs_retry = (
+            thesis_now in ("", "—") or
+            len(thesis_now) < 30 or
+            thesis_now.startswith("⚠️") or
+            "추출하지 못했" in thesis_now or
+            "추출 실패" in thesis_now
+        )
+        if needs_retry:
+            logger.warning(f"[{sector['name']}] thesis 부족/실패 → 재시도 (압축 컨텍스트)")
             retry_prompt = (
                 f"{sector['name']} 섹터 합의를 JSON 한 줄로만 출력. 다른 텍스트 금지.\n\n"
-                f"토론 요지:\n{convo[:1500]}\n\n"
+                f"토론 요지(축약):\n{convo[:1200]}\n\n"
                 f'{{"outlook":"긍정|중립|부정","decision":"매수|관망|매도",'
                 f'"headline":"15자 요약","thesis":"3문장 이상, 구체 근거 포함",'
                 f'"drivers":["요인1","요인2"],"risks":["리스크1"],'
@@ -658,11 +666,18 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
                 f"필수: 모든 필드 비울 수 없음. thesis는 반드시 3문장 이상."
             )
             try:
-                raw_retry = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], retry_prompt)
+                # 축약 prompt + 더 긴 timeout
+                raw_retry = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], retry_prompt, timeout=180)
                 retried = _parse_consensus_json(raw_retry, sector["name"])
-                if (retried.get("thesis") or "").strip() not in ("", "—") and len((retried.get("thesis") or "").strip()) >= 30:
+                retried_thesis = (retried.get("thesis") or "").strip()
+                if (retried_thesis not in ("", "—")
+                    and len(retried_thesis) >= 30
+                    and not retried_thesis.startswith("⚠️")
+                    and "추출" not in retried_thesis):
                     consensus_json = retried
                     logger.info(f"[{sector['name']}] thesis 재시도 성공")
+                else:
+                    logger.warning(f"[{sector['name']}] 재시도 결과도 부적합")
             except Exception as e:
                 logger.warning(f"[{sector['name']}] 재시도 실패: {e}")
     except Exception as e:
