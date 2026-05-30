@@ -194,6 +194,7 @@ async def owner_guard(request: Request, call_next):
                 is_owner_only = True
                 break
     if is_owner_only and request.cookies.get(COOKIE_NAME) != OWNER_TOKEN:
+        print(f"[owner_guard] 차단: {method} {path} (UA: {request.headers.get('user-agent','')[:60]})", flush=True)
         return JSONResponse(
             {"detail": "owner only — 읽기 전용 접속자는 조작 불가"},
             status_code=403,
