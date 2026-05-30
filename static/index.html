@@ -64,14 +64,25 @@
   #token-box .tb-status.exhausted { color: #f85149; border-color: rgba(248,81,73,.4); }
   #token-box .tb-status.exhausted .tb-status-dot { background: #f85149; }
 
-  /* 게이지 — 남은 % 따라 색깔 단계별로 명확히 */
-  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 6px; overflow: hidden; cursor: help; }
-  #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: #3fb950; }  /* 50%↑ 정상 (초록) */
-  #token-box .tb-gauge-fill.caution { background: #f0b429; }                                                    /* 30~50% 주의 (노랑) */
-  #token-box .tb-gauge-fill.warn    { background: #f0883e; }                                                    /* 10~30% 경고 (주황) */
-  #token-box .tb-gauge-fill.danger  { background: #f85149; animation: gauge-blink 1.6s ease-in-out infinite; } /* 0~10% 위급 (빨강·깜빡) */
-  #token-box .tb-gauge-fill.empty   { background: #30363d; }                                                    /* 충전 없음 */
+  /* 게이지 — 세트 상태별 색·애니메이션 */
+  #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 8px; overflow: hidden; cursor: help; }
+  #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: linear-gradient(90deg, #3fb950, #56d364); }  /* idle: 초록 그라데이션 */
+  /* 메인 사이클 — 시안/파랑 그라데이션 + 흐르는 효과 */
+  #token-box .tb-gauge-fill.state-main { background: linear-gradient(90deg, #1f6feb, #58a6ff, #79c0ff); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
+  /* 서브 사이클 — 보라/마젠타 그라데이션 + 흐르는 효과 */
+  #token-box .tb-gauge-fill.state-sub  { background: linear-gradient(90deg, #8b5cf6, #c084fc, #e879f9); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
+  /* 보유 점검 — 청록/민트 + 흐르는 효과 */
+  #token-box .tb-gauge-fill.state-check { background: linear-gradient(90deg, #06b6d4, #22d3ee, #67e8f9); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
+  /* 회복 대기 — 부드러운 회색 펄스 */
+  #token-box .tb-gauge-fill.state-polling { background: linear-gradient(90deg, #6e7681, #8b949e, #6e7681); background-size: 200% 100%; animation: gauge-flow 4s linear infinite; }
+  /* 회복 완료 — 라임/초록 + 빛나는 펄스 */
+  #token-box .tb-gauge-fill.state-recovered { background: linear-gradient(90deg, #3fb950, #56d364, #7ee787, #56d364, #3fb950); background-size: 200% 100%; animation: gauge-flow 2s linear infinite, gauge-glow 1.6s ease-in-out infinite; }
+  /* 소진 — 빨강·핑크 깜빡 */
+  #token-box .tb-gauge-fill.state-exhausted { background: linear-gradient(90deg, #f85149, #ff6b6b, #f85149); background-size: 200% 100%; animation: gauge-flow 1.5s linear infinite, gauge-blink 1.2s ease-in-out infinite; }
+
+  @keyframes gauge-flow { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
   @keyframes gauge-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  @keyframes gauge-glow { 0%,100% { box-shadow: 0 0 0 0 rgba(126,231,135,0); } 50% { box-shadow: 0 0 6px 1px rgba(126,231,135,.7); } }
 
   /* 잔여/누적 한 줄 — wrap 방지 */
   #token-box .tb-gauge-labels { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; margin-top: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1360,20 +1371,20 @@ async function loadTokenUsage() {
     //   exhausted: 소진 — 빨강
     //   idle: 평소 — 초록 풀
     const STATE_INFO = {
-      'main_running':       { label: '메인 사이클 진행', dotClass: '', fillClass: 'caution', width: 70, exhaustedBadge: false },
-      'sub_running':        { label: '서브 사이클 진행', dotClass: '', fillClass: 'caution', width: 70, exhaustedBadge: false },
-      'post_check_running': { label: '보유 점검 진행',   dotClass: '', fillClass: 'caution', width: 70, exhaustedBadge: false },
-      'polling':            { label: '세트 종료 · 회복 대기', dotClass: '', fillClass: 'empty', width: 100, exhaustedBadge: false },
-      'recovered':          { label: '✨ 토큰 윈도우 회복',   dotClass: '', fillClass: '',      width: 100, exhaustedBadge: false },
-      'idle':               { label: '봇 활동 가능',          dotClass: '', fillClass: '',      width: 100, exhaustedBadge: false },
-      'exhausted':          { label: '봇 활동 정지 (토큰 소진)', dotClass: 'exhausted', fillClass: 'danger', width: 30, exhaustedBadge: true },
+      'main_running':       { label: '🔵 메인 사이클 진행',    fillClass: 'state-main' },
+      'sub_running':        { label: '🟣 서브 사이클 진행',    fillClass: 'state-sub' },
+      'post_check_running': { label: '🩵 보유 점검 진행',      fillClass: 'state-check' },
+      'polling':            { label: '⚪ 세트 종료 · 회복 대기', fillClass: 'state-polling' },
+      'recovered':          { label: '✨ 토큰 윈도우 회복',     fillClass: 'state-recovered' },
+      'idle':               { label: '🟢 봇 활동 가능',         fillClass: '' },
+      'exhausted':          { label: '🔴 봇 활동 정지 (토큰 소진)', fillClass: 'state-exhausted', dotClass: 'exhausted' },
     };
     const info = STATE_INFO[state] || STATE_INFO['idle'];
 
     const fill = document.getElementById('tb-gauge-fill');
     fill.className = 'tb-gauge-fill';
     if (info.fillClass) fill.classList.add(info.fillClass);
-    fill.style.width = info.width + '%';
+    fill.style.width = '100%';  // 모든 상태에서 풀 — 색·애니메이션으로 구분
 
     // 라벨 — 현재 세트 사용량 + 누적
     const remainEl = document.getElementById('tb-remain');
