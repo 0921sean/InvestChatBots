@@ -335,6 +335,52 @@
   .stats-day-cnt { color: #8b949e; text-align: right; font-variant-numeric: tabular-nums; }
   .stats-empty { color: #6e7681; font-size: 12px; padding: 20px 0; text-align: center; }
 
+  /* 피드백 — 강조 톤 버튼 + 모달 */
+  .btn.btn-feedback { background: #1f6feb; color: #fff; border: none; }
+  .btn.btn-feedback:hover { background: #388bfd; }
+  #fb-badge { display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
+    background: #da3633; color: #fff; border-radius: 8px; font-size: 10px; font-weight: 700; }
+
+  #feedback-modal, #feedback-list-modal { display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; padding: 20px; }
+  #feedback-modal.open, #feedback-list-modal.open { display:flex; }
+  #feedback-box, #feedback-list-box { background:#161b22; border:1px solid #30363d; border-radius:14px;
+    padding:24px 26px; max-width:520px; width:100%; position:relative; max-height:85vh; overflow-y:auto; }
+  #feedback-box h3, #feedback-list-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; color:#e2e8f0; }
+  #feedback-box .fb-sub, #feedback-list-box .fb-sub { font-size:11px; color:#6e7681; margin-bottom:14px; }
+  #feedback-close, #fb-list-close { position:absolute; top:14px; right:16px; background:none; border:none;
+    color:#6e7681; font-size:20px; cursor:pointer; }
+  #fb-textarea { width: 100%; min-height: 140px; background: #0d1117; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px 12px; color: #e2e8f0; font-size: 13px; font-family: inherit;
+    outline: none; resize: vertical; line-height: 1.55; }
+  #fb-textarea:focus { border-color: #58a6ff; }
+  #fb-counter { font-size: 10.5px; color: #6e7681; text-align: right; margin-top: 6px; }
+  #fb-send-btn { width: 100%; background: #1f6feb; border: none; color: #fff; padding: 10px;
+    border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 600; margin-top: 14px;
+    transition: background .15s; }
+  #fb-send-btn:hover:not(:disabled) { background: #388bfd; }
+  #fb-send-btn:disabled { background: #30363d; cursor: not-allowed; }
+  #fb-status { font-size: 11px; margin-top: 10px; min-height: 14px; }
+  #fb-status.ok { color: #3fb950; }
+  #fb-status.err { color: #f85149; }
+
+  /* admin 피드백 리스트 */
+  .fb-item { padding: 10px 12px; margin-bottom: 8px; background: #0d1117;
+    border: 1px solid #21262d; border-radius: 8px; }
+  .fb-item.unread { border-left: 3px solid #58a6ff; }
+  .fb-item .fb-meta { display: flex; justify-content: space-between; gap: 8px;
+    font-size: 10.5px; color: #6e7681; margin-bottom: 6px; }
+  .fb-item .fb-content { font-size: 12.5px; color: #e2e8f0; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .fb-item .fb-actions { margin-top: 6px; }
+  .fb-item .fb-read-btn { background: none; border: 1px solid #30363d; color: #8b949e;
+    padding: 3px 8px; border-radius: 4px; font-size: 10.5px; cursor: pointer; }
+  .fb-item .fb-read-btn:hover { color: #58a6ff; border-color: #58a6ff; }
+  .fb-toolbar { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .fb-toolbar button { background: none; border: 1px solid #30363d; color: #8b949e;
+    padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .fb-toolbar button:hover { color: #58a6ff; border-color: #58a6ff; }
+
   /* 사이드바 타이틀 옆 작은 admin 라벨 (admin URL일 때만) */
   #sidebar-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .beta-tag { display: inline-block; font-size: 8.5px; font-weight: 700; padding: 1.5px 5px;
@@ -521,6 +567,8 @@
       <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
       <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
       <button class="btn btn-ghost owner-only" id="btn-stats" onclick="openStats()" title="방문 통계">📊 통계</button>
+      <button class="btn btn-ghost owner-only" id="btn-feedback-list" onclick="openFeedbackList()" title="피드백 목록">📨 피드백 <span id="fb-badge" style="display:none"></span></button>
+      <button class="btn btn-feedback" id="btn-feedback-send" onclick="openFeedbackSend()" title="피드백 보내기">💬 피드백</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
   </div>
@@ -591,6 +639,34 @@
       • 종목 점검은 메인 사이클 완료 직후 자동 실행됩니다.<br>
       • 토큰 소진 시 충전될 때까지 대기하고 자동 재개됩니다.
     </div>
+  </div>
+</div>
+
+<div id="feedback-modal" onclick="if(event.target===this)closeFeedbackSend()">
+  <div id="feedback-box">
+    <button id="feedback-close" onclick="closeFeedbackSend()">✕</button>
+    <h3>💬 관리자에게 피드백</h3>
+    <div class="fb-sub">
+      이상한 점·아이디어·궁금한 점 자유롭게 적어 주세요. 익명으로 전송됩니다.
+    </div>
+    <textarea id="fb-textarea" placeholder="예) ○○ 봇 발언이 어색해요 / ○○ 기능 있으면 좋겠어요 / 모바일에서 ○○이 안 보여요" maxlength="5000" oninput="updateFbCounter()"></textarea>
+    <div id="fb-counter">0 / 5000</div>
+    <button id="fb-send-btn" onclick="sendFeedback()">보내기</button>
+    <div id="fb-status"></div>
+  </div>
+</div>
+
+<div id="feedback-list-modal" onclick="if(event.target===this)closeFeedbackList()">
+  <div id="feedback-list-box">
+    <button id="fb-list-close" onclick="closeFeedbackList()">✕</button>
+    <h3>📨 받은 피드백</h3>
+    <div class="fb-sub" id="fb-list-sub">로딩…</div>
+    <div class="fb-toolbar">
+      <button onclick="loadFeedbackList(false)">전체 보기</button>
+      <button onclick="loadFeedbackList(true)">미읽음만</button>
+      <button onclick="markAllFbRead()">전부 읽음 처리</button>
+    </div>
+    <div id="fb-list-content">불러오는 중…</div>
   </div>
 </div>
 
@@ -1599,6 +1675,130 @@ function renderStats(data) {
   `;
 }
 
+// ───── 피드백 (방문자 → 관리자) ─────
+function openFeedbackSend() {
+  document.getElementById('feedback-modal').classList.add('open');
+  setTimeout(() => document.getElementById('fb-textarea').focus(), 50);
+}
+function closeFeedbackSend() {
+  document.getElementById('feedback-modal').classList.remove('open');
+  document.getElementById('fb-status').textContent = '';
+  document.getElementById('fb-status').className = '';
+}
+function updateFbCounter() {
+  const ta = document.getElementById('fb-textarea');
+  document.getElementById('fb-counter').textContent = `${ta.value.length} / 5000`;
+}
+async function sendFeedback() {
+  const ta = document.getElementById('fb-textarea');
+  const status = document.getElementById('fb-status');
+  const btn = document.getElementById('fb-send-btn');
+  const content = ta.value.trim();
+  status.textContent = '';
+  status.className = '';
+  if (content.length < 5) {
+    status.textContent = '5자 이상 입력해 주세요.';
+    status.className = 'err';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '보내는 중…';
+  try {
+    const r = await fetch('/api/feedback', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content}),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    status.textContent = '✅ 보냈습니다. 감사합니다!';
+    status.className = 'ok';
+    ta.value = '';
+    updateFbCounter();
+    setTimeout(closeFeedbackSend, 1500);
+  } catch (e) {
+    status.textContent = `전송 실패: ${e.message}`;
+    status.className = 'err';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '보내기';
+  }
+}
+
+// ───── 피드백 목록 (owner) ─────
+async function openFeedbackList() {
+  document.getElementById('feedback-list-modal').classList.add('open');
+  await loadFeedbackList(false);
+}
+function closeFeedbackList() {
+  document.getElementById('feedback-list-modal').classList.remove('open');
+  // 닫을 때 배지 갱신 (읽음 처리 반영)
+  updateFeedbackBadge();
+}
+async function loadFeedbackList(unreadOnly) {
+  const content = document.getElementById('fb-list-content');
+  const sub = document.getElementById('fb-list-sub');
+  content.innerHTML = '불러오는 중…';
+  try {
+    const r = await fetch('/api/admin/feedback?limit=100' + (unreadOnly ? '&unread_only=true' : ''));
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    sub.textContent = `${d.items.length}건 표시 · 미읽음 ${d.unread_count}건`;
+    if (!d.items.length) {
+      content.innerHTML = '<div class="stats-empty">아직 피드백이 없습니다.</div>';
+      return;
+    }
+    content.innerHTML = d.items.map(it => {
+      const tsKst = new Date(it.ts.replace(' ', 'T') + 'Z').toLocaleString('ko-KR',
+        { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+      const unread = it.is_read ? '' : 'unread';
+      const ua = (it.user_agent || '').slice(0, 60);
+      return `<div class="fb-item ${unread}">
+        <div class="fb-meta">
+          <span>#${it.id} · ${tsKst} KST</span>
+          <span style="opacity:.6">${esc(ua)}</span>
+        </div>
+        <div class="fb-content">${esc(it.content)}</div>
+        ${it.is_read ? '' : `<div class="fb-actions">
+          <button class="fb-read-btn" onclick="markFbRead(${it.id})">읽음 처리</button>
+        </div>`}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    content.innerHTML = `<div class="stats-empty">목록 불러오기 실패: ${e.message}</div>`;
+  }
+}
+async function markFbRead(id) {
+  try {
+    await fetch(`/api/admin/feedback/read?id=${id}`, {method:'POST'});
+    await loadFeedbackList(false);
+  } catch (e) { /* ignore */ }
+}
+async function markAllFbRead() {
+  if (!confirm('모든 피드백을 읽음 처리할까요?')) return;
+  try {
+    await fetch('/api/admin/feedback/read?id=0', {method:'POST'});
+    await loadFeedbackList(false);
+  } catch (e) { /* ignore */ }
+}
+async function updateFeedbackBadge() {
+  if (!document.body.classList.contains('admin-mode')) return;
+  try {
+    const r = await fetch('/api/admin/feedback?limit=1');
+    if (!r.ok) return;
+    const d = await r.json();
+    const badge = document.getElementById('fb-badge');
+    if (!badge) return;
+    if (d.unread_count > 0) {
+      badge.textContent = d.unread_count;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) { /* ignore */ }
+}
+
 // ───── 모바일 드로어 ─────
 function closeDrawers() {
   document.body.classList.remove('left-open', 'right-open', 'drawer-open');
@@ -1785,6 +1985,8 @@ setInterval(loadPortfolio, 15000);
 setInterval(loadTokenUsage, 10000);
 setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인
 setInterval(updateVisitorTimers, 30000);  // 30초마다 카운트다운 갱신
+setInterval(updateFeedbackBadge, 60000);  // 1분마다 피드백 미읽음 배지 갱신 (admin only)
+loadWhoami().then(() => setTimeout(updateFeedbackBadge, 1500));  // 첫 로드 직후 한 번
 </script>
 </body>
 </html>

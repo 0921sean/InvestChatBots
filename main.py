@@ -826,6 +826,60 @@ def api_sub_cycle_measure():
     return {"ok": True, "started_at": datetime.now(timezone(timedelta(hours=9))).isoformat()}
 
 
+class FeedbackBody(BaseModel):
+    content: str
+
+
+@app.post("/api/feedback")
+def api_feedback_create(body: FeedbackBody, request: Request):
+    """누구나 — 피드백 1건 전송. ntfy 알림 + DB 저장. 5분 내 3건 초과 시 차단."""
+    text = (body.content or "").strip()
+    if len(text) < 5:
+        raise HTTPException(400, "내용이 너무 짧습니다 (5자 이상)")
+    if len(text) > 5000:
+        raise HTTPException(400, "내용이 너무 깁니다 (5000자 이하)")
+    vsid = request.cookies.get("vsid")
+    from db import add_feedback, feedback_rate_limited
+    if feedback_rate_limited(vsid, window_min=5, max_n=3):
+        raise HTTPException(429, "잠시 후 다시 시도해 주세요 (5분에 3건 제한)")
+    fid = add_feedback(
+        content=text,
+        visitor_id=vsid,
+        user_agent=request.headers.get("user-agent", ""),
+        referer=request.headers.get("referer", ""),
+    )
+    # ntfy 알림 — 본인에게 즉시 전달
+    try:
+        from notifier import notify
+        preview = text[:200] + ("…" if len(text) > 200 else "")
+        notify("📨 새 피드백", preview, priority="high", cooldown=0)
+    except Exception as e:
+        logger.debug(f"피드백 ntfy 실패: {e}")
+    return {"ok": True, "id": fid}
+
+
+@app.get("/api/admin/feedback")
+def api_admin_feedback_list(request: Request, limit: int = 100, unread_only: bool = False):
+    """피드백 목록 (owner only)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import list_feedback, feedback_unread_count
+    return {
+        "items": list_feedback(limit=limit, unread_only=unread_only),
+        "unread_count": feedback_unread_count(),
+    }
+
+
+@app.post("/api/admin/feedback/read")
+def api_admin_feedback_read(request: Request, id: int = 0):
+    """읽음 처리. id=0이면 전체 일괄."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import mark_feedback_read
+    mark_feedback_read(id if id else None)
+    return {"ok": True}
+
+
 @app.get("/api/admin/visits")
 def api_admin_visits(request: Request, days: int = 30):
     """방문 통계 (owner-only) — 출처별 / 일자별 / 총합."""
