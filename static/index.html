@@ -1734,26 +1734,62 @@ async function sendFeedback() {
   }
   btn.disabled = true;
   btn.textContent = '보내는 중…';
-  // 옛 SW·확장·차단기가 '/api/feedback' 가로채는 환경 대응: 3개 path 순차 시도
+  // 환경에 따라 fetch가 가로채질 수 있어 3가지 메커니즘 + 3가지 path 순차 시도
   const PATHS = ['/api/feedback', '/api/contact', '/api/note'];
-  let lastErr = null, ok = false, lastResp = null;
+  let lastErr = null, ok = false;
+  const tryFetch = async (p) => {
+    const r = await fetch(p + '?_=' + Date.now(), {
+      method: 'POST', cache: 'no-store', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+      body: JSON.stringify({content}),
+    });
+    if (r.ok) return {ok: true, via: 'fetch ' + p};
+    const d = await r.json().catch(() => ({}));
+    return {ok: false, err: `fetch ${p} → HTTP ${r.status} ${d.detail || ''}`, raw: {status: r.status, url: r.url, detail: d.detail}};
+  };
+  const tryXhr = (p) => new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', p + '?xhr=' + Date.now(), true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 10000;
+    xhr.onload = () => xhr.status === 200
+      ? resolve({ok: true, via: 'xhr ' + p})
+      : resolve({ok: false, err: `xhr ${p} → HTTP ${xhr.status} ${xhr.responseText.slice(0,80)}`});
+    xhr.onerror = () => resolve({ok: false, err: `xhr ${p} → network error`});
+    xhr.ontimeout = () => resolve({ok: false, err: `xhr ${p} → timeout`});
+    xhr.send(JSON.stringify({content}));
+  });
+
+  // 1차: fetch 3개 path
   for (const p of PATHS) {
     try {
-      const r = await fetch(p + '?_=' + Date.now(), {
-        method: 'POST', cache: 'no-store', credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-        body: JSON.stringify({content}),
-      });
-      lastResp = r;
-      if (r.ok) { ok = true; console.log('[feedback] ok via', p); break; }
-      const d = await r.json().catch(() => ({}));
-      console.error('[feedback] failed via', p, {url: r.url, status: r.status, detail: d.detail, redirected: r.redirected, type: r.type});
-      lastErr = `HTTP ${r.status} (${p}): ${d.detail || '(no body)'}`;
-    } catch (e) {
-      console.error('[feedback] network error via', p, e);
-      lastErr = `네트워크 오류 (${p}): ${e.message}`;
+      const r = await tryFetch(p);
+      if (r.ok) { ok = true; console.log('[feedback] ✅', r.via); break; }
+      console.error('[feedback] fail', r);
+      lastErr = r.err;
+    } catch (e) { console.error('[feedback] fetch err', p, e); lastErr = `fetch ${p} → ${e.message}`; }
+  }
+  // 2차: XHR 3개 path (fetch가 가로채진 경우 우회)
+  if (!ok) {
+    for (const p of PATHS) {
+      const r = await tryXhr(p);
+      if (r.ok) { ok = true; console.log('[feedback] ✅', r.via); break; }
+      console.error('[feedback] xhr fail', r);
+      lastErr = r.err;
     }
   }
+  // 3차: sendBeacon (응답 못 받지만 발송은 됨)
+  if (!ok && navigator.sendBeacon) {
+    try {
+      const blob = new Blob([JSON.stringify({content})], {type: 'application/json'});
+      const sent = navigator.sendBeacon('/api/feedback?beacon=' + Date.now(), blob);
+      if (sent) {
+        ok = true;
+        console.log('[feedback] ✅ sendBeacon (응답 못 받음, 발송만 확인)');
+      }
+    } catch (e) { console.error('[feedback] beacon err', e); }
+  }
+
   try {
     if (!ok) throw new Error(lastErr || '모든 경로 실패');
     status.textContent = '✅ 보냈습니다. 감사합니다!';
