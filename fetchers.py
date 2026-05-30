@@ -158,42 +158,65 @@ def build_market_summary(market_data: dict, news: list, ta_data: dict = None) ->
 # ── 개별 종목 데이터 (봇 분석용) ─────────────────────────
 def fetch_stock_data(code: str, yf_ticker: str, name: str,
                      market: str = "KRX", exchange: str = "KRX") -> dict:
-    """TradingView TA + yfinance 펀더멘털. KRX/US 모두 지원."""
+    """TradingView TA + yfinance 펀더멘털. KRX/US 모두 지원.
+    두 소스 모두 실패하면 _data_unavailable=True로 표시."""
     result = {"name": name, "code": code, "market": market}
+    tv_ok = False
+    yf_ok = False
 
     screener = "america" if market == "US" else "korea"
     tv_exchange = exchange if market == "US" else "KRX"
 
-    # TradingView TA — 가격 + 기술적 지표
-    try:
-        h = TA_Handler(symbol=code, screener=screener, exchange=tv_exchange,
-                       interval=Interval.INTERVAL_1_DAY)
-        a = h.get_analysis()
-        close = a.indicators.get("close") or a.indicators.get("Close")
-        open_p = a.indicators.get("open") or a.indicators.get("Open")
-        if close:
-            result["price"] = round(float(close), 0)
-        if close and open_p and open_p != 0:
-            result["change_pct"] = round((float(close) - float(open_p)) / float(open_p) * 100, 2)
-        rsi = a.indicators.get("RSI")
-        if rsi:
-            result["rsi"] = round(float(rsi), 1)
-        result["recommendation"] = a.summary.get("RECOMMENDATION", "NEUTRAL")
-        result["buy_signals"] = a.summary.get("BUY", 0)
-        result["sell_signals"] = a.summary.get("SELL", 0)
-        ema20 = a.indicators.get("EMA20")
-        ema50 = a.indicators.get("EMA50")
-        if ema20:
-            result["ema20"] = round(float(ema20), 0)
-        if ema50:
-            result["ema50"] = round(float(ema50), 0)
-    except Exception as e:
-        logger.debug(f"TV-TA {code}: {e}")
+    # TradingView TA — 가격 + 기술적 지표 (한국 종목은 KRX/KOSDAQ 둘 다 시도)
+    tv_exchanges = [tv_exchange] if market == "US" else ["KRX", "KOSDAQ"]
+    a = None
+    for ex in tv_exchanges:
+        try:
+            h = TA_Handler(symbol=code, screener=screener, exchange=ex,
+                           interval=Interval.INTERVAL_1_DAY)
+            a = h.get_analysis()
+            if a:
+                tv_ok = True
+                break
+        except Exception as e:
+            logger.debug(f"TV-TA {code}@{ex}: {e}")
+    if a:
+        try:
+            close = a.indicators.get("close") or a.indicators.get("Close")
+            open_p = a.indicators.get("open") or a.indicators.get("Open")
+            if close:
+                result["price"] = round(float(close), 0)
+            if close and open_p and open_p != 0:
+                result["change_pct"] = round((float(close) - float(open_p)) / float(open_p) * 100, 2)
+            rsi = a.indicators.get("RSI")
+            if rsi:
+                result["rsi"] = round(float(rsi), 1)
+            result["recommendation"] = a.summary.get("RECOMMENDATION", "NEUTRAL")
+            result["buy_signals"] = a.summary.get("BUY", 0)
+            result["sell_signals"] = a.summary.get("SELL", 0)
+            ema20 = a.indicators.get("EMA20")
+            ema50 = a.indicators.get("EMA50")
+            if ema20:
+                result["ema20"] = round(float(ema20), 0)
+            if ema50:
+                result["ema50"] = round(float(ema50), 0)
+        except Exception as e:
+            logger.debug(f"TV-TA parse {code}: {e}")
 
-    # yfinance — 펀더멘털
+    # yfinance — 펀더멘털 + 가격 fallback
     try:
         t = yf.Ticker(yf_ticker)
-        info = t.info
+        info = t.info or {}
+        # TV 가격 없으면 yfinance에서 보완
+        if "price" not in result:
+            try:
+                fi = t.fast_info
+                p = getattr(fi, 'last_price', None) or getattr(fi, 'previous_close', None)
+                if p:
+                    result["price"] = round(float(p), 0) if market != "US" else round(float(p), 2)
+                    yf_ok = True
+            except Exception:
+                pass
         for key, attr in [
             ("per", "trailingPE"), ("per_fwd", "forwardPE"),
             ("eps", "trailingEps"), ("roe", "returnOnEquity"),
@@ -204,18 +227,33 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
             val = info.get(attr)
             if val is not None and not (isinstance(val, float) and math.isnan(val)):
                 result[key] = val
+                yf_ok = True
     except Exception as e:
         logger.debug(f"yfinance {yf_ticker}: {e}")
 
+    # 두 소스 모두 실패 or 데이터 너무 적음 → 플래그
+    if not tv_ok and not yf_ok:
+        result["_data_unavailable"] = True
     return result
 
 
 def format_stock_data(data: dict) -> str:
-    """봇 프롬프트용 종목 데이터 포맷."""
+    """봇 프롬프트용 종목 데이터 포맷.
+    데이터 두 소스 다 실패 시 명시적으로 안내."""
     market = data.get("market", "KRX")
     currency = "$" if market == "US" else "₩"
     unit = "" if market == "US" else "원"
     lines = [f"=== {data['name']} ({data['code']}) — TradingView 기준 ==="]
+
+    # 데이터 fetch 완전 실패 케이스
+    if data.get("_data_unavailable"):
+        lines.append("⚠️ 실시간 데이터 가져오기 실패 (TradingView·yfinance 둘 다 미응답).")
+        lines.append("최근 시황 흐름과 텔레그램·블로그 시그널만으로 의견 주세요.")
+        return "\n".join(lines)
+    # 가용 지표가 1~2개뿐인 케이스
+    fields = [k for k in ("price", "rsi", "ema20", "per", "roe", "eps", "52w_high") if data.get(k) is not None]
+    if len(fields) <= 2:
+        lines.append("⚠️ 데이터 일부만 수집됨 — 누락 지표는 봇이 보유 데이터로만 판단.")
 
     price = data.get("price")
     if price:
