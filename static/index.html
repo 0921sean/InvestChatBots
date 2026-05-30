@@ -631,7 +631,11 @@ function trimMessages() {
   const c = document.getElementById('messages');
   // children.length - 1 은 앵커 엘리먼트
   while (c.children.length - 1 > MAX_DOM_MESSAGES) {
-    c.removeChild(c.firstChild);
+    const removed = c.firstChild;
+    if (removed && removed.dataset && removed.dataset.mid) {
+      _renderedMsgIds.delete(parseInt(removed.dataset.mid));
+    }
+    c.removeChild(removed);
   }
 }
 
@@ -645,7 +649,10 @@ async function initialLoad() {
     const c = document.getElementById('messages');
     const anchor = document.getElementById('msg-anchor');
     msgs.forEach(m => {
-      c.insertBefore(renderMessage(m), anchor);
+      _renderedMsgIds.add(m.id);
+      const el = renderMessage(m);
+      el.dataset.mid = m.id;
+      c.insertBefore(el, anchor);
       if (m.id > lastId) lastId = m.id;
     });
     _initialLoaded = true;
@@ -653,8 +660,12 @@ async function initialLoad() {
   } catch(e) { _initialLoaded = true; }
 }
 
+// 폴링 재진입 방지 + 이미 그린 메시지 ID 추적
+let _polling = false;
+const _renderedMsgIds = new Set();
 async function poll() {
-  if (!_initialLoaded) return;
+  if (!_initialLoaded || _polling) return;
+  _polling = true;
   try {
     const res = await fetch(`/api/messages?since=${lastId}`);
     if (!res.ok) return;
@@ -664,11 +675,18 @@ async function poll() {
     const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 120;
     const anchor = document.getElementById('msg-anchor');
     msgs.forEach(m => {
-      c.insertBefore(renderMessage(m), anchor);
-      if(m.id>lastId) lastId=m.id;
+      // 이미 그려진 메시지면 skip (재진입·중복 fetch 대비 이중 안전)
+      if (_renderedMsgIds.has(m.id)) return;
+      _renderedMsgIds.add(m.id);
+      const el = renderMessage(m);
+      el.dataset.mid = m.id;
+      c.insertBefore(el, anchor);
+      if (m.id > lastId) lastId = m.id;
     });
     if (atBottom) scrollToBottom();
-  } catch(e) {}
+  } catch(e) {} finally {
+    _polling = false;
+  }
 }
 
 function openBotModal(a) {
