@@ -267,9 +267,13 @@
   .member:hover { background:rgba(255,255,255,0.05); border-radius:4px; }
 
   /* 일정표 모달 */
-  #chat-hash { cursor: pointer; transition: opacity .15s; }
-  #chat-hash:hover { opacity: 0.7; }
-  #chat-hash::after { content: ' 📅'; font-size: 11px; opacity: 0.6; }
+  #chat-hash { cursor: pointer; transition: color .15s, background .15s; display: inline-flex; align-items: center;
+    padding: 2px 8px 2px 6px; border-radius: 5px; border: 1px solid transparent; }
+  #chat-hash:hover { background: #21262d; border-color: #30363d; color: #58a6ff; }
+  #chat-hash::after { content: ' 📅 일정표'; font-size: 10px; font-weight: 600; color: #6e7681;
+    margin-left: 6px; padding: 2px 6px; border-radius: 3px; background: #21262d; border: 1px solid #30363d;
+    letter-spacing: .02em; }
+  #chat-hash:hover::after { color: #58a6ff; border-color: rgba(56,139,253,.3); }
   #schedule-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; padding: 20px; }
   #schedule-modal.open { display:flex; }
   #schedule-box { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:24px 26px; max-width:480px; width:100%; position:relative; max-height:85vh; overflow-y:auto; }
@@ -1332,10 +1336,10 @@ function toggleTokenBox(e) {
 }
 
 // ───── 일정표 모달 ─────
+// _kstNow(): Date 객체 안의 UTC 시각이 실제 KST와 같게 만듦.
+// 표시 시 timeZone: 'UTC' 옵션으로 그 시각 그대로 보여주면 KST로 보임.
 function _kstNow() {
-  // 브라우저 로케일과 무관하게 KST(UTC+9) 시각 계산
-  const now = new Date();
-  return new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (9 * 3600000));
+  return new Date(Date.now() + 9 * 3600000);
 }
 function _nextKstWeekdayAt(hour, minute) {
   // 다음 평일 hour:minute KST. 토일은 월요일로 건너뜀.
@@ -1348,13 +1352,13 @@ function _nextKstWeekdayAt(hour, minute) {
   }
   return target;
 }
-function _nextKstDailyAt(hours) {
-  // 다음 hours 중 가장 빠른 시각 (평일 제한 없음, KST)
+function _nextKstDailyAt(hours, minute = 0) {
+  // 다음 hours 중 가장 빠른 시각 (요일 무관, KST)
   const n = _kstNow();
   let best = null;
   for (const h of hours) {
     const t = new Date(n);
-    t.setUTCHours(h, 0, 0, 0);
+    t.setUTCHours(h, minute, 0, 0);
     if (t <= n) t.setUTCDate(t.getUTCDate() + 1);
     if (!best || t < best) best = t;
   }
@@ -1392,27 +1396,27 @@ function openSchedule() {
   const items = [
     {
       key: 'main', title: '메인 사이클', time: '평일 06:00',
-      desc: '13개 섹터 분석 시작. 섹터별 3라운드 토론 + 종목별 9봇 투표 → 매수 결정',
+      desc: '13개 섹터 분석. 섹터별 3라운드 토론 + 종목별 7봇 투표 → 매수 4표 이상이면 자동 매수',
       next: _nextKstWeekdayAt(6, 0),
     },
     {
       key: 'stop', title: '손절 체크', time: '매일 09:30',
       desc: '보유 포지션 -20% 도달 시 자동 매도',
-      next: _nextKstWeekdayAt(9, 30),
+      next: _nextKstDailyAt([9], 30),
     },
     {
-      key: 'sub', title: '서브 사이클 (워치리스트)', time: '매일 12:00 · 18:00 · 24:00',
-      desc: '텔레그램·뉴스 신규 종목 스캔 + 9봇 분석. 메인 진행 중이면 자동 skip',
-      next: _nextKstDailyAt([12, 18, 0]),
+      key: 'sub', title: '서브 사이클 (워치리스트)', time: '매일 00:00 · 12:00 · 18:00',
+      desc: '텔레그램·뉴스 신규 종목 스캔 + 7봇 분석. 메인 진행 중이면 자동 skip',
+      next: _nextKstDailyAt([0, 12, 18]),
     },
     {
       key: 'check', title: '종목 점검', time: '메인 완료 직후',
-      desc: '보유 종목 전체에 대해 홀드/매도 판단. 매도 5표 이상이면 자동 청산',
+      desc: '보유 종목 전체에 대해 홀드/매도 판단. 매도 4표 이상이면 자동 청산',
       next: null,  // 메인 완료 시점에 동적
     },
     {
       key: 'rest', title: '주말 휴식', time: '토 · 일',
-      desc: '메인 사이클·종목 점검 정지. 워치리스트는 계속 동작',
+      desc: '메인 사이클·종목 점검 정지. 워치리스트와 손절 체크는 계속 동작',
       next: null,
     },
   ];
