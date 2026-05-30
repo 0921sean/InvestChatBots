@@ -623,19 +623,43 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f'"spokesperson":"봇이름", '
             f'"quote":"그 봇의 합의 결론 한 줄(20-40자, 봇 어투로)"}}\n\n'
             f"규칙:\n"
+            f"- 모든 필드 필수. 빈 문자열·빈 배열·null 금지. 토론이 빈약해도 추정으로 채워서 형식을 지키세요.\n"
             f"- outlook: 정확히 '긍정/중립/부정' 셋 중 하나만. 중첩 표기('중립(부정 우위)') 금지.\n"
             f"- decision: 정확히 '매수/관망/매도' 셋 중 하나만. 섹터 전체 권고 기준.\n"
             f"- headline: 12-15자 요약 (예: 'HBM 사이클 초입, 매력적', '본업 정체·배당만 매력').\n"
-            f"- thesis: 평서문 3-4문장. PER·ROE·EPS 등 구체 수치, 종목명, 다수 봇이 합의한 핵심 근거 포함. 봇 호명·이모지·**bold** 금지.\n"
-            f"- drivers: 2-4개. 각 한 줄로 구체적 촉진 요인.\n"
-            f"- risks: 1-3개. 각 한 줄로 구체적 리스크.\n"
-            f"- key_picks: 다수가 동의한 종목 0-3개 (종목명만).\n"
+            f"- thesis: **반드시 평서문 3-4문장으로 채울 것**. PER·ROE·EPS 등 구체 수치, 종목명, 다수 봇이 합의한 핵심 근거 포함. 봇 호명·이모지·**bold** 금지. 빈 값 절대 금지.\n"
+            f"- drivers: **최소 2개 이상**. 각 한 줄로 구체적 촉진 요인.\n"
+            f"- risks: **최소 1개 이상**. 각 한 줄로 구체적 리스크.\n"
+            f"- key_picks: 다수가 동의한 종목 1-3개 (종목명만).\n"
             f"- spokesperson: 이번 합의를 가장 잘 대표하는 봇 1명. 다음 중 하나만 정확히: {bots_csv}\n"
             f"- quote: spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
-            f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
+            f"- JSON 내부 문자열에 줄바꿈·이스케이프 안 된 따옴표 금지.\n"
+            f"- 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
         )
         raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt)
         consensus_json = _parse_consensus_json(raw, sector["name"])
+
+        # 검증 — thesis가 비어있거나 너무 짧으면 1회 재시도 (간결 프롬프트)
+        thesis_now = (consensus_json.get("thesis") or "").strip()
+        if thesis_now in ("", "—") or len(thesis_now) < 30:
+            logger.warning(f"[{sector['name']}] thesis 부족 → 재시도")
+            retry_prompt = (
+                f"{sector['name']} 섹터 합의를 JSON 한 줄로만 출력. 다른 텍스트 금지.\n\n"
+                f"토론 요지:\n{convo[:1500]}\n\n"
+                f'{{"outlook":"긍정|중립|부정","decision":"매수|관망|매도",'
+                f'"headline":"15자 요약","thesis":"3문장 이상, 구체 근거 포함",'
+                f'"drivers":["요인1","요인2"],"risks":["리스크1"],'
+                f'"key_picks":["종목명"],"spokesperson":"{AGENT_ORDER[0]}","quote":"한 줄 인용"}}\n'
+                f"필수: 모든 필드 비울 수 없음. thesis는 반드시 3문장 이상."
+            )
+            try:
+                raw_retry = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], retry_prompt)
+                retried = _parse_consensus_json(raw_retry, sector["name"])
+                if (retried.get("thesis") or "").strip() not in ("", "—") and len((retried.get("thesis") or "").strip()) >= 30:
+                    consensus_json = retried
+                    logger.info(f"[{sector['name']}] thesis 재시도 성공")
+            except Exception as e:
+                logger.warning(f"[{sector['name']}] 재시도 실패: {e}")
     except Exception as e:
         logger.error(f"합의 추출 오류: {e}")
         consensus_json = {
@@ -660,7 +684,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         f"📊 [{sector['name']}] 섹터 토론 완료",
         f"{o_emoji} 방향: {o} · 결론: {d}" + (f" · {headline}" if headline else ""),
         f"",
-        f"핵심: {consensus_json.get('thesis','—')}",
+        f"핵심: {consensus_json.get('thesis') or '핵심 합의 추출 실패 — 위 봇 발언을 직접 참고하세요.'}",
     ]
     drivers = consensus_json.get("drivers") or []
     if drivers:
@@ -732,7 +756,7 @@ def _consensus_fallback_regex(raw: str, sector_name: str) -> dict:
         "outlook": outlook,
         "decision": decision,
         "headline": _grab_str("headline", "")[:30],
-        "thesis": (thesis or "—")[:600],
+        "thesis": (thesis or "토론 합의를 형식대로 추출하지 못했습니다 — 위 봇 발언을 직접 참고하세요.")[:600],
         "drivers": _grab_array("drivers")[:4],
         "risks": _grab_array("risks")[:3],
         "key_picks": _grab_array("key_picks")[:5],
@@ -799,7 +823,7 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
         "outlook": _norm(d.get("outlook"), ["긍정", "중립", "부정"], "중립"),
         "decision": _norm(d.get("decision"), ["매수", "관망", "매도"], "관망"),
         "headline": (d.get("headline") or "").strip()[:30],
-        "thesis": (d.get("thesis") or "—").strip()[:600],
+        "thesis": (d.get("thesis") or "").strip()[:600],  # 비었으면 빈 문자열 — 호출부에서 재시도 판단
         "drivers": _to_list(d.get("drivers"), 4),
         "risks": _to_list(d.get("risks"), 3),
         "key_picks": [str(x).strip() for x in (d.get("key_picks") or []) if str(x).strip()][:5],
