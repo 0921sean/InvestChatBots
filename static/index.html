@@ -666,7 +666,8 @@
     <button id="feedback-close" onclick="closeFeedbackSend()">✕</button>
     <h3>💬 관리자에게 피드백</h3>
     <div class="fb-sub">
-      이상한 점·아이디어·궁금한 점 자유롭게 적어 주세요. 익명으로 전송됩니다.
+      이상한 점·아이디어·궁금한 점 자유롭게 적어 주세요. 익명으로 전송됩니다.<br>
+      <b style="color:#79c0ff">남겨주신 피드백 한 줄이 개발자에게 큰 도움이 됩니다 🙏</b>
     </div>
     <textarea id="fb-textarea" placeholder="예) ○○ 봇 발언이 어색해요 / ○○ 기능 있으면 좋겠어요 / 모바일에서 ○○이 안 보여요" maxlength="5000" oninput="updateFbCounter()"></textarea>
     <div id="fb-counter">0 / 5000</div>
@@ -1723,13 +1724,19 @@ async function sendFeedback() {
   btn.disabled = true;
   btn.textContent = '보내는 중…';
   try {
-    const r = await fetch('/api/feedback', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+    // cache: 'no-store' — Cloudflare·브라우저·서비스워커 일체 캐시 우회
+    const r = await fetch('/api/feedback?_=' + Date.now(), {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
       body: JSON.stringify({content}),
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      throw new Error(d.detail || `HTTP ${r.status}`);
+      // 디버그 콘솔에도 찍음
+      console.error('[feedback] failed', {url: r.url, status: r.status, detail: d.detail});
+      throw new Error(`HTTP ${r.status} · ${r.url.split('/').slice(-1)[0].split('?')[0]} · ${d.detail || '(no detail)'}`);
     }
     status.textContent = '✅ 보냈습니다. 감사합니다!';
     status.className = 'ok';
