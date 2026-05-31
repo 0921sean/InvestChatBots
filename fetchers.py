@@ -49,13 +49,20 @@ NEWS_FEEDS = [
 
 # ── 글로벌 시황 데이터 ────────────────────────────────────
 def _yf_price(symbol: str):
+    """yfinance fast_info로 현재가·변화율 조회.
+    last_price만 있으면 가격 반환 (previous_close 없어도 변화율만 0으로).
+    휴장 시 일부 종목의 previous_close가 NaN이라 둘 다 요구하면 가격까지 통째 누락됨."""
     try:
         t = yf.Ticker(symbol)
         price = t.fast_info.last_price
         prev  = t.fast_info.previous_close
-        if price is None or prev is None or math.isnan(price) or math.isnan(prev) or prev == 0:
+        # last_price가 없으면 진짜 데이터 없음
+        if price is None or (isinstance(price, float) and math.isnan(price)):
             return None, None
-        return round(price, 2), round((price - prev) / prev * 100, 2)
+        # previous_close 없거나 NaN/0이면 가격만 반환 (변화율 0)
+        if prev is None or (isinstance(prev, float) and math.isnan(prev)) or prev == 0:
+            return round(float(price), 2), 0.0
+        return round(float(price), 2), round((price - prev) / prev * 100, 2)
     except Exception as e:
         logger.debug(f"yfinance {symbol}: {e}")
         return None, None
