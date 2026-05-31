@@ -64,21 +64,23 @@
   #token-box .tb-status.exhausted { color: #f85149; border-color: rgba(248,81,73,.4); }
   #token-box .tb-status.exhausted .tb-status-dot { background: #f85149; }
 
-  /* 게이지 — 세트 상태별 색·애니메이션 */
+  /* 게이지 — 남은 %에 따라 초록→노랑→주황→빨강 단계 */
   #token-box .tb-gauge-track { background: #0d1117; border: 1px solid #21262d; border-radius: 3px; height: 8px; overflow: hidden; cursor: help; }
-  #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: linear-gradient(90deg, #3fb950, #56d364); }  /* idle: 초록 그라데이션 */
-  /* 메인 사이클 — 시안/파랑 그라데이션 + 흐르는 효과 */
-  #token-box .tb-gauge-fill.state-main { background: linear-gradient(90deg, #1f6feb, #58a6ff, #79c0ff); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
-  /* 서브 사이클 — 보라/마젠타 그라데이션 + 흐르는 효과 */
-  #token-box .tb-gauge-fill.state-sub  { background: linear-gradient(90deg, #8b5cf6, #c084fc, #e879f9); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
-  /* 보유 점검 — 청록/민트 + 흐르는 효과 */
-  #token-box .tb-gauge-fill.state-check { background: linear-gradient(90deg, #06b6d4, #22d3ee, #67e8f9); background-size: 200% 100%; animation: gauge-flow 2.5s linear infinite; }
-  /* 회복 대기 — 부드러운 회색 펄스 */
-  #token-box .tb-gauge-fill.state-polling { background: linear-gradient(90deg, #6e7681, #8b949e, #6e7681); background-size: 200% 100%; animation: gauge-flow 4s linear infinite; }
-  /* 회복 완료 — 라임/초록 + 빛나는 펄스 */
-  #token-box .tb-gauge-fill.state-recovered { background: linear-gradient(90deg, #3fb950, #56d364, #7ee787, #56d364, #3fb950); background-size: 200% 100%; animation: gauge-flow 2s linear infinite, gauge-glow 1.6s ease-in-out infinite; }
-  /* 소진 — 빨강·핑크 깜빡 */
-  #token-box .tb-gauge-fill.state-exhausted { background: linear-gradient(90deg, #f85149, #ff6b6b, #f85149); background-size: 200% 100%; animation: gauge-flow 1.5s linear infinite, gauge-blink 1.2s ease-in-out infinite; }
+  #token-box .tb-gauge-fill { height: 100%; transition: width .5s ease, background .3s; background: linear-gradient(90deg, #2ea043, #3fb950, #56d364); }
+  /* 60~100% 남음 — 초록 그라데이션 */
+  #token-box .tb-gauge-fill.ok      { background: linear-gradient(90deg, #2ea043, #3fb950, #56d364); }
+  /* 35~60% — 황록 */
+  #token-box .tb-gauge-fill.caution { background: linear-gradient(90deg, #bf8700, #d4a017, #f0b429); }
+  /* 15~35% — 주황 */
+  #token-box .tb-gauge-fill.warn    { background: linear-gradient(90deg, #d2691e, #f0883e, #f7a04a); }
+  /* 0~15% — 빨강 깜빡 */
+  #token-box .tb-gauge-fill.danger  { background: linear-gradient(90deg, #c93c37, #f85149, #ff7b72); animation: gauge-blink 1.2s ease-in-out infinite; }
+  /* 회복 완료 — 빛나는 초록 펄스 */
+  #token-box .tb-gauge-fill.recovered { background: linear-gradient(90deg, #2ea043, #3fb950, #7ee787, #3fb950, #2ea043); background-size: 200% 100%; animation: gauge-flow 2s linear infinite, gauge-glow 1.6s ease-in-out infinite; }
+  /* 회복 대기 polling — 회색 천천히 흐름 */
+  #token-box .tb-gauge-fill.polling { background: linear-gradient(90deg, #6e7681, #8b949e, #6e7681); background-size: 200% 100%; animation: gauge-flow 4s linear infinite; }
+  /* 한도 미설정 (calibrate 전) — 옅은 파랑 */
+  #token-box .tb-gauge-fill.unset   { background: linear-gradient(90deg, #30363d, #4a5563); }
 
   @keyframes gauge-flow { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
   @keyframes gauge-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
@@ -1370,32 +1372,48 @@ async function loadTokenUsage() {
     //   recovered: 회복 감지 직후 1시간 — 초록 풀
     //   exhausted: 소진 — 빨강
     //   idle: 평소 — 초록 풀
-    const STATE_INFO = {
-      'main_running':       { label: '🔵 메인 사이클 진행',    fillClass: 'state-main' },
-      'sub_running':        { label: '🟣 서브 사이클 진행',    fillClass: 'state-sub' },
-      'post_check_running': { label: '🩵 보유 점검 진행',      fillClass: 'state-check' },
-      'polling':            { label: '⚪ 세트 종료 · 회복 대기', fillClass: 'state-polling' },
-      'recovered':          { label: '✨ 토큰 윈도우 회복',     fillClass: 'state-recovered' },
-      'idle':               { label: '🟢 봇 활동 가능',         fillClass: '' },
-      'exhausted':          { label: '🔴 봇 활동 정지 (토큰 소진)', fillClass: 'state-exhausted', dotClass: 'exhausted' },
+    // 상태 라벨 (이모지 + 텍스트) — 의미 전달용
+    const STATE_LABEL = {
+      'main_running':       '메인 사이클 진행',
+      'sub_running':        '서브 사이클 진행',
+      'post_check_running': '보유 점검 진행',
+      'polling':            '세트 종료 · 회복 대기',
+      'recovered':          '✨ 토큰 윈도우 회복',
+      'idle':               '봇 활동 가능',
+      'exhausted':          '봇 활동 정지 (토큰 소진)',
     };
-    const info = STATE_INFO[state] || STATE_INFO['idle'];
+    const info = { label: STATE_LABEL[state] || '봇 활동 가능' };
 
     const fill = document.getElementById('tb-gauge-fill');
     fill.className = 'tb-gauge-fill';
-    if (info.fillClass) fill.classList.add(info.fillClass);
-    // 한도가 calibrate되어 있으면 게이지 = 남은 % (사용 중일 때만)
     const cap = d.capacity || {};
     const estMax = cap.estimated_max_cost_usd || 0;
     const pctRemain = cap.pct_remaining || 0;
-    const runningStates = ['main_running','sub_running','post_check_running'];
-    if (estMax > 0 && runningStates.includes(state)) {
-      // 사용 중: 남은 비율로 게이지 표시
-      fill.style.width = Math.max(5, pctRemain) + '%';
+
+    // 색은 남은 % 기준 (calibrate 안 됐으면 unset)
+    let colorClass = 'ok';
+    if (state === 'recovered') {
+      colorClass = 'recovered';  // 빛나는 초록 펄스 (회복 강조)
+    } else if (state === 'polling') {
+      colorClass = 'polling';    // 회색 흐름
     } else if (state === 'exhausted') {
-      fill.style.width = '15%';  // 소진: 작게 빨강
+      colorClass = 'danger';     // 빨강 깜빡
+    } else if (estMax <= 0) {
+      colorClass = 'unset';      // 한도 미설정
     } else {
-      fill.style.width = '100%';  // idle/polling/recovered: 풀
+      // 남은 % 기준 단계
+      if (pctRemain <= 15) colorClass = 'danger';
+      else if (pctRemain <= 35) colorClass = 'warn';
+      else if (pctRemain <= 60) colorClass = 'caution';
+      else colorClass = 'ok';
+    }
+    fill.classList.add(colorClass);
+
+    // 게이지 길이 = 남은 비율 (calibrate된 경우만), 그 외는 풀
+    if (estMax > 0 && state !== 'recovered' && state !== 'polling') {
+      fill.style.width = Math.max(3, pctRemain) + '%';
+    } else {
+      fill.style.width = '100%';
     }
 
     // 라벨 — 현재 세트 사용량 + 누적
