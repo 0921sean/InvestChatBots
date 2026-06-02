@@ -17,6 +17,7 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN code TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
+            "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
         ]:
             try:
                 con.execute(sql)
@@ -145,6 +146,7 @@ def init_db():
             stock_idx INTEGER DEFAULT 0,
             discussion_round INTEGER DEFAULT 0,
             cycle_done_at REAL DEFAULT 0,
+            market TEXT DEFAULT 'KRX',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO cycle_state (id) VALUES (1);
@@ -651,19 +653,21 @@ def save_evolution_notes(agent_name: str, notes: str):
 
 
 def save_cycle_state(sector_idx: int, phase: str, stock_idx: int,
-                     discussion_round: int, cycle_done_at: float):
+                     discussion_round: int, cycle_done_at: float,
+                     market: str = "KRX"):
     with _conn() as con:
         con.execute("""
-            INSERT INTO cycle_state (id, sector_idx, phase, stock_idx, discussion_round, cycle_done_at, updated_at)
-            VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO cycle_state (id, sector_idx, phase, stock_idx, discussion_round, cycle_done_at, market, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 sector_idx=excluded.sector_idx,
                 phase=excluded.phase,
                 stock_idx=excluded.stock_idx,
                 discussion_round=excluded.discussion_round,
                 cycle_done_at=excluded.cycle_done_at,
+                market=excluded.market,
                 updated_at=excluded.updated_at
-        """, (sector_idx, phase, stock_idx, discussion_round, cycle_done_at))
+        """, (sector_idx, phase, stock_idx, discussion_round, cycle_done_at, market))
 
 
 def load_cycle_state() -> dict:
@@ -673,15 +677,22 @@ def load_cycle_state() -> dict:
         if row:
             return dict(row)
     return {"sector_idx": 0, "phase": "sector_discussion",
-            "stock_idx": 0, "discussion_round": 0, "cycle_done_at": 0.0}
+            "stock_idx": 0, "discussion_round": 0, "cycle_done_at": 0.0,
+            "market": "KRX"}
 
 
-def get_open_positions() -> list:
+def get_open_positions(market: str = None) -> list:
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM virtual_positions WHERE status='open' ORDER BY opened_at"
-        ).fetchall()
+        if market:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE status='open' AND market=? ORDER BY opened_at",
+                (market,)
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE status='open' ORDER BY opened_at"
+            ).fetchall()
         return [dict(r) for r in rows]
 
 

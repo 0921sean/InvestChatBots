@@ -150,24 +150,92 @@ SECTORS = [
     },
     # ── 미국 ──────────────────────────────────────────────
     {
-        "name": "미국 빅테크",
+        "name": "미국 빅테크·플랫폼",
         "description": "AI·클라우드·플랫폼 메가캡",
         "stocks": [
-            {"name": "엔비디아",     "code": "NVDA", "yf": "NVDA", "market": "US", "exchange": "NASDAQ"},
-            {"name": "마이크로소프트", "code": "MSFT", "yf": "MSFT", "market": "US", "exchange": "NASDAQ"},
+            {"name": "애플",         "code": "AAPL",  "yf": "AAPL",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "마이크로소프트", "code": "MSFT",  "yf": "MSFT",  "market": "US", "exchange": "NASDAQ"},
             {"name": "알파벳",       "code": "GOOGL", "yf": "GOOGL", "market": "US", "exchange": "NASDAQ"},
-            {"name": "메타",         "code": "META", "yf": "META", "market": "US", "exchange": "NASDAQ"},
-            {"name": "애플",         "code": "AAPL", "yf": "AAPL", "market": "US", "exchange": "NASDAQ"},
+            {"name": "메타",         "code": "META",  "yf": "META",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "아마존",       "code": "AMZN",  "yf": "AMZN",  "market": "US", "exchange": "NASDAQ"},
         ],
     },
     {
         "name": "미국 AI·반도체",
         "description": "AI 인프라·팹리스·장비",
         "stocks": [
-            {"name": "TSMC",    "code": "TSM",  "yf": "TSM",  "market": "US", "exchange": "NYSE"},
-            {"name": "브로드컴", "code": "AVGO", "yf": "AVGO", "market": "US", "exchange": "NASDAQ"},
-            {"name": "팔란티어", "code": "PLTR", "yf": "PLTR", "market": "US", "exchange": "NYSE"},
-            {"name": "AMD",     "code": "AMD",  "yf": "AMD",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "엔비디아",  "code": "NVDA", "yf": "NVDA", "market": "US", "exchange": "NASDAQ"},
+            {"name": "TSMC",     "code": "TSM",  "yf": "TSM",  "market": "US", "exchange": "NYSE"},
+            {"name": "브로드컴",  "code": "AVGO", "yf": "AVGO", "market": "US", "exchange": "NASDAQ"},
+            {"name": "AMD",      "code": "AMD",  "yf": "AMD",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "팔란티어",  "code": "PLTR", "yf": "PLTR", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 전기차·모빌리티",
+        "description": "EV·자율주행·완성차",
+        "stocks": [
+            {"name": "테슬라",  "code": "TSLA", "yf": "TSLA", "market": "US", "exchange": "NASDAQ"},
+            {"name": "리비안",  "code": "RIVN", "yf": "RIVN", "market": "US", "exchange": "NASDAQ"},
+            {"name": "GM",     "code": "GM",   "yf": "GM",   "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 금융",
+        "description": "은행·투자은행·카드",
+        "stocks": [
+            {"name": "JP모건",         "code": "JPM", "yf": "JPM", "market": "US", "exchange": "NYSE"},
+            {"name": "뱅크오브아메리카", "code": "BAC", "yf": "BAC", "market": "US", "exchange": "NYSE"},
+            {"name": "골드만삭스",      "code": "GS",  "yf": "GS",  "market": "US", "exchange": "NYSE"},
+            {"name": "비자",           "code": "V",   "yf": "V",   "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 헬스케어·제약",
+        "description": "제약·의료보험·바이오",
+        "stocks": [
+            {"name": "일라이릴리",     "code": "LLY", "yf": "LLY", "market": "US", "exchange": "NYSE"},
+            {"name": "유나이티드헬스",  "code": "UNH", "yf": "UNH", "market": "US", "exchange": "NYSE"},
+            {"name": "존슨앤존슨",     "code": "JNJ", "yf": "JNJ", "market": "US", "exchange": "NYSE"},
+            {"name": "화이자",         "code": "PFE", "yf": "PFE", "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 소비재·리테일",
+        "description": "리테일·외식·소비 브랜드",
+        "stocks": [
+            {"name": "코스트코",  "code": "COST", "yf": "COST", "market": "US", "exchange": "NASDAQ"},
+            {"name": "월마트",    "code": "WMT",  "yf": "WMT",  "market": "US", "exchange": "NYSE"},
+            {"name": "맥도날드",  "code": "MCD",  "yf": "MCD",  "market": "US", "exchange": "NYSE"},
+            {"name": "나이키",    "code": "NKE",  "yf": "NKE",  "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 에너지",
+        "description": "정유·가스·셰일",
+        "stocks": [
+            {"name": "엑슨모빌",      "code": "XOM", "yf": "XOM", "market": "US", "exchange": "NYSE"},
+            {"name": "셰브론",       "code": "CVX", "yf": "CVX", "market": "US", "exchange": "NYSE"},
+            {"name": "코노코필립스",  "code": "COP", "yf": "COP", "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 산업재·방산",
+        "description": "항공·기계·방위산업",
+        "stocks": [
+            {"name": "보잉",       "code": "BA",  "yf": "BA",  "market": "US", "exchange": "NYSE"},
+            {"name": "캐터필러",    "code": "CAT", "yf": "CAT", "market": "US", "exchange": "NYSE"},
+            {"name": "록히드마틴",  "code": "LMT", "yf": "LMT", "market": "US", "exchange": "NYSE"},
+            {"name": "RTX",       "code": "RTX", "yf": "RTX", "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 미디어·통신",
+        "description": "스트리밍·미디어·통신",
+        "stocks": [
+            {"name": "넷플릭스",  "code": "NFLX",  "yf": "NFLX",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "디즈니",    "code": "DIS",   "yf": "DIS",   "market": "US", "exchange": "NYSE"},
+            {"name": "컴캐스트",  "code": "CMCSA", "yf": "CMCSA", "market": "US", "exchange": "NASDAQ"},
         ],
     },
 ]
@@ -249,16 +317,18 @@ def _load_state():
     globals()["_stock_idx"]       = s["stock_idx"]
     globals()["_discussion_round"] = s["discussion_round"]
     globals()["_cycle_done_at"]   = s["cycle_done_at"]
+    globals()["_market"]          = s.get("market", "KRX")
 
 def _persist_state():
     """현재 상태를 DB에 저장."""
-    save_cycle_state(_sector_idx, _phase, _stock_idx, _discussion_round, _cycle_done_at)
+    save_cycle_state(_sector_idx, _phase, _stock_idx, _discussion_round, _cycle_done_at, _market)
 
 _sector_idx: int = 0
 _phase: str = "sector_discussion"
 _stock_idx: int = 0
 _discussion_round: int = 0
 _cycle_done_at: float = 0.0
+_market: str = "KRX"           # 현재 진행 중인 사이클 시장 (KRX=국장 06시 / US=미장 18시)
 _load_state()  # 서버 시작 시 DB에서 복원
 _user_active_until: float = 0.0
 _stop_on_credit: bool = False
@@ -307,21 +377,51 @@ def is_market_open() -> str:
     return "NONE"
 
 
+def _norm_market(m) -> str:
+    """'KR'/'KRX'/'US' 등을 'KRX' 또는 'US'로 정규화."""
+    return "US" if str(m).upper() == "US" else "KRX"
+
+
+def _active_sectors() -> list:
+    """현재 사이클 시장(_market)에 해당하는 섹터만 반환.
+    각 섹터의 첫 종목 market 필드로 시장을 판별한다."""
+    return [s for s in SECTORS
+            if s.get("stocks") and _norm_market(s["stocks"][0].get("market")) == _market]
+
+
 def get_current_state() -> dict:
-    sector = SECTORS[_sector_idx]
+    sectors = _active_sectors()
+    # 방어: _sector_idx가 활성 섹터 범위를 벗어나면 0으로 클램프
+    idx = _sector_idx if 0 <= _sector_idx < len(sectors) else 0
+    sector = sectors[idx] if sectors else {"name": "?", "description": "", "stocks": []}
     stock = sector["stocks"][_stock_idx] if _phase == "stock_analysis" and _stock_idx < len(sector["stocks"]) else None
     cooldown_remaining_h = 0.0
+    next_cycle = None
     if _phase == "cycle_rest":
-        # 다음 평일 06:00 KST까지의 시간 (주말 건너뜀)
+        # 다음 사이클 시작까지의 시간. 국장 휴식 → 오늘 18:00 미장, 미장 휴식 → 다음 평일 06:00 국장
         from datetime import datetime, timezone, timedelta
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
-        next_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
-        if now >= next_start:
-            next_start += timedelta(days=1)
-        # 주말이면 월요일까지 건너뜀
-        while next_start.weekday() >= 5:
-            next_start += timedelta(days=1)
+        if _market == "KRX":
+            # 국장 끝남 → 오늘 18:00 미장. 이미 지났으면 다음 평일 06:00 국장
+            next_start = now.replace(hour=18, minute=0, second=0, microsecond=0)
+            if now < next_start and now.weekday() < 5:
+                next_cycle = "US"
+            else:
+                next_start = (now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+                while next_start.weekday() >= 5:
+                    next_start += timedelta(days=1)
+                next_cycle = "KR"
+        else:
+            # 미장 끝남(오늘 양쪽 완료) → 다음 평일 06:00 국장
+            next_start = (now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+            # 오늘 아직 06시 전이면 오늘 06시 (드문 경우)
+            today6 = now.replace(hour=6, minute=0, second=0, microsecond=0)
+            if now < today6 and now.weekday() < 5:
+                next_start = today6
+            while next_start.weekday() >= 5:
+                next_start += timedelta(days=1)
+            next_cycle = "KR"
         cooldown_remaining_h = round((next_start - now).total_seconds() / 3600, 1)
 
     # 워치리스트·보유 점검 진행 중 여부 (락 상태로 판별)
@@ -344,7 +444,9 @@ def get_current_state() -> dict:
         "stocks_total": len(sector["stocks"]),
         "market_status": is_market_open(),
         "cooldown_remaining_h": cooldown_remaining_h,
-        "total_sectors": len(SECTORS),
+        "total_sectors": len(sectors),
+        "market": _market,
+        "next_cycle": next_cycle,
         "activity": activity,
     }
 
@@ -597,7 +699,7 @@ def _run_feedback_round(stock_info: dict, pnl: float, sell_reasoning: str, buy_r
 # ── 섹터 토론 라운드 ──────────────────────────────────────
 def _run_sector_discussion_round(round_id: int, market_summary: str):
     global _discussion_round
-    sector = SECTORS[_sector_idx]
+    sector = _active_sectors()[_sector_idx]
     _discussion_round += 1
     _persist_state()  # 재시작 후에도 진행 중인 라운드 번호 유지
 
@@ -881,22 +983,27 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
 def _advance_stock(round_id: int, sector: dict):
     """현재 종목 완료 후 다음 종목 또는 다음 섹터로 상태 전환."""
     cycle_just_finished = False
+    finished_market = None
     with _state_lock:
+        sectors = _active_sectors()
+        mkt_label = "한국" if _market == "KRX" else "미국"
         globals()["_stock_idx"] += 1
         if _stock_idx >= len(sector["stocks"]):
             next_sector_idx = _sector_idx + 1
-            is_last = next_sector_idx >= len(SECTORS)
+            is_last = next_sector_idx >= len(sectors)
             if is_last:
+                first_name = sectors[0]["name"] if sectors else ""
                 _save_msg(round_id, "System",
                           f"✅ [{sector['name']}] 섹터 완료\n\n"
-                          f"🎉 오늘 전체 {len(SECTORS)}개 섹터 분석 완료!\n"
-                          f"봇들이 {CYCLE_REST_HOURS}시간 휴식 후 내일 다시 반도체 섹터부터 시작합니다.")
+                          f"🎉 오늘 {mkt_label} 전체 {len(sectors)}개 섹터 분석 완료!\n"
+                          f"봇들이 휴식합니다. (다음 사이클 시각에 자동 재개)")
                 globals()["_sector_idx"] = 0
                 globals()["_phase"] = "cycle_rest"
                 globals()["_cycle_done_at"] = time.time()
                 cycle_just_finished = True
+                finished_market = _market   # 백그라운드 점검용 — 전역 변경 레이스 방지
             else:
-                next_name = SECTORS[next_sector_idx]["name"]
+                next_name = sectors[next_sector_idx]["name"]
                 _save_msg(round_id, "System",
                           f"✅ [{sector['name']}] 섹터 완료 → 다음: {next_name}")
                 globals()["_sector_idx"] = next_sector_idx
@@ -926,13 +1033,13 @@ def _advance_stock(round_id: int, sector: dict):
         except Exception:
             pass
 
-        def _post_cycle_checks():
+        def _post_cycle_checks(m=finished_market):
             try:
-                evaluate_positions()  # -20% 도달 종목 자동 손절
+                evaluate_positions(market=m)  # -20% 도달 종목 자동 손절 (해당 시장만)
             except Exception as e:
                 logger.exception(f"손절 체크 실패: {e}")
             try:
-                review_holdings()  # 매도 4표 이상 청산
+                review_holdings(market=m)  # 매도 4표 이상 청산 (해당 시장만)
             except Exception as e:
                 logger.exception(f"보유 점검 실패: {e}")
             # ③ 손절·점검 끝나면 토큰 사용량 ntfy
@@ -1035,7 +1142,7 @@ def _send_post_check_report():
 def _run_stock_analysis_round(round_id: int, market_summary: str):
     global _phase, _stock_idx, _sector_idx, _discussion_round
 
-    sector = SECTORS[_sector_idx]
+    sector = _active_sectors()[_sector_idx]
     stock = sector["stocks"][_stock_idx]
 
     # 오늘 이미 분석한 종목이면 건너뜀
@@ -1261,9 +1368,10 @@ def is_main_disabled() -> bool:
     return _main_disabled
 
 
-# ── 일일 리셋 (스케줄러가 매일 6시에 1회 호출) ────────────
-def reset_daily_cycle():
-    """매일 아침 6시 스케줄러가 호출 — 평일에만 사이클 리셋 + 시작 안내."""
+# ── 시장별 리셋 (스케줄러가 06시=국장 / 18시=미장 호출) ────────────
+def reset_market_cycle(market: str = "KRX"):
+    """평일 06:00(KRX) / 18:00(US) 스케줄러가 호출 — 해당 시장 사이클 리셋 + 시작 안내."""
+    market = _norm_market(market)
     if _main_disabled:
         logger.info("메인 사이클 비활성 — reset 스킵")
         return
@@ -1273,8 +1381,12 @@ def reset_daily_cycle():
 
     # 주말(토·일)엔 메인 사이클 안 돔 — reset도 안 함, 시작 안내도 안 함
     if now.weekday() >= 5:
-        logger.info(f"주말({['월','화','수','목','금','토','일'][now.weekday()]}) — reset_daily_cycle 스킵")
+        logger.info(f"주말({['월','화','수','목','금','토','일'][now.weekday()]}) — reset_market_cycle({market}) 스킵")
         return
+
+    # 직전 사이클이 미완(cycle_rest 아님)인데 새 시장 리셋이 들어오면 경고 (국장 우선)
+    if _phase != "cycle_rest":
+        logger.warning(f"⚠️ 직전 사이클({_market}, phase={_phase}) 미완 상태에서 {market} 리셋 — 덮어쓰고 진행")
 
     # 메인 시작 시점 토큰 스냅샷 — cycle_just_finished 시 ntfy 보고용
     try:
@@ -1288,25 +1400,47 @@ def reset_daily_cycle():
     _stop_recovery_polling()
 
     with _state_lock:
+        globals()["_market"] = market
         globals()["_phase"] = "sector_discussion"
         globals()["_sector_idx"] = 0
+        globals()["_stock_idx"] = 0
         globals()["_discussion_round"] = 0
         globals()["_cycle_done_at"] = 0.0
         _persist_state()
 
+    mkt_label = "국장(한국)" if market == "KRX" else "미장(미국)"
+    sectors = _active_sectors()
     # 채팅 로그에 사이클 시작 안내
     try:
-        round_id = create_round(f"메인 사이클 시작 — {now.strftime('%m-%d')}")
+        round_id = create_round(f"{mkt_label} 메인 사이클 시작 — {now.strftime('%m-%d')}")
+        order = ' → '.join(s['name'] for s in sectors[:5])
+        last = sectors[-1]['name'] if sectors else ""
         _save_msg(round_id, "System",
-                  f"🌅 오늘 메인 사이클 시작 ({now.strftime('%Y-%m-%d %H:%M KST')})\n"
-                  f"오늘 분석 대상: {len(SECTORS)}개 섹터\n"
-                  f"순서: {' → '.join(s['name'] for s in SECTORS[:5])} → ... → {SECTORS[-1]['name']}\n"
+                  f"🌅 {mkt_label} 메인 사이클 시작 ({now.strftime('%Y-%m-%d %H:%M KST')})\n"
+                  f"오늘 분석 대상: {len(sectors)}개 섹터\n"
+                  f"순서: {order} → ... → {last}\n"
                   f"섹터별 3라운드 토론 + 종목 분석 후 자동으로 보유 종목 점검까지 진행됩니다.")
         complete_round(round_id)
     except Exception as e:
         logger.debug(f"reset 메시지 기록 실패: {e}")
 
-    logger.info("✅ 일일 사이클 리셋 완료 — 반도체 섹터부터 시작")
+    first = sectors[0]['name'] if sectors else "?"
+    logger.info(f"✅ {mkt_label} 사이클 리셋 완료 — {first} 섹터부터 시작")
+
+
+def reset_kr_cycle():
+    """스케줄러: 평일 06:00 — 국장 메인 사이클."""
+    reset_market_cycle("KRX")
+
+
+def reset_us_cycle():
+    """스케줄러: 평일 18:00 — 미장 메인 사이클."""
+    reset_market_cycle("US")
+
+
+# 하위호환 별칭 (기존 호출처/측정 엔드포인트 대비) — 기본 국장
+def reset_daily_cycle():
+    reset_market_cycle("KRX")
 
 
 # ── 텔레그램 워치리스트 스캔 ──────────────────────────────
@@ -1332,8 +1466,9 @@ def is_watchlist_disabled() -> bool:
     return _watchlist_disabled
 
 
-def run_telegram_watchlist(force: bool = False):
+def run_telegram_watchlist(force: bool = False, market: str = None):
     """텔레그램·뉴스 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단.
+    market 지정 시 해당 시장(KRX/US) 후보만 분석.
     `force=True`면 주말/phase 가드 우회 (측정 등 수동 트리거용)."""
     if _watchlist_disabled and not force:
         logger.info("워치리스트 비활성 상태 — 이번 슬롯 스킵")
@@ -1344,12 +1479,22 @@ def run_telegram_watchlist(force: bool = False):
         return
 
     try:
-        _run_telegram_watchlist_inner(force=force)
+        _run_telegram_watchlist_inner(force=force, market=market)
     finally:
         _watchlist_lock.release()
 
 
-def _run_telegram_watchlist_inner(force: bool = False):
+def run_watchlist_kr():
+    """스케줄러: 평일 12:00 — 국장 워치리스트."""
+    run_telegram_watchlist(market="KRX")
+
+
+def run_watchlist_us():
+    """스케줄러: 평일 00:00 — 미장 워치리스트."""
+    run_telegram_watchlist(market="US")
+
+
+def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
     """워치리스트 실제 실행 로직."""
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
@@ -1434,11 +1579,15 @@ def _run_telegram_watchlist_inner(force: bool = False):
     main_stock_names = {s["name"] for sector in SECTORS for s in sector["stocks"]}
     main_stock_codes = {s["code"] for sector in SECTORS for s in sector["stocks"]}
 
-    # 오늘 이미 분석했거나 메인 섹터 종목은 제외 (이름 또는 코드로 체크)
+    # 시장 필터 (KRX=국장 12시 / US=미장 24시). market=None이면 전체.
+    mkt_filter = _norm_market(market) if market else None
+
+    # 오늘 이미 분석했거나 메인 섹터 종목은 제외 (이름 또는 코드로 체크) + 시장 필터
     new_tickers = [t for t in tickers
                    if not was_stock_analyzed_today("워치리스트", t["name"])
                    and t["name"] not in main_stock_names
-                   and t.get("code", "") not in main_stock_codes]
+                   and t.get("code", "") not in main_stock_codes
+                   and (mkt_filter is None or _norm_market(t.get("market")) == mkt_filter)]
 
     # watched_stocks에서도 메인 종목 제거 (뉴스가 재추가한 경우 대비)
     try:
@@ -1652,7 +1801,9 @@ def run_round(market_summary=None, force=False):
         now = datetime.now(KST)
         if now.weekday() >= 5:
             return
-        if now.hour < 6:
+        # 자정~06시엔 국장 사이클만 차단 (6시 전 국장 실행 금지 — 절대 규칙).
+        # 진행 중인 미장(US) 사이클은 자정을 넘겨 마저 끝낼 수 있게 허용.
+        if 0 <= now.hour < 6 and _market == "KRX":
             return
         if is_user_active():
             return
@@ -1671,7 +1822,7 @@ def run_round(market_summary=None, force=False):
     else:
         market_refreshed = False
 
-    round_id = create_round(f"{SECTORS[_sector_idx]['name']} — {_phase}")
+    round_id = create_round(f"{_active_sectors()[_sector_idx]['name']} — {_phase}")
 
     if market_refreshed:
         save_message(round_id, "System", None, f"📊 시황 업데이트\n{market_summary[:500]}")
@@ -1796,14 +1947,17 @@ def _run_stoploss_feedback(symbol: str):
     except Exception as e:
         logger.debug(f"손절 피드백 오류 {symbol}: {e}")
 
-def evaluate_positions():
-    """보유 포지션 현재가 재평가 + -20% 손절 자동 실행."""
+def evaluate_positions(market: str = None):
+    """보유 포지션 현재가 재평가 + -20% 손절 자동 실행.
+    market 지정 시 해당 시장(KRX/US) 포지션만 평가."""
     from db import get_open_positions
     from fetchers import fetch_stock_price
+    mkt = _norm_market(market) if market else None
+    label = "" if not mkt else (" (한국)" if mkt == "KRX" else " (미국)")
     round_id = create_round("position-eval")
-    save_message(round_id, "System", None, "📊 보유 포지션 현재가 평가 중...")
+    save_message(round_id, "System", None, f"📊 보유 포지션 현재가 평가 중...{label}")
 
-    positions = get_open_positions()
+    positions = get_open_positions(market=mkt)
     stopped = []
 
     for pos in positions:
@@ -1858,27 +2012,30 @@ def evaluate_positions():
 _holdings_review_lock = threading.Lock()
 
 
-def review_holdings(force: bool = False):
+def review_holdings(force: bool = False, market: str = None):
     """모든 보유 포지션에 대해 봇 토론 — 홀드 vs 매도 판단.
     매도 5표(과반) 이상 → 매도 실행. 그 외 → 보유 유지.
     메인 사이클 완료 직후 자동 호출 (_advance_stock → cycle_rest 진입 시).
+    market 지정 시 해당 시장(KRX/US) 포지션만 점검.
     `force=True`면 _phase 체크 우회 (수동 트리거용)."""
     if not _holdings_review_lock.acquire(blocking=False):
         logger.info("보유 점검 이미 실행 중 — 이번 호출 건너뜀")
         return
 
     try:
-        _review_holdings_inner(force=force)
+        _review_holdings_inner(force=force, market=market)
     finally:
         _holdings_review_lock.release()
 
 
-def _review_holdings_inner(force: bool = False):
+def _review_holdings_inner(force: bool = False, market: str = None):
     from datetime import datetime, timezone, timedelta
     from db import get_open_positions
     from fetchers import fetch_stock_news, format_stock_news
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
+    mkt = _norm_market(market) if market else None
+    mkt_label = "" if not mkt else ("한국 " if mkt == "KRX" else "미국 ")
 
     # 메인 사이클 진행 중이면 동시 실행 방지 (force=True면 우회)
     if not force and _phase != "cycle_rest":
@@ -1891,16 +2048,16 @@ def _review_holdings_inner(force: bool = False):
                priority="default", cooldown=1800)
         return
 
-    positions = get_open_positions()
-    intro_round_id = create_round("보유 종목 점검")
+    positions = get_open_positions(market=mkt)
+    intro_round_id = create_round(f"{mkt_label}보유 종목 점검")
     if not positions:
-        _save_msg(intro_round_id, "System", "✅ 보유 종목 없음 — 점검 생략")
+        _save_msg(intro_round_id, "System", f"✅ {mkt_label}보유 종목 없음 — 점검 생략")
         complete_round(intro_round_id)
         return
 
     names = ", ".join(p["symbol"] for p in positions)
     _save_msg(intro_round_id, "System",
-              f"📋 보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
+              f"📋 {mkt_label}보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
               f"대상: {names}\n"
               f"각 종목별로 9봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
     complete_round(intro_round_id)
