@@ -611,7 +611,7 @@ def api_main_cycle_measure():
     save_message(round_id, "System", None,
                  f"🔬 토큰 baseline 측정 — 메인 사이클 강제 1회 실행\n"
                  f"시작: {now.strftime('%Y-%m-%d %H:%M:%S KST')}\n"
-                 f"대상: {len(o.SECTORS)}섹터 × (3라운드 토론 + 종목 분석)\n"
+                 f"대상: [{o._market}] {len(o._active_sectors())}섹터 × (3라운드 토론 + 종목 분석)\n"
                  f"종료 시 ntfy 푸시로 자동 보고")
     complete_round(round_id)
 
@@ -845,11 +845,12 @@ def api_main_cycle_resume_force():
         _loop_running = False
     o.clear_pause()
 
-    sector_name = o.SECTORS[o._sector_idx]["name"] if 0 <= o._sector_idx < len(o.SECTORS) else "?"
+    _secs = o._active_sectors()
+    sector_name = _secs[o._sector_idx]["name"] if 0 <= o._sector_idx < len(_secs) else "?"
     round_id = create_round(f"▶ 메인 사이클 재개 — {now.strftime('%H:%M')}")
     save_message(round_id, "System", None,
                  f"▶ 메인 사이클 재개 (코드 패치 후 이어가기)\n"
-                 f"sector {o._sector_idx + 1}/{len(o.SECTORS)} ({sector_name}) · phase={o._phase}\n"
+                 f"[{o._market}] sector {o._sector_idx + 1}/{len(_secs)} ({sector_name}) · phase={o._phase}\n"
                  f"force=True 모드로 끝까지 진행")
     complete_round(round_id)
 
@@ -1423,7 +1424,7 @@ def api_main_cycle_run():
             _loop_thread.start()
 
     return {"ok": True, "already_done": False,
-            "message": "메인 프로세스를 시작합니다. 반도체 섹터부터 분석을 시작해요."}
+            "message": "메인 프로세스를 시작합니다. 첫 섹터부터 분석을 시작해요."}
 
 
 class LectureNote(BaseModel):
