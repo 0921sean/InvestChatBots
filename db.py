@@ -728,11 +728,32 @@ def get_watched_stocks(limit: int = 50) -> list[dict]:
 # (너무 짧으면 polling·연타로 부풀려지고, 너무 길면 PV가 안 늘어 의미 없음)
 VISIT_DEDUP_SECONDS = 60  # 1분
 
+# 봇/스크립트 UA 키워드 — 사람 아님, 방문 통계에서 제외 (direct 왜곡 방지)
+_BOT_UA_KEYWORDS = ("bot", "crawl", "spider", "python", "curl", "wget",
+                    "go-http", "headlesschrome", "scrapy", "okhttp",
+                    "java/", "postman", "facebookexternalhit", "slackbot",
+                    "axios", "node-fetch", "libwww", "httpclient")
+# 통계 쿼리용 SQL 조건: 봇 UA가 아닌 행만 (빈/NULL UA도 봇 취급)
+_NOT_BOT_SQL = ("user_agent IS NOT NULL AND TRIM(user_agent) != '' AND "
+                + " AND ".join(f"LOWER(user_agent) NOT LIKE '%{k}%'"
+                               for k in _BOT_UA_KEYWORDS))
+
+
+def _is_bot_ua(ua: str) -> bool:
+    """봇/스크립트/빈 UA 여부."""
+    if not ua or not ua.strip():
+        return True
+    u = ua.lower()
+    return any(k in u for k in _BOT_UA_KEYWORDS)
+
 
 def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
               referer: str = "", path: str = "/") -> bool:
     """방문 1건 기록. 동일 (visitor_id, source)가 VISIT_DEDUP_SECONDS 이내면 skip.
-    반환값: 실제로 새로 기록했으면 True, 중복으로 skip했으면 False."""
+    봇/스크립트 UA는 기록하지 않음.
+    반환값: 실제로 새로 기록했으면 True, 중복/봇으로 skip했으면 False."""
+    if _is_bot_ua(user_agent):
+        return False
     with _conn() as con:
         if visitor_id:
             row = con.execute(f"""
@@ -763,27 +784,30 @@ def get_visit_stats(days: int = 30) -> dict:
     """방문 통계 — 출처별 / 일자별 / 총합. KST 기준."""
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        totals = con.execute("""
+        totals = con.execute(f"""
             SELECT COUNT(DISTINCT visitor_id) AS uv, COUNT(*) AS pv
             FROM visit_log
             WHERE ts > datetime('now', '-' || ? || ' day')
+              AND {_NOT_BOT_SQL}
         """, (days,)).fetchone()
-        by_source = con.execute("""
+        by_source = con.execute(f"""
             SELECT COALESCE(source,'direct') AS source,
                    COUNT(DISTINCT visitor_id) AS uv,
                    COUNT(*) AS pv
             FROM visit_log
             WHERE ts > datetime('now', '-' || ? || ' day')
+              AND {_NOT_BOT_SQL}
             GROUP BY COALESCE(source,'direct')
             ORDER BY uv DESC
         """, (days,)).fetchall()
-        by_day = con.execute("""
+        by_day = con.execute(f"""
             SELECT date(ts, '+9 hours') AS day,
                    COALESCE(source,'direct') AS source,
                    COUNT(DISTINCT visitor_id) AS uv,
                    COUNT(*) AS pv
             FROM visit_log
             WHERE ts > datetime('now', '-' || ? || ' day')
+              AND {_NOT_BOT_SQL}
             GROUP BY day, COALESCE(source,'direct')
             ORDER BY day DESC, uv DESC
         """, (days,)).fetchall()
