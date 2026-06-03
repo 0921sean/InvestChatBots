@@ -750,6 +750,15 @@ def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
         return True
 
 
+def purge_visits_for(visitor_id: str) -> int:
+    """특정 visitor_id의 방문 기록 전부 삭제 (owner 본인 방문 지표 정리용). 삭제 건수 반환."""
+    if not visitor_id:
+        return 0
+    with _conn() as con:
+        cur = con.execute("DELETE FROM visit_log WHERE visitor_id=?", (visitor_id,))
+        return cur.rowcount
+
+
 def get_visit_stats(days: int = 30) -> dict:
     """방문 통계 — 출처별 / 일자별 / 총합. KST 기준."""
     with _conn() as con:

@@ -303,6 +303,7 @@ def root(request: Request, s: str = ""):
     }
     resp = Response(content=html, media_type="text/html; charset=utf-8", headers=headers)
     # 방문 로그 — ?s=kakao|kora|insta|mail 출처 기록 (없으면 'direct')
+    # 본인(owner 쿠키) 방문은 통계에서 제외 — direct·재방문율 데이터 오염 방지
     try:
         from db import log_visit
         vsid = request.cookies.get("vsid")
@@ -310,13 +311,18 @@ def root(request: Request, s: str = ""):
             vsid = secrets.token_urlsafe(12)
             resp.set_cookie("vsid", vsid, max_age=60 * 60 * 24 * 365,
                             httponly=True, samesite="lax")
-        log_visit(
-            source=(s or "").strip().lower()[:32] or "direct",
-            visitor_id=vsid,
-            user_agent=request.headers.get("user-agent", ""),
-            referer=request.headers.get("referer", ""),
-            path="/",
-        )
+        if not is_owner(request):
+            log_visit(
+                source=(s or "").strip().lower()[:32] or "direct",
+                visitor_id=vsid,
+                user_agent=request.headers.get("user-agent", ""),
+                referer=request.headers.get("referer", ""),
+                path="/",
+            )
+        else:
+            # 본인(owner) — 이 vsid의 과거 방문 기록도 일괄 정리 (지표 오염 제거, 1회성·idempotent)
+            from db import purge_visits_for
+            purge_visits_for(vsid)
     except Exception as e:
         logger.debug(f"visit log 실패: {e}")
     return resp
