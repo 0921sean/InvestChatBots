@@ -1031,7 +1031,8 @@ async function loadState() {
     const pct = Math.min(100, Math.max(0, rawPct));
     document.getElementById('sector-progress-fill').style.width = pct+'%';
 
-    const sec = _sectors[s.sector_idx||0];
+    // 현재 섹터는 이름으로 매칭 (sector_idx는 시장별 부분집합 기준이라 전체 리스트 인덱스와 다름)
+    const sec = _sectors.find(x => x.name === s.sector) || _sectors[s.sector_idx||0];
     if (sec) {
       document.getElementById('sector-stocks').innerHTML = sec.stocks.map((name,i) => {
         let cls = 'stock-badge';
@@ -1624,9 +1625,10 @@ function openSchedule() {
   const isWeekend = (wd === 0 || wd === 6);
   if (window._lastState) {
     const s = window._lastState;
-    if (s.activity === 'watchlist') activeKey = 'sub';
+    const m = (s.market === 'US') ? 'us' : 'kr';
+    if (s.activity === 'watchlist') activeKey = 'sub_' + m;
     else if (s.activity === 'holdings_review') activeKey = 'holdings';
-    else if (s.running && (s.phase === 'sector_discussion' || s.phase === 'stock_analysis')) activeKey = 'main';
+    else if (s.running && (s.phase === 'sector_discussion' || s.phase === 'stock_analysis')) activeKey = 'main_' + m;
     else if (isWeekend) activeKey = 'rest';
     // running=false + 평일 + phase가 stock_analysis 등 → 정지 상태. active 표시 없음.
   } else if (isWeekend) {
@@ -1635,19 +1637,29 @@ function openSchedule() {
 
   const items = [
     {
-      key: 'main', title: '메인 사이클', time: '평일 06:00',
-      desc: '13개 섹터 분석. 섹터별 3라운드 토론 + 종목별 7봇 투표 → 매수 4표 이상이면 자동 매수',
+      key: 'main_kr', title: '🇰🇷 국장 메인 사이클', time: '평일 06:00',
+      desc: '한국 11개 섹터 분석. 섹터별 3라운드 토론 + 종목별 봇 투표 → 과반 동의 시 자동 매수',
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'holdings', title: '보유 종목 점검', time: '평일 메인 완료 직후',
-      desc: '① 손절 (-20% 도달 종목 자동 매도) → ② 7봇 투표 (매도 4표 이상이면 청산)',
-      next: null,  // 메인 완료 시점에 동적
+      key: 'sub_kr', title: '🇰🇷 국장 워치리스트', time: '평일 12:00',
+      desc: '텔레그램·뉴스 한국 신규 종목 후보 → 봇 분석 (과반 동의 시 매수)',
+      next: _nextKstWeekdayAt(12, 0),
     },
     {
-      key: 'sub', title: '서브 사이클', time: '평일 12 · 18 · 24시',
-      desc: '텔레그램·뉴스 신규 종목 후보 중 무작위 20개 선정 → 7봇 분석',
-      next: null,
+      key: 'main_us', title: '🇺🇸 미장 메인 사이클', time: '평일 18:00',
+      desc: '미국 9개 섹터 분석 (미국장 22:30 개장 직전). 국장과 동일 방식',
+      next: _nextKstWeekdayAt(18, 0),
+    },
+    {
+      key: 'sub_us', title: '🇺🇸 미장 워치리스트', time: '평일 24:00 (00:00)',
+      desc: '텔레그램·뉴스 미국 신규 종목 후보 → 봇 분석 (과반 동의 시 매수)',
+      next: _nextKstWeekdayAt(0, 0),
+    },
+    {
+      key: 'holdings', title: '보유 종목 점검', time: '각 메인 완료 직후 (해당 시장)',
+      desc: '① 손절 (-20% 자동 매도) → ② 봇 투표로 청산. 국장 후엔 KR·미장 후엔 US 포지션만',
+      next: null,  // 메인 완료 시점에 동적
     },
     {
       key: 'rest', title: '주말 휴식', time: '토 · 일',
@@ -2031,23 +2043,27 @@ function _fmtCountdown(ms) {
   return `${Math.ceil(ms/60000)}분`;
 }
 function _nextMainStartMs() {
-  // 다음 평일 06:00 KST까지 분
+  // 다음 평일 메인 사이클: 06:00(국장) · 18:00(미장) KST
   const k = _kstNowParts();
-  const targetMin = 6 * 60;
-  let daysToAdd = (k.minOfDay >= targetMin) ? 1 : 0;
-  let nextWd = (k.weekday + daysToAdd) % 7;
-  // 주말(토=6, 일=0) 건너뜀
-  while (nextWd === 0 || nextWd === 6) {
-    daysToAdd++;
-    nextWd = (nextWd + 1) % 7;
+  const slots = [6 * 60, 18 * 60];
+  let best = null;
+  for (const sm of slots) {
+    let diff = sm - k.minOfDay;
+    let wd = k.weekday;
+    if (diff <= 0) { diff += 24 * 60; wd = (wd + 1) % 7; }
+    // 주말이면 월요일로 건너뜀
+    while (wd === 0 || wd === 6) {
+      diff += 24 * 60;
+      wd = (wd + 1) % 7;
+    }
+    if (best == null || diff < best) best = diff;
   }
-  const diffMin = daysToAdd * 24 * 60 + (targetMin - k.minOfDay);
-  return diffMin * 60000;
+  return best * 60000;
 }
 function _nextSubStartMs() {
-  // 다음 평일 0·12·18시 KST (서브 사이클은 주말 비활성)
+  // 다음 평일 서브(워치리스트): 12:00(국장) · 24:00=00:00(미장) KST
   const k = _kstNowParts();
-  const slots = [0, 12 * 60, 18 * 60];
+  const slots = [0, 12 * 60];
   let best = null;
   for (const sm of slots) {
     let diff = sm - k.minOfDay;
