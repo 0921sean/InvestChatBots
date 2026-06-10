@@ -530,11 +530,14 @@
     overflow: hidden; text-overflow: ellipsis; }
   #cl-line .cl-date { color: #8aa0b6; }
 
-  /* ───────── 트레이딩 계좌 (서브) ───────── */
-  .trade-acct-head { margin: 14px 0 2px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.12);
-    font-size: 12px; font-weight: 700; color: #fbbf24; }
-  .trade-acct-head .trade-acct-tag { font-size: 9.5px; font-weight: 400; color: #6e7681; margin-left: 4px; }
-  .trade-acct-stats { font-size: 10.5px; color: #9aa6b2; margin: 2px 0 4px; }
+  /* ───────── 계좌 전환 토글 ───────── */
+  .pf-acct-toggle { display: flex; gap: 6px; margin: 0 0 10px; }
+  .pf-acct-btn { flex: 1; padding: 6px 8px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    background: rgba(255,255,255,.04); color: #9aa6b2; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 7px; transition: all .12s; }
+  .pf-acct-btn:hover { color: #e6edf3; }
+  .pf-acct-btn.active { background: rgba(88,166,255,.16); color: #e6edf3; border-color: rgba(88,166,255,.5); }
+  .pf-acct-btn .pf-acct-cap { font-size: 9px; font-weight: 400; opacity: .6; margin-left: 2px; }
 </style>
 </head>
 <body class="readonly">
@@ -651,6 +654,10 @@
   <div class="panel-header">
     <h3>💼 가상 포트폴리오</h3>
     <p id="market-status-label">시작 잔액 ₩100,000,000</p>
+  </div>
+  <div class="pf-acct-toggle">
+    <button id="pf-tab-main" class="pf-acct-btn active" onclick="switchPfAccount('main')">📈 장기 <span class="pf-acct-cap">1억</span></button>
+    <button id="pf-tab-sub" class="pf-acct-btn" onclick="switchPfAccount('sub')">⚡ 트레이딩 <span class="pf-acct-cap">3천만</span></button>
   </div>
   <div class="pf-summary">
     <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
@@ -1187,77 +1194,67 @@ function _closedPosItemHtml(p) {
 
 async function loadPortfolio() {
   try {
-    window._posData = [];  // 포지션 객체 캐시 (모달이 참조)
     const pf = await (await fetch('/api/portfolio')).json();
-    const INITIAL = pf.initial_balance || 100_000_000;
-    const balance = pf.balance || 0;
-    const invested = pf.invested || 0;
-    const pnl = pf.total_pnl || 0;
-    // 미실현 손익 합산
-    const unrealizedPnl = (pf.positions||[])
-      .filter(p => p.status==='open')
-      .reduce((s,p) => s + (p.unrealized_pnl||0), 0);
-    const totalPnl = pnl + unrealizedPnl;
-    const retPct = totalPnl / INITIAL * 100;
-    const rate = pf.win_count+pf.loss_count > 0
-      ? Math.round(pf.win_count/(pf.win_count+pf.loss_count)*100) : 0;
-
-    const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
-    document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
-    document.getElementById('pf-balance').className = `pf-value ${pc(balance-INITIAL)}`;
-    document.getElementById('pf-invested').textContent = invested > 0 ? `₩${Math.round(invested).toLocaleString()}` : '없음';
-    document.getElementById('pf-pnl').textContent = `${totalPnl>=0?'+':''}₩${Math.round(totalPnl).toLocaleString()}`;
-    document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
-    document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
-    document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
-    document.getElementById('pf-record').textContent = `${pf.win_count}승 ${pf.loss_count}패 (${rate}%)`;
-
+    // 두 계좌 데이터 캐시 (전환 시 재요청 없이 즉시 렌더)
+    window._pfData = {
+      main: { balance: pf.balance, invested: pf.invested, total_pnl: pf.total_pnl,
+              win_count: pf.win_count, loss_count: pf.loss_count,
+              initial_balance: pf.initial_balance || 100000000, positions: pf.positions || [] },
+      sub:  pf.sub || { balance: 0, invested: 0, total_pnl: 0, win_count: 0, loss_count: 0,
+                        initial_balance: 30000000, positions: [] },
+    };
     const ms = pf.market_status;
     document.getElementById('market-status-label').textContent =
       ms==='KRX' ? '🟢 국장 장중' : ms==='US' ? '🔵 미장 장중' : '⚫ 장외 시간';
-
-    const positions = pf.positions || [];
-    const open   = positions.filter(p => p.status==='open');
-    const closed = positions.filter(p => p.status==='closed').slice(0,5);
-    let html = '';
-
-    if (open.length) {
-      html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
-      open.forEach(p => { html += _openPosItemHtml(p); });
-    } else {
-      html += `<div style="padding:12px;color:#6e7681;font-size:11px;text-align:center">보유 종목 없음</div>`;
-    }
-    if (closed.length) {
-      html += `<div class="pos-section-label">최근 청산</div>`;
-      closed.forEach(p => { html += _closedPosItemHtml(p); });
-    }
-
-    // ── 트레이딩 계좌(서브) — 공격적 데스크 ──
-    const sub = pf.sub;
-    if (sub) {
-      const sInit = sub.initial_balance || 30000000;
-      const sUnreal = (sub.positions||[]).filter(p=>p.status==='open').reduce((s,p)=>s+(p.unrealized_pnl||0),0);
-      const sTotalPnl = (sub.total_pnl||0) + sUnreal;
-      const sRet = sInit ? sTotalPnl / sInit * 100 : 0;
-      const sCol = sTotalPnl>0?'#3fb950':sTotalPnl<0?'#f85149':'#8b949e';
-      const sOpen = (sub.positions||[]).filter(p=>p.status==='open');
-      const sClosed = (sub.positions||[]).filter(p=>p.status==='closed').slice(0,5);
-      html += `<div class="trade-acct-head">⚡ 트레이딩 계좌 <span class="trade-acct-tag">공격적 · 3천만</span></div>`;
-      html += `<div class="trade-acct-stats">잔액 ₩${Math.round(sub.balance||0).toLocaleString()} · <span style="color:${sCol}">손익 ${sTotalPnl>=0?'+':''}₩${Math.round(sTotalPnl).toLocaleString()} (${sRet>=0?'+':''}${sRet.toFixed(1)}%)</span> · ${sub.win_count||0}승 ${sub.loss_count||0}패</div>`;
-      if (sOpen.length) {
-        html += `<div class="pos-section-label">● 보유 중 (${sOpen.length})</div>`;
-        sOpen.forEach(p => { html += _openPosItemHtml(p); });
-      } else {
-        html += `<div style="padding:8px;color:#6e7681;font-size:11px;text-align:center">트레이딩 보유 없음</div>`;
-      }
-      if (sClosed.length) {
-        html += `<div class="pos-section-label">최근 청산</div>`;
-        sClosed.forEach(p => { html += _closedPosItemHtml(p); });
-      }
-    }
-
-    document.getElementById('pf-positions').innerHTML = html;
+    _renderPfAccount(window._pfAccount || 'main');
   } catch(e) { console.error('pf',e); }
+}
+
+function switchPfAccount(acct) {
+  window._pfAccount = acct;
+  document.getElementById('pf-tab-main').classList.toggle('active', acct==='main');
+  document.getElementById('pf-tab-sub').classList.toggle('active', acct==='sub');
+  if (window._pfData) _renderPfAccount(acct);
+}
+
+function _renderPfAccount(acct) {
+  const d = (window._pfData || {})[acct];
+  if (!d) return;
+  window._posData = [];  // 모달 참조 캐시 리셋 (현재 계좌 포지션만)
+  const INITIAL = d.initial_balance || (acct==='sub' ? 30000000 : 100000000);
+  const balance = d.balance || 0, invested = d.invested || 0, pnl = d.total_pnl || 0;
+  const positions = d.positions || [];
+  const open   = positions.filter(p => p.status==='open');
+  const closed = positions.filter(p => p.status==='closed').slice(0,5);
+  const unrealizedPnl = open.reduce((s,p) => s + (p.unrealized_pnl||0), 0);
+  const totalPnl = pnl + unrealizedPnl;
+  const retPct = INITIAL ? totalPnl / INITIAL * 100 : 0;
+  const rate = (d.win_count+d.loss_count) > 0
+    ? Math.round(d.win_count/(d.win_count+d.loss_count)*100) : 0;
+
+  const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
+  document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
+  document.getElementById('pf-balance').className = `pf-value ${pc(balance-INITIAL)}`;
+  document.getElementById('pf-invested').textContent = invested > 0 ? `₩${Math.round(invested).toLocaleString()}` : '없음';
+  document.getElementById('pf-pnl').textContent = `${totalPnl>=0?'+':''}₩${Math.round(totalPnl).toLocaleString()}`;
+  document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
+  document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
+  document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
+  document.getElementById('pf-record').textContent = `${d.win_count}승 ${d.loss_count}패 (${rate}%)`;
+
+  let html = '';
+  if (open.length) {
+    html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
+    open.forEach(p => { html += _openPosItemHtml(p); });
+  } else {
+    const empty = acct==='sub' ? '트레이딩 보유 없음' : '보유 종목 없음';
+    html += `<div style="padding:12px;color:#6e7681;font-size:11px;text-align:center">${empty}</div>`;
+  }
+  if (closed.length) {
+    html += `<div class="pos-section-label">최근 청산</div>`;
+    closed.forEach(p => { html += _closedPosItemHtml(p); });
+  }
+  document.getElementById('pf-positions').innerHTML = html;
 }
 
 async function sendMessage() {
