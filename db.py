@@ -790,18 +790,30 @@ VISIT_DEDUP_SECONDS = 60  # 1분
 _BOT_UA_KEYWORDS = ("bot", "crawl", "spider", "python", "curl", "wget",
                     "go-http", "headlesschrome", "scrapy", "okhttp",
                     "java/", "postman", "facebookexternalhit", "slackbot",
-                    "axios", "node-fetch", "libwww", "httpclient")
+                    "axios", "node-fetch", "libwww", "httpclient",
+                    # 보안 스캐너·자동화 도구
+                    "scanner", "audit", "palo alto", "expanse", "censys",
+                    "masscan", "zgrab", "nmap", "dalvik", "aiohttp",
+                    "uptime", "monitoring", "fetch", "http-client",
+                    # 합성 봇팜 (구형 iOS 13.2.3 단일 UA 256개 — 사람 트래픽 아님)
+                    "iphone os 13_2_3")
+# 정확히 일치하면 봇 (플랫폼 정보 없는 깡통 UA)
+_BOT_UA_EXACT = ("mozilla/5.0", "mozilla", "-")
 # 통계 쿼리용 SQL 조건: 봇 UA가 아닌 행만 (빈/NULL UA도 봇 취급)
 _NOT_BOT_SQL = ("user_agent IS NOT NULL AND TRIM(user_agent) != '' AND "
                 + " AND ".join(f"LOWER(user_agent) NOT LIKE '%{k}%'"
-                               for k in _BOT_UA_KEYWORDS))
+                               for k in _BOT_UA_KEYWORDS)
+                + " AND LOWER(TRIM(user_agent)) NOT IN ("
+                + ",".join(f"'{k}'" for k in _BOT_UA_EXACT) + ")")
 
 
 def _is_bot_ua(ua: str) -> bool:
     """봇/스크립트/빈 UA 여부."""
     if not ua or not ua.strip():
         return True
-    u = ua.lower()
+    u = ua.lower().strip()
+    if u in _BOT_UA_EXACT:
+        return True
     return any(k in u for k in _BOT_UA_KEYWORDS)
 
 
