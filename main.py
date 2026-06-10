@@ -529,20 +529,8 @@ def _refresh_prices_bg():
     _price_cache_at = time.time()
 
 
-@app.get("/api/portfolio")
-def api_portfolio():
-    global _price_cache, _price_cache_at
-    pf = get_shared_portfolio()
-    pf["market_status"] = is_market_open()
-    pf["initial_balance"] = 100_000_000
-
-    positions = get_all_positions(30)
-
-    # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
-    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:
-        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
-
-    # 캐시된 현재가 적용 + 옛 봇 이름 치환
+def _enrich_positions(positions):
+    """현재가 캐시 적용 + 옛 봇 이름 치환."""
     for p in positions:
         if p["status"] == "open" and p["symbol"] in _price_cache:
             current = _price_cache[p["symbol"]]
@@ -552,13 +540,33 @@ def api_portfolio():
             if entry and qty:
                 p["unrealized_pnl"]     = round((current - entry) * qty, 0)
                 p["unrealized_pnl_pct"] = round((current - entry) / entry * 100, 2)
-        # 매수/매도 근거에 옛 봇 이름 있으면 새 봇 이름으로 치환
         if p.get("reasoning"):
             p["reasoning"] = _remap_old_bot_names(p["reasoning"])
         if p.get("exit_reasoning"):
             p["exit_reasoning"] = _remap_old_bot_names(p["exit_reasoning"])
+    return positions
 
-    pf["positions"] = positions
+
+@app.get("/api/portfolio")
+def api_portfolio():
+    global _price_cache, _price_cache_at
+
+    # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
+    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
+
+    # 메인(장기) 계좌
+    pf = get_shared_portfolio("main")
+    pf["market_status"] = is_market_open()
+    pf["initial_balance"] = 100_000_000
+    pf["positions"] = _enrich_positions(get_all_positions(30, account="main"))
+
+    # 서브(트레이딩) 계좌
+    sub = get_shared_portfolio("sub")
+    sub["initial_balance"] = 30_000_000
+    sub["positions"] = _enrich_positions(get_all_positions(30, account="sub"))
+    pf["sub"] = sub
+
     return pf
 
 

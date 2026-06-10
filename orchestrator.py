@@ -24,7 +24,7 @@ from db import (
 )
 from agents import call_agent, is_claude_token_exhausted, ClaudeTokenExhausted
 from prompts import (
-    AGENT_ORDER, AGENT_PROFILES,
+    AGENT_ORDER, AGENT_PROFILES, TRADING_AGENT_ORDER,
     format_history_compact,
     build_sector_discussion_prompt,
     build_stock_analysis_prompt,
@@ -256,6 +256,12 @@ BUY_CONVICTION_TIERS = {
 MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
+# 트레이딩 데스크(서브 사이클) — 공격적·별도 계좌(3천만), 5봇 중 3표(과반) 매수
+TRADING_INITIAL_CAPITAL = 30_000_000
+TRADING_BUY_MAJORITY = 3
+TRADING_SELL_MAJORITY = 3
+TRADING_BUY_CONVICTION_TIERS = {5: 0.20, 4: 0.14, 3: 0.09}  # 매수표 → 자본 대비 비중
+
 # ── 상태 ─────────────────────────────────────────────────
 QUANT_BOTS = {"퀀트중독자", "기본농부"}
 
@@ -267,15 +273,15 @@ def _build_system(agent_name: str) -> str:
     return base.replace("{evolution_notes}", injection)
 
 
-def _format_portfolio_for_prompt() -> str:
+def _format_portfolio_for_prompt(account: str = "main") -> str:
     """현재 보유 포트폴리오 요약 — 봇이 매수 판단 시 종목·섹터 비중 확인용.
-    같은 종목 중복 보유는 합산. 비중 = (매수 금액 / 총 자산) %."""
+    같은 종목 중복 보유는 합산. 비중 = (매수 금액 / 총 자산) %. 계좌별 분리."""
     from db import get_open_positions, get_shared_portfolio
-    positions = get_open_positions()
+    positions = get_open_positions(account=account)
     if not positions:
         return "보유 종목 없음 (포트폴리오 비어있음)"
     try:
-        portfolio = get_shared_portfolio()
+        portfolio = get_shared_portfolio(account)
         balance = portfolio.get("balance", 0)
         invested = portfolio.get("invested", 0)
         total_assets = balance + invested
@@ -532,39 +538,44 @@ def _extract_reason(response: str) -> str:
     return lines[-1][:120] if lines else response[:120]
 
 
-def _tally_votes(decisions: list[tuple[str, int]]) -> tuple[str, float]:
-    """(final_decision, buy_amount) — buy_amount는 확신도 티어 기반 고정 금액"""
+def _tally_votes(decisions: list[tuple[str, int]],
+                 buy_majority: int = BUY_MAJORITY, sell_majority: int = SELL_MAJORITY,
+                 tiers: dict = BUY_CONVICTION_TIERS, capital: float = INITIAL_CAPITAL
+                 ) -> tuple[str, float]:
+    """(final_decision, buy_amount) — buy_amount는 확신도 티어 기반 고정 금액.
+    메인/트레이딩 데스크가 각자 임계값·티어·자본을 넘겨 쓴다."""
     buy_votes  = [d for d, _ in decisions if d == "매수"]
     sell_votes = [d for d in (d for d, _ in decisions) if d == "매도"]
-    if len(buy_votes) >= BUY_MAJORITY:
-        pct = BUY_CONVICTION_TIERS.get(len(buy_votes), 0.05)
-        amount = INITIAL_CAPITAL * pct
+    if len(buy_votes) >= buy_majority:
+        pct = tiers.get(len(buy_votes), min(tiers.values()) if tiers else 0.05)
+        amount = capital * pct
         return "매수", amount
-    if len(sell_votes) >= SELL_MAJORITY:
+    if len(sell_votes) >= sell_majority:
         return "매도", 0.0
     return "관망", 0.0
 
 
 # ── 매수/매도 실행 ────────────────────────────────────────
 def _execute_buy(stock: dict, price: float, buy_amount: float,
-                 buy_votes: list[tuple[str, str]], round_id: int):
+                 buy_votes: list[tuple[str, str]], round_id: int, account: str = "main"):
     """
     buy_votes: [(bot_name, full_response_text), ...] — 매수 투표한 봇들의 발언
     buy_amount: 확신도 티어 기반 고정 금액 (초기 자본 대비)
+    account: 'main'(장기) / 'sub'(트레이딩) — 계좌별 잔액·포지션 분리
     """
-    # 오늘 이미 매수한 종목은 재매수 금지
+    # 오늘 이미 매수한 종목은 재매수 금지 (계좌별)
     from db import _conn as db_conn
     symbol = stock.get("code") or stock.get("name", "")
     with db_conn() as con:
         already = con.execute(
-            "SELECT id FROM virtual_positions WHERE (symbol=? OR code=?) AND status='open' AND date(opened_at)=date('now')",
-            (stock["name"], symbol)
+            "SELECT id FROM virtual_positions WHERE (symbol=? OR code=?) AND status='open' AND account=? AND date(opened_at)=date('now')",
+            (stock["name"], symbol, account)
         ).fetchone()
     if already:
         _save_msg(round_id, "System", f"⚠️ {stock['name']} 오늘 이미 매수 완료 — 하루 1회 제한")
         return
 
-    pf = get_shared_portfolio()
+    pf = get_shared_portfolio(account)
     balance = pf["balance"]
     amount = min(round(buy_amount), balance)  # 잔액 초과 방지
     if amount < 100_000:
@@ -585,6 +596,7 @@ def _execute_buy(stock: dict, price: float, buy_amount: float,
         amount=amount,
         reasoning=reasoning_summary,
         market=stock.get("market", "KRX"),
+        account=account,
     )
     if err:
         _save_msg(round_id, "System", f"⚠️ 매수 실패: {err}")
@@ -603,8 +615,8 @@ def _execute_buy(stock: dict, price: float, buy_amount: float,
     notify(f"🟢 매수 결정: {stock['name']}", notify_body, priority="high", cooldown=0)
 
 
-def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int):
-    positions = get_open_positions_by_symbol(stock["name"])
+def _execute_sell(stock: dict, price: float, reasoning: str, round_id: int, account: str = "main"):
+    positions = get_open_positions_by_symbol(stock["name"], account=account)
     if not positions:
         _save_msg(round_id, "System", f"ℹ️ {stock['name']} — 보유 중인 포지션 없음. 매도 건너뜀.")
         return
@@ -1356,14 +1368,12 @@ def is_random_speak_order() -> bool:
     return _random_speak_order
 
 
-def get_speak_order() -> list:
-    """현재 라운드의 봇 발언 순서. 토글 OFF면 AGENT_ORDER 그대로,
-    ON이면 매 호출마다 shuffled 새 리스트."""
+def get_speak_order(roster: list = None) -> list:
+    """발언 순서. roster 미지정 시 메인 AGENT_ORDER. 토글 ON이면 매 호출 shuffle."""
+    bots = list(roster) if roster else list(AGENT_ORDER)
     if _random_speak_order:
-        bots = list(AGENT_ORDER)
         random.shuffle(bots)
-        return bots
-    return list(AGENT_ORDER)
+    return bots
 
 
 def pause_main_cycle():
@@ -1732,7 +1742,7 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
 
         decisions, bot_responses = [], []
         token_exhausted = False
-        for agent_name in get_speak_order():
+        for agent_name in get_speak_order(TRADING_AGENT_ORDER):   # 트레이딩 데스크 봇
             if _watchlist_disabled:
                 _save_msg(round_id, "System", f"⏸ 서브 사이클 비활성화 — {name} 분석 중단")
                 complete_round(round_id)
@@ -1749,7 +1759,8 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
             prompt = build_stock_analysis_prompt(
                 stock_data_text, "워치리스트", market_summary, history_text, agent_name,
                 tg_context=tg_ctx,
-                portfolio_text=_format_portfolio_for_prompt(),
+                portfolio_text=_format_portfolio_for_prompt(account="sub"),
+                spoken_names=_spoken_so_far(round_msgs),
             )
             resp = None
             for attempt in range(2):  # 최대 2회 시도
@@ -1791,16 +1802,18 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
             complete_round(round_id)
             break
 
-        # 응답한 봇들 기준으로 투표 집계
+        # 응답한 봇들 기준으로 투표 집계 (트레이딩 데스크 기준: 5봇 중 3표·자본 3천만)
         if decisions:
-            final, buy_amount = _tally_votes(decisions)
+            final, buy_amount = _tally_votes(
+                decisions, TRADING_BUY_MAJORITY, TRADING_SELL_MAJORITY,
+                TRADING_BUY_CONVICTION_TIERS, TRADING_INITIAL_CAPITAL)
             buy_count = sum(1 for d, _ in decisions if d == "매수")
             vote_text = " | ".join(f"{n}: {_parse_decision(r)[0]}" for n, r in bot_responses)
             _save_msg(round_id, "System",
-                      f"🗳 서브 사이클 투표: {vote_text}\n→ 최종: {final} ({buy_count}표)")
+                      f"🗳 트레이딩 데스크 투표: {vote_text}\n→ 최종: {final} ({buy_count}표)")
             if final == "매수" and current_price > 0:
                 buy_votes = [(n, r) for (n, r) in bot_responses if _parse_decision(r)[0] == "매수"]
-                _execute_buy({"name": name, "code": code, "market": market}, current_price, buy_amount, buy_votes, round_id)
+                _execute_buy({"name": name, "code": code, "market": market}, current_price, buy_amount, buy_votes, round_id, account="sub")
 
         complete_round(round_id)
         time.sleep(1)

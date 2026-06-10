@@ -529,6 +529,12 @@
   #cl-line { display: block; font-size: 10.5px; color: #b9c4ce; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   #cl-line .cl-date { color: #8aa0b6; }
+
+  /* ───────── 트레이딩 계좌 (서브) ───────── */
+  .trade-acct-head { margin: 14px 0 2px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.12);
+    font-size: 12px; font-weight: 700; color: #fbbf24; }
+  .trade-acct-head .trade-acct-tag { font-size: 9.5px; font-weight: 400; color: #6e7681; margin-left: 4px; }
+  .trade-acct-stats { font-size: 10.5px; color: #9aa6b2; margin: 2px 0 4px; }
 </style>
 </head>
 <body class="readonly">
@@ -1144,6 +1150,41 @@ async function loadConsensus() {
   } catch(e) { console.error('loadConsensus error:', e); }
 }
 
+function _openPosItemHtml(p) {
+  const isUS = p.market === 'US';
+  const fmt = (v, us) => us
+    ? `$${Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+    : `₩${Math.round(v).toLocaleString()}`;
+  const entryStr   = fmt(p.entry_price||0, isUS);
+  const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
+  const upnl  = p.unrealized_pnl || 0;
+  const upnlP = p.unrealized_pnl_pct || 0;
+  const upnlColor = upnl > 0 ? '#3fb950' : upnl < 0 ? '#f85149' : '#8b949e';
+  const upnlStr = upnl !== 0
+    ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
+    : '';
+  const posIdx = window._posData.length;
+  window._posData.push(p);
+  return `<div class="pos-item" onclick="showPositionReason(${posIdx})">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-weight:600;color:#e2e8f0">${p.symbol}${isUS?'<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>':''}</span>
+        ${upnlStr}
+      </div>
+      <div class="pos-meta">진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span></div>
+      <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수 이유 보기</span></div>
+    </div>`;
+}
+function _closedPosItemHtml(p) {
+  const win = (p.pnl||0)>=0;
+  const posIdx = window._posData.length;
+  window._posData.push(p);
+  return `<div class="pos-item" onclick="showPositionReason(${posIdx})">
+      <div><span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
+        <span style="color:${win?'#3fb950':'#f85149'};font-size:10px;margin-left:6px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span></div>
+      <div class="pos-meta">${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수/매도 이유 보기</span></div>
+    </div>`;
+}
+
 async function loadPortfolio() {
   try {
     window._posData = [];  // 포지션 객체 캐시 (모달이 참조)
@@ -1182,51 +1223,39 @@ async function loadPortfolio() {
 
     if (open.length) {
       html += `<div class="pos-section-label">● 보유 중 (${open.length})</div>`;
-      open.forEach(p => {
-        const isUS = p.market === 'US';
-        const fmt = (v, us) => us
-          ? `$${Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-          : `₩${Math.round(v).toLocaleString()}`;
-        const entryStr   = fmt(p.entry_price||0, isUS);
-        const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
-        const upnl  = p.unrealized_pnl || 0;
-        const upnlP = p.unrealized_pnl_pct || 0;
-        const upnlColor = upnl > 0 ? '#3fb950' : upnl < 0 ? '#f85149' : '#8b949e';
-        const upnlStr = upnl !== 0
-          ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
-          : '';
-        // 포지션 객체를 dataset에 저장 (JSON) — 클릭 시 _posData[idx]로 참조
-        const posIdx = window._posData.length;
-        window._posData.push(p);
-        html += `<div class="pos-item" onclick="showPositionReason(${posIdx})">
-          <div style="display:flex;justify-content:space-between;align-items:baseline">
-            <span style="font-weight:600;color:#e2e8f0">${p.symbol}${isUS?'<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>':''}</span>
-            ${upnlStr}
-          </div>
-          <div class="pos-meta">
-            진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span>
-          </div>
-          <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수 이유 보기</span></div>
-        </div>`;
-      });
+      open.forEach(p => { html += _openPosItemHtml(p); });
     } else {
       html += `<div style="padding:12px;color:#6e7681;font-size:11px;text-align:center">보유 종목 없음</div>`;
     }
     if (closed.length) {
       html += `<div class="pos-section-label">최근 청산</div>`;
-      closed.forEach(p => {
-        const win = (p.pnl||0)>=0;
-        const posIdx = window._posData.length;
-        window._posData.push(p);
-        html += `<div class="pos-item" onclick="showPositionReason(${posIdx})">
-          <div>
-            <span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
-            <span style="color:${win?'#3fb950':'#f85149'};font-size:10px;margin-left:6px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span>
-          </div>
-          <div class="pos-meta">${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수/매도 이유 보기</span></div>
-        </div>`;
-      });
+      closed.forEach(p => { html += _closedPosItemHtml(p); });
     }
+
+    // ── 트레이딩 계좌(서브) — 공격적 데스크 ──
+    const sub = pf.sub;
+    if (sub) {
+      const sInit = sub.initial_balance || 30000000;
+      const sUnreal = (sub.positions||[]).filter(p=>p.status==='open').reduce((s,p)=>s+(p.unrealized_pnl||0),0);
+      const sTotalPnl = (sub.total_pnl||0) + sUnreal;
+      const sRet = sInit ? sTotalPnl / sInit * 100 : 0;
+      const sCol = sTotalPnl>0?'#3fb950':sTotalPnl<0?'#f85149':'#8b949e';
+      const sOpen = (sub.positions||[]).filter(p=>p.status==='open');
+      const sClosed = (sub.positions||[]).filter(p=>p.status==='closed').slice(0,5);
+      html += `<div class="trade-acct-head">⚡ 트레이딩 계좌 <span class="trade-acct-tag">공격적 · 3천만</span></div>`;
+      html += `<div class="trade-acct-stats">잔액 ₩${Math.round(sub.balance||0).toLocaleString()} · <span style="color:${sCol}">손익 ${sTotalPnl>=0?'+':''}₩${Math.round(sTotalPnl).toLocaleString()} (${sRet>=0?'+':''}${sRet.toFixed(1)}%)</span> · ${sub.win_count||0}승 ${sub.loss_count||0}패</div>`;
+      if (sOpen.length) {
+        html += `<div class="pos-section-label">● 보유 중 (${sOpen.length})</div>`;
+        sOpen.forEach(p => { html += _openPosItemHtml(p); });
+      } else {
+        html += `<div style="padding:8px;color:#6e7681;font-size:11px;text-align:center">트레이딩 보유 없음</div>`;
+      }
+      if (sClosed.length) {
+        html += `<div class="pos-section-label">최근 청산</div>`;
+        sClosed.forEach(p => { html += _closedPosItemHtml(p); });
+      }
+    }
+
     document.getElementById('pf-positions').innerHTML = html;
   } catch(e) { console.error('pf',e); }
 }
