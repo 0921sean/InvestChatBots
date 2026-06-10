@@ -257,7 +257,7 @@ MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
 # ── 상태 ─────────────────────────────────────────────────
-QUANT_BOTS = {"퀀트중독자", "경력직"}
+QUANT_BOTS = {"퀀트중독자", "기본농부"}
 
 def _build_system(agent_name: str) -> str:
     """봇 시스템 프롬프트에 누적 학습 메모 주입."""
@@ -1557,13 +1557,15 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
         else:
             return  # 60분 후에도 안 되면 포기
 
-    # 텔레그램 수집
+    # 텔레그램 수집 (계정 차단 등으로 비활성일 수 있음 — TELEGRAM_ENABLED)
+    from telegram_fetcher import telegram_enabled
     tg_available = False
-    try:
-        fetch_telegram_messages(force=True)
-        tg_available = True
-    except Exception as e:
-        logger.debug(f"텔레그램 수집 실패: {e}")
+    if telegram_enabled():
+        try:
+            fetch_telegram_messages(force=True)
+            tg_available = True
+        except Exception as e:
+            logger.debug(f"텔레그램 수집 실패: {e}")
 
     tg_tickers = extract_mentioned_tickers(hours=3) if tg_available else []
 
@@ -1573,7 +1575,8 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
         from news_fetcher import collect_all_news_stocks, get_watched_stocks_for_watchlist
         collect_all_news_stocks()  # 뉴스에서 종목 수집 → watched_stocks 저장
         watched = get_watched_stocks_for_watchlist()
-        news_tickers = [{"name": s["name"], "code": s.get("code",""), "market": s.get("market","KR")}
+        news_tickers = [{"name": s["name"], "code": s.get("code",""), "market": s.get("market","KR"),
+                         "source": s.get("source","")}
                         for s in watched]
     except Exception as e:
         logger.debug(f"뉴스 소스 오류: {e}")
@@ -1639,11 +1642,17 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
         except Exception:
             pass
 
-    # 후보가 많으면 무작위 N개만 선정 (토큰 절약 + 하루 3슬롯 × N = 적정 분량)
+    # 후보가 많으면 N개만 선정. 단 어닝 종목은 우선 채움(누적 모니터링), 나머지 슬롯은 무작위.
     import random as _random
     candidate_count = len(valid_tickers)
     if candidate_count > SUB_CYCLE_MAX_STOCKS:
-        valid_tickers = _random.sample(valid_tickers, SUB_CYCLE_MAX_STOCKS)
+        priority = [t for t in valid_tickers if "earnings" in (t.get("source") or "").lower()]
+        rest = [t for t in valid_tickers if "earnings" not in (t.get("source") or "").lower()]
+        if len(priority) >= SUB_CYCLE_MAX_STOCKS:
+            valid_tickers = _random.sample(priority, SUB_CYCLE_MAX_STOCKS)
+        else:
+            fill = _random.sample(rest, SUB_CYCLE_MAX_STOCKS - len(priority)) if rest else []
+            valid_tickers = priority + fill
 
     # 스캔 결과 채팅에 기록 — "오늘 분석 시작" 명시
     scan_round_id = create_round(f"{source_label} 서브 사이클 스캔")
