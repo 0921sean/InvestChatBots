@@ -492,6 +492,17 @@ def _save_msg(round_id, agent_name, content):
     return msg_id
 
 
+def _spoken_so_far(round_msgs) -> list:
+    """이번 라운드에서 이미 발언한 봇 이름(순서 유지·중복 제거).
+    미발언 봇을 인용하는 환각을 막기 위해 프롬프트에 주입한다."""
+    seen = []
+    for m in round_msgs:
+        n = m["agent_name"]
+        if n not in ("System", "User") and n not in seen:
+            seen.append(n)
+    return seen
+
+
 # ── 결정 파싱 ─────────────────────────────────────────────
 def _parse_decision(text: str) -> tuple[str, int]:
     """봇 응답에서 [결정] 파싱. (decision, weight_pct) 반환.
@@ -732,6 +743,7 @@ def _run_sector_discussion_round(round_id: int, market_summary: str):
             sector["name"], sector["description"],
             market_summary, history_text, agent_name, _discussion_round,
             tg_context=extra_context,
+            spoken_names=_spoken_so_far(round_msgs),
         )
         try:
             resp = call_agent(agent_name, system, prompt)
@@ -1247,6 +1259,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
             stock_data_text, sector["name"], market_summary, history_text, agent_name,
             tg_context=extra_context,
             portfolio_text=_format_portfolio_for_prompt(),
+            spoken_names=_spoken_so_far(round_msgs),
         )
         resp = None
         for attempt in range(2):  # 최대 2회 시도
@@ -1859,14 +1872,17 @@ def handle_user_message(user_text: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
-    # 항상 7봇 전원 응답
+    # 항상 7봇 전원 응답 — 발언 순서는 매 채팅마다 랜덤
     responders = list(AGENT_ORDER)
+    random.shuffle(responders)
     bot_responses: list[tuple[str, str]] = []
+    spoken_names: list[str] = []   # 이번 채팅에서 이미 답한 봇 (미발언 봇 인용 방지)
 
     for agent_name in responders:
         system = _build_system(agent_name)
         prompt = build_user_response_prompt(user_text, history_text, agent_name,
-                                            stock_context=stock_data_text)
+                                            stock_context=stock_data_text,
+                                            spoken_names=list(spoken_names))
         try:
             resp = call_agent(agent_name, system, prompt)
         except Exception as e:
@@ -1874,6 +1890,7 @@ def handle_user_message(user_text: str):
             resp = f"[{agent_name} 응답 오류]"
         _save_msg(round_id, agent_name, resp)
         bot_responses.append((agent_name, resp))
+        spoken_names.append(agent_name)
         time.sleep(random.uniform(0.2, 0.5))
 
     # 종목 질문이었으면 → 합의 결과 알림 발송
