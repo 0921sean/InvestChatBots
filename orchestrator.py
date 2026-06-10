@@ -1590,10 +1590,19 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
         except Exception as e:
             logger.debug(f"네이버 발굴 오류: {e}")
 
+    # 야후 급등·거래량 상위 발굴 (미장 전용 — yfinance 내장 스크리너)
+    us_tickers = []
+    if market is None or _norm_market(market) == "US":
+        try:
+            from discovery_us import fetch_us_movers
+            us_tickers = fetch_us_movers()
+        except Exception as e:
+            logger.debug(f"야후 미국 발굴 오류: {e}")
+
     # 소스 합치기 (중복 제거)
     seen_names = set()
     tickers = []
-    for t in tg_tickers + news_tickers + naver_tickers:
+    for t in tg_tickers + news_tickers + naver_tickers + us_tickers:
         if t["name"] not in seen_names:
             seen_names.add(t["name"])
             tickers.append(t)
@@ -1601,6 +1610,8 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
     src_parts = (["텔레그램"] if tg_available else []) + ["뉴스"]
     if naver_tickers:
         src_parts.append("네이버발굴")
+    if us_tickers:
+        src_parts.append("야후발굴")
     source_label = "+".join(src_parts)
 
     # 메인 섹터 종목 이름+코드 목록 (워치리스트에서 제외)
