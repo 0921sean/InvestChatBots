@@ -538,6 +538,11 @@
   .pf-acct-btn:hover { color: #e6edf3; }
   .pf-acct-btn.active { background: rgba(88,166,255,.16); color: #e6edf3; border-color: rgba(88,166,255,.5); }
   .pf-acct-btn .pf-acct-cap { font-size: 9px; font-weight: 400; opacity: .6; margin-left: 2px; }
+
+  /* Members 데스크 구분 라벨 */
+  .member-desk-label { font-size: 9.5px; font-weight: 700; letter-spacing: .03em; color: #7f93a8;
+    margin: 10px 0 4px; padding-bottom: 3px; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .member-desk-label:first-child { margin-top: 0; }
 </style>
 </head>
 <body class="readonly">
@@ -786,10 +791,14 @@ try {
 } catch (e) { /* old browser */ }
 
 const BOT_COLORS = {
+  // 메인(장기) 데스크
   드가자:'#ef4444', INTJ:'#3b82f6', 퀀트중독자:'#8b5cf6',
   빅픽처:'#f59e0b', 차트천재:'#10b981',
-  원칙주의자:'#f97316', 경력직:'#06b6d4', 감독:'#a855f7', 실적왕:'#22d3ee',
-  류:'#f43f5e', 알렉스:'#0ea5e9',
+  기본농부:'#06b6d4', 실적왕:'#22d3ee',
+  // 트레이딩 데스크
+  추세질주:'#fb7185', 테마사냥꾼:'#f472b6', 세력추적:'#c084fc', 바닥픽:'#38bdf8', 칼손절:'#94a3b8',
+  // 구 이름·비활성 (과거 메시지 호환)
+  경력직:'#06b6d4', 원칙주의자:'#f97316', 감독:'#a855f7', 류:'#f43f5e', 알렉스:'#0ea5e9',
   User:'#fbbf24', System:'#6e7681'
 };
 let lastId = 0, agents = {};
@@ -943,10 +952,19 @@ async function loadAgents() {
     const list = await res.json();
     const el = document.getElementById('member-list');
     el.innerHTML = '';
+    let lastDesk = null;
     list.forEach(a => {
-      agents[a.name] = a;  // 매수근거 매핑 등에선 9봇 모두 유지
-      if (a.hidden_from_members) return;  // '감독'은 Members에서 숨김
-      const color = BOT_COLORS[a.name] || '#8b949e';
+      agents[a.name] = a;  // 매수근거 매핑 등에선 전체 봇 유지
+      if (a.hidden_from_members) return;
+      const desk = a.desk || 'main';
+      if (desk !== lastDesk) {
+        lastDesk = desk;
+        const hdr = document.createElement('div');
+        hdr.className = 'member-desk-label';
+        hdr.textContent = desk === 'trading' ? '⚡ 트레이딩 데스크 (3천만)' : '📈 장기 데스크 (1억)';
+        el.appendChild(hdr);
+      }
+      const color = BOT_COLORS[a.name] || a.color || '#8b949e';
       const row = document.createElement('div');
       row.className = 'member';
       row.title = isOwner ? '클릭하면 투자 스타일 확인' : '';
@@ -1673,22 +1691,22 @@ function openSchedule() {
   const items = [
     {
       key: 'main_kr', title: '🇰🇷 국장 메인 사이클', time: '평일 06:00',
-      desc: '한국 11개 섹터 분석. 섹터별 3라운드 토론 + 종목별 봇 투표 → 과반 동의 시 자동 매수',
+      desc: '한국 11개 섹터 분석. 장기 데스크 7봇이 섹터 토론 + 종목별 투표 → 4표(과반) 시 매수 · 장기 계좌(1억)',
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'sub_kr', title: '🇰🇷 국장 워치리스트', time: '평일 12:00',
-      desc: '텔레그램·뉴스 한국 신규 종목 후보 → 봇 분석 (과반 동의 시 매수)',
+      key: 'sub_kr', title: '🇰🇷 국장 트레이딩 (워치리스트)', time: '평일 12:00',
+      desc: '네이버 급등·거래량 + 뉴스로 한국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(3천만)',
       next: _nextKstWeekdayAt(12, 0),
     },
     {
       key: 'main_us', title: '🇺🇸 미장 메인 사이클', time: '평일 18:00',
-      desc: '미국 9개 섹터 분석 (미국장 22:30 개장 직전). 국장과 동일 방식',
+      desc: '미국 9개 섹터 분석 (미국장 22:30 개장 직전). 장기 데스크 7봇 · 4표(과반) 시 매수 · 장기 계좌(1억)',
       next: _nextKstWeekdayAt(18, 0),
     },
     {
-      key: 'sub_us', title: '🇺🇸 미장 워치리스트', time: '평일 24:00 (00:00)',
-      desc: '텔레그램·뉴스 미국 신규 종목 후보 → 봇 분석 (과반 동의 시 매수)',
+      key: 'sub_us', title: '🇺🇸 미장 트레이딩 (워치리스트)', time: '평일 24:00 (00:00)',
+      desc: '야후 급등·거래량 + 뉴스·어닝(누적)으로 미국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(3천만)',
       next: _nextKstWeekdayAt(0, 0),
     },
     {

@@ -25,7 +25,7 @@ from orchestrator import (
     SECTORS, request_pause, clear_pause,
 )
 import orchestrator as _orch
-from prompts import AGENT_ORDER, AGENT_PROFILES
+from prompts import AGENT_ORDER, AGENT_PROFILES, TRADING_AGENT_ORDER
 from scheduler import start_scheduler
 
 load_dotenv()
@@ -356,21 +356,23 @@ def api_agents():
         "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o mini",
     }
-    result = []
-    for name in AGENT_ORDER:
+    def _entry(name, desk):
         profile = AGENT_PROFILES[name]
         # system 프롬프트에서 {evolution_notes} 플레이스홀더 제거 후 전달
         system_clean = profile["system"].replace("{evolution_notes}", "").strip()
-        result.append({
+        return {
             "name": name,
             "description": profile["description"],
             "color": profile["color"],
             "model_provider": profile["model_provider"],
             "model_label": MODEL_LABEL.get(profile["model_id"], profile["model_id"]),
             "system": system_clean,
-            # '감독'은 사용자 본인 페르소나라 UI Members에선 숨김
-            "hidden_from_members": False,  # 7봇 다 표시 (감독·원칙주의자는 통합됨)
-        })
+            "desk": desk,                  # main=장기 / trading=트레이딩
+            "hidden_from_members": False,
+        }
+
+    result = [_entry(n, "main") for n in AGENT_ORDER]
+    result += [_entry(n, "trading") for n in TRADING_AGENT_ORDER]
     return result
 
 
