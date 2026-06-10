@@ -1,12 +1,50 @@
 import sqlite3
 import os
 
-INITIAL_BALANCE = 100_000_000  # 1억
+INITIAL_BALANCE = 100_000_000  # 1억 (메인=장기투자 계좌)
+TRADING_BALANCE = 30_000_000   # 3천만 (서브=트레이딩 계좌)
+
+# 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
+_ACCT_ID = {"main": 1, "sub": 2}
+
+
+def _acct_id(account: str) -> int:
+    return _ACCT_ID.get(account or "main", 1)
 
 
 def _conn():
     path = os.getenv("DB_PATH", "investchat.db")
     return sqlite3.connect(path)
+
+
+def _migrate_accounts(con):
+    """shared_portfolio를 다계좌(메인/트레이딩)로 전환 — CHECK(id=1) 제거 + 서브 계좌 시드.
+    idempotent: CHECK 없으면 시드 INSERT만 수행."""
+    # 주의: INSERT OR IGNORE는 CHECK 위반도 '무시'(예외 X)하므로,
+    # 제약 존재 여부를 스키마(sql)에서 직접 읽어 판단한다.
+    ddl_row = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='shared_portfolio'"
+    ).fetchone()
+    if ddl_row and "CHECK" in (ddl_row[0] or ""):
+        # 제약 제거 위해 테이블 재생성 (데이터 보존)
+        con.executescript(f"""
+            CREATE TABLE shared_portfolio_new (
+                id INTEGER PRIMARY KEY,
+                balance REAL DEFAULT {INITIAL_BALANCE},
+                invested REAL DEFAULT 0,
+                total_pnl REAL DEFAULT 0,
+                win_count INTEGER DEFAULT 0,
+                loss_count INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO shared_portfolio_new SELECT * FROM shared_portfolio;
+            DROP TABLE shared_portfolio;
+            ALTER TABLE shared_portfolio_new RENAME TO shared_portfolio;
+        """)
+    con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, ?)",
+                (INITIAL_BALANCE,))
+    con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (2, ?)",
+                (TRADING_BALANCE,))
 
 
 def _migrate():
@@ -17,12 +55,18 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN code TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
+            "ALTER TABLE virtual_positions ADD COLUMN account TEXT DEFAULT 'main'",
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
         ]:
             try:
                 con.execute(sql)
             except Exception:
                 pass
+        try:
+            con.execute("UPDATE virtual_positions SET account='main' WHERE account IS NULL")
+            _migrate_accounts(con)
+        except Exception:
+            pass
 
 
 def init_db():
@@ -102,10 +146,11 @@ def init_db():
             pnl REAL,
             pnl_pct REAL,
             opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            closed_at DATETIME
+            closed_at DATETIME,
+            account TEXT DEFAULT 'main'
         );
         CREATE TABLE IF NOT EXISTS shared_portfolio (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            id INTEGER PRIMARY KEY,
             balance REAL DEFAULT {INITIAL_BALANCE},
             invested REAL DEFAULT 0,
             total_pnl REAL DEFAULT 0,
@@ -114,6 +159,7 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, {INITIAL_BALANCE});
+        INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (2, {TRADING_BALANCE});
         CREATE TABLE IF NOT EXISTS agent_state (
             agent_name TEXT PRIMARY KEY,
             evolution_notes TEXT DEFAULT '',
@@ -384,44 +430,45 @@ def get_consensus_notes(limit=20):
 
 
 # ── 포트폴리오 ────────────────────────────────────────────
-def get_shared_portfolio():
+def get_shared_portfolio(account: str = "main"):
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        row = con.execute("SELECT * FROM shared_portfolio WHERE id=1").fetchone()
+        row = con.execute("SELECT * FROM shared_portfolio WHERE id=?", (_acct_id(account),)).fetchone()
         return dict(row) if row else {
-            "balance": INITIAL_BALANCE, "invested": 0,
+            "balance": INITIAL_BALANCE if account == "main" else TRADING_BALANCE, "invested": 0,
             "total_pnl": 0, "win_count": 0, "loss_count": 0
         }
 
 
 def buy_shared_position(symbol: str, code: str, entry_price: float, amount: float,
-                        reasoning: str, market: str = "KRX"):
-    """잔액에서 amount 차감 후 포지션 오픈. (pos_id, error) 반환."""
+                        reasoning: str, market: str = "KRX", account: str = "main"):
+    """해당 계좌 잔액에서 amount 차감 후 포지션 오픈. (pos_id, error) 반환."""
+    aid = _acct_id(account)
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        row = con.execute("SELECT balance FROM shared_portfolio WHERE id=1").fetchone()
+        row = con.execute("SELECT balance FROM shared_portfolio WHERE id=?", (aid,)).fetchone()
         if not row or row["balance"] < amount:
             return None, f"잔액 부족 (보유: ₩{row['balance']:,.0f})" if row else "포트폴리오 없음"
 
         quantity = round(amount / entry_price, 4) if entry_price else 0
         cur = con.execute("""
-            INSERT INTO virtual_positions (symbol, code, direction, entry_price, quantity, amount, reasoning, market)
-            VALUES (?, ?, '매수', ?, ?, ?, ?, ?)
-        """, (symbol, code, entry_price, quantity, amount, reasoning, market))
+            INSERT INTO virtual_positions (symbol, code, direction, entry_price, quantity, amount, reasoning, market, account)
+            VALUES (?, ?, '매수', ?, ?, ?, ?, ?, ?)
+        """, (symbol, code, entry_price, quantity, amount, reasoning, market, account))
 
         con.execute("""
             UPDATE shared_portfolio SET
                 balance = balance - ?,
                 invested = invested + ?,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = 1
-        """, (amount, amount))
+            WHERE id = ?
+        """, (amount, amount, aid))
 
         return cur.lastrowid, None
 
 
 def sell_shared_position(pos_id: int, exit_price: float, exit_reasoning: str = ""):
-    """포지션 청산 후 잔액에 반환. (pnl, error) 반환."""
+    """포지션 청산 후 해당 계좌 잔액에 반환. (pnl, error) 반환."""
     with _conn() as con:
         con.row_factory = sqlite3.Row
         row = con.execute("SELECT * FROM virtual_positions WHERE id=?", (pos_id,)).fetchone()
@@ -430,6 +477,7 @@ def sell_shared_position(pos_id: int, exit_price: float, exit_reasoning: str = "
         row = dict(row)
         if row["status"] != "open":
             return None, "이미 청산된 포지션"
+        aid = _acct_id(row.get("account") or "main")
 
         entry = row["entry_price"] or 0
         qty = row["quantity"] or 0
@@ -458,28 +506,40 @@ def sell_shared_position(pos_id: int, exit_price: float, exit_reasoning: str = "
                 win_count = win_count + ?,
                 loss_count = loss_count + ?,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = 1
-        """, (return_amount, amount, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0))
+            WHERE id = ?
+        """, (return_amount, amount, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0, aid))
 
         return pnl, None
 
 
-def get_open_positions_by_symbol(symbol: str) -> list:
+def get_open_positions_by_symbol(symbol: str, account: str = None) -> list:
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM virtual_positions WHERE symbol=? AND status='open'",
-            (symbol,)
-        ).fetchall()
+        if account:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE symbol=? AND status='open' AND account=?",
+                (symbol, account)
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE symbol=? AND status='open'",
+                (symbol,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_all_positions(limit=30) -> list:
+def get_all_positions(limit=30, account: str = None) -> list:
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM virtual_positions ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if account:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions WHERE account=? ORDER BY id DESC LIMIT ?",
+                (account, limit)
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM virtual_positions ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -681,19 +741,17 @@ def load_cycle_state() -> dict:
             "market": "KRX"}
 
 
-def get_open_positions(market: str = None) -> list:
+def get_open_positions(market: str = None, account: str = None) -> list:
+    clauses = ["status='open'"]
+    params = []
+    if market:
+        clauses.append("market=?"); params.append(market)
+    if account:
+        clauses.append("account=?"); params.append(account)
+    sql = "SELECT * FROM virtual_positions WHERE " + " AND ".join(clauses) + " ORDER BY opened_at"
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        if market:
-            rows = con.execute(
-                "SELECT * FROM virtual_positions WHERE status='open' AND market=? ORDER BY opened_at",
-                (market,)
-            ).fetchall()
-        else:
-            rows = con.execute(
-                "SELECT * FROM virtual_positions WHERE status='open' ORDER BY opened_at"
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in con.execute(sql, params).fetchall()]
 
 
 # ── 관심 종목 (영구 보관) ─────────────────────────────────
