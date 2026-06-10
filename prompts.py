@@ -318,8 +318,28 @@ def format_history_compact(messages):
     return "\n".join(lines)
 
 
+def discussion_etiquette(spoken_names=None) -> str:
+    """봇 발언 직전 주입하는 토론 규칙.
+    ① 아직 발언 안 한 봇 인용 금지(없는 발언 지어내기 방지)
+    ② 앞 봇이 이미 말한 수치·근거 반복 금지 → 각자 다른 측면."""
+    spoken = [n for n in (spoken_names or []) if n]
+    if spoken:
+        who = ", ".join(spoken)
+        cite = (f"지금까지 발언한 봇은 {who} 뿐입니다. 이들만 인용·호명할 수 있고, "
+                f"아직 말하지 않은 봇은 절대 언급하지 마세요. 하지 않은 발언을 지어내면 안 됩니다.")
+    else:
+        cite = "당신이 첫 발언자입니다. 아직 아무도 말하지 않았으니 다른 봇을 인용·호명하지 마세요."
+    return (
+        "[토론 규칙 — 반드시 준수]\n"
+        f"- {cite}\n"
+        "- 앞 봇이 이미 제시한 수치·지표(고점比 하락률·이동평균선·ROE 등)를 그대로 되풀이하지 말고, "
+        "당신의 전문 영역에서 새로운 근거·다른 데이터·다른 각도를 더하세요.\n"
+        "- 결론이 같아도 근거는 달라야 합니다. 앞 봇 발언을 요약·재진술하지 마세요."
+    )
+
+
 def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, history_text,
-                                    agent_name, round_num, tg_context: str = ""):
+                                    agent_name, round_num, tg_context: str = "", spoken_names=None):
     intro = f"[{sector_name} 섹터 토론 — {round_num}라운드]" if round_num > 1 else f"[{sector_name} 섹터 토론 시작]"
     tg_section = f"\n{tg_context}\n" if tg_context else ""
     return f"""{intro}
@@ -331,12 +351,15 @@ def build_sector_discussion_prompt(sector_name, sector_desc, market_summary, his
 [지금까지 대화]
 {history_text or "(첫 번째 발언)"}
 
+{discussion_etiquette(spoken_names)}
+
 {agent_name}, {sector_name} 섹터에 대해 한 마디. 긍정/우려 핵심만 짧게.
 ⚠️ 개별 종목 [결정] 포맷 사용 금지. 1-2문장. 반드시 한국어."""
 
 
 def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, history_text,
-                                 agent_name, tg_context: str = "", portfolio_text: str = ""):
+                                 agent_name, tg_context: str = "", portfolio_text: str = "",
+                                 spoken_names=None):
     tg_section = f"\n{tg_context}\n" if tg_context else ""
     portfolio_section = f"\n[현재 포트폴리오]\n{portfolio_text}\n" if portfolio_text else ""
     return f"""[{sector_name} 섹터 — 종목 분석]
@@ -348,12 +371,14 @@ def build_stock_analysis_prompt(stock_data_text, sector_name, market_summary, hi
 [이전 의견]
 {history_text or "(첫 번째 의견)"}
 
+{discussion_etiquette(spoken_names)}
+
 {agent_name}, 위 데이터를 바탕으로 투자 판단을 내려주세요.
-- 본인 관점에서 핵심 근거 제시
+- 본인 관점에서 핵심 근거 제시 (앞 봇과 겹치지 않는 측면으로)
 - 텔레그램·블로그 여론 참고하되 맹목적으로 따르지 마세요
 - **위 [현재 포트폴리오] 비중을 반드시 고려**: 이미 같은 종목·같은 섹터 비중이 큰지, 분산 관점에서 추가 매수가 합리적인지
 - 반드시 [결정] 형식으로 마무리 (매수/관망/매도)
-2-3문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
+2-3문장. 이미 발언한 봇에만 반응. 반드시 한국어."""
 
 
 def build_holdings_review_prompt(symbol, code, entry_price, current_price, pnl_pct,
@@ -385,7 +410,8 @@ def build_holdings_review_prompt(symbol, code, entry_price, current_price, pnl_p
 1-2문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
 
 
-def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = ""):
+def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = "",
+                               spoken_names=None):
     stock_section = f"\n\n[자동 조회된 종목 데이터]\n{stock_context}" if stock_context else ""
 
     if stock_context:
@@ -395,7 +421,7 @@ def build_user_response_prompt(user_message, history_text, agent_name, stock_con
         # 자유 질문 → 각 봇 캐릭터로 자연스럽게 대화
         format_instruction = "[결정] 포맷 없이 자연스럽게 대화하세요. 2-3문장 이내. 봇 캐릭터에 맞게."
 
-    return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{agent_name}로서 답변. {format_instruction} 한국어."""
+    return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
 
 
 def build_feedback_prompt(stock_name, pnl, pnl_pct, history_summary):
