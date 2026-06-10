@@ -538,11 +538,6 @@
   .pf-acct-btn:hover { color: #e6edf3; }
   .pf-acct-btn.active { background: rgba(88,166,255,.16); color: #e6edf3; border-color: rgba(88,166,255,.5); }
   .pf-acct-btn .pf-acct-cap { font-size: 9px; font-weight: 400; opacity: .6; margin-left: 2px; }
-
-  /* Members 데스크 구분 라벨 */
-  .member-desk-label { font-size: 9.5px; font-weight: 700; letter-spacing: .03em; color: #7f93a8;
-    margin: 10px 0 4px; padding-bottom: 3px; border-bottom: 1px solid rgba(255,255,255,.07); }
-  .member-desk-label:first-child { margin-top: 0; }
 </style>
 </head>
 <body class="readonly">
@@ -569,6 +564,10 @@
 
     <div style="padding-top:12px; padding-bottom:8px">
       <div class="sidebar-label">Members</div>
+      <div class="pf-acct-toggle" style="margin-bottom:8px">
+        <button id="mem-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기</button>
+        <button id="mem-tab-trading" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩</button>
+      </div>
       <div id="member-list"></div>
     </div>
   </div>
@@ -661,8 +660,8 @@
     <p id="market-status-label">시작 잔액 ₩100,000,000</p>
   </div>
   <div class="pf-acct-toggle">
-    <button id="pf-tab-main" class="pf-acct-btn active" onclick="switchPfAccount('main')">📈 장기 <span class="pf-acct-cap">1억</span></button>
-    <button id="pf-tab-sub" class="pf-acct-btn" onclick="switchPfAccount('sub')">⚡ 트레이딩 <span class="pf-acct-cap">3천만</span></button>
+    <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">1억</span></button>
+    <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">3천만</span></button>
   </div>
   <div class="pf-summary">
     <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
@@ -950,33 +949,32 @@ async function loadAgents() {
   try {
     const res = await fetch('/api/agents');
     const list = await res.json();
-    const el = document.getElementById('member-list');
-    el.innerHTML = '';
-    let lastDesk = null;
-    list.forEach(a => {
-      agents[a.name] = a;  // 매수근거 매핑 등에선 전체 봇 유지
-      if (a.hidden_from_members) return;
-      const desk = a.desk || 'main';
-      if (desk !== lastDesk) {
-        lastDesk = desk;
-        const hdr = document.createElement('div');
-        hdr.className = 'member-desk-label';
-        hdr.textContent = desk === 'trading' ? '⚡ 트레이딩 데스크 (3천만)' : '📈 장기 데스크 (1억)';
-        el.appendChild(hdr);
-      }
-      const color = BOT_COLORS[a.name] || a.color || '#8b949e';
-      const row = document.createElement('div');
-      row.className = 'member';
-      row.title = isOwner ? '클릭하면 투자 스타일 확인' : '';
-      row.onclick = () => openBotModal(a);
-      row.innerHTML = `<span class="dot" style="background:${color}"></span><span class="member-name" style="color:${color}">${a.name}</span>`;
-      el.appendChild(row);
-      const sub = document.createElement('div');
-      sub.className = 'member-sub';
-      sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
-      el.appendChild(sub);
-    });
-    // 사용자 본인 '나' 행 (페르소나: 감독 캐릭터를 사용자가 맡음)
+    window._agentsData = list;
+    list.forEach(a => { agents[a.name] = a; });  // 매수근거 매핑 등엔 전체 봇 유지
+    _renderMembers(window._activeDesk || 'main');
+  } catch(e) {}
+}
+
+function _renderMembers(desk) {
+  const list = window._agentsData || [];
+  const el = document.getElementById('member-list');
+  if (!el) return;
+  el.innerHTML = '';
+  list.filter(a => !a.hidden_from_members && (a.desk||'main') === desk).forEach(a => {
+    const color = BOT_COLORS[a.name] || a.color || '#8b949e';
+    const row = document.createElement('div');
+    row.className = 'member';
+    row.title = isOwner ? '클릭하면 투자 스타일 확인' : '';
+    row.onclick = () => openBotModal(a);
+    row.innerHTML = `<span class="dot" style="background:${color}"></span><span class="member-name" style="color:${color}">${a.name}</span>`;
+    el.appendChild(row);
+    const sub = document.createElement('div');
+    sub.className = 'member-sub';
+    sub.innerHTML = `${esc(a.description)}<br><span style="color:#444c56;font-size:9px">${esc(a.model_label||a.model_provider)}</span>`;
+    el.appendChild(sub);
+  });
+  // '나' 행은 장기 데스크에만 (감독 페르소나 = 장기 비전 담당)
+  if (desk === 'main') {
     const youRow = document.createElement('div');
     youRow.className = 'member';
     youRow.style.marginTop = '4px';
@@ -984,7 +982,7 @@ async function loadAgents() {
     youRow.style.paddingTop = '6px';
     youRow.innerHTML = `<span class="dot" style="background:#fbbf24"></span><span class="member-name" style="color:#fbbf24">나</span>`;
     el.appendChild(youRow);
-  } catch(e) {}
+  }
 }
 
 async function loadMarket() {
@@ -1224,15 +1222,20 @@ async function loadPortfolio() {
     const ms = pf.market_status;
     document.getElementById('market-status-label').textContent =
       ms==='KRX' ? '🟢 국장 장중' : ms==='US' ? '🔵 미장 장중' : '⚫ 장외 시간';
-    _renderPfAccount(window._pfAccount || 'main');
+    _renderPfAccount((window._activeDesk||'main')==='trading' ? 'sub' : 'main');
   } catch(e) { console.error('pf',e); }
 }
 
-function switchPfAccount(acct) {
-  window._pfAccount = acct;
-  document.getElementById('pf-tab-main').classList.toggle('active', acct==='main');
-  document.getElementById('pf-tab-sub').classList.toggle('active', acct==='sub');
-  if (window._pfData) _renderPfAccount(acct);
+// 포트폴리오·Members 공유 데스크 상태 — 하나 전환하면 둘 다 전환
+window._activeDesk = window._activeDesk || 'main';  // 'main'(장기) | 'trading'(트레이딩)
+function setDesk(desk) {
+  window._activeDesk = desk;
+  const isTrade = desk === 'trading';
+  const toggle = (id, on) => { const e = document.getElementById(id); if (e) e.classList.toggle('active', on); };
+  toggle('pf-tab-main', !isTrade); toggle('pf-tab-sub', isTrade);
+  toggle('mem-tab-main', !isTrade); toggle('mem-tab-trading', isTrade);
+  if (window._pfData) _renderPfAccount(isTrade ? 'sub' : 'main');
+  if (window._agentsData) _renderMembers(desk);
 }
 
 function _renderPfAccount(acct) {
