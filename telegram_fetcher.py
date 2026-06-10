@@ -19,6 +19,12 @@ MIN_MSG_LEN = 10            # 이보다 짧은 메시지 필터링
 _cache: dict = {}           # {group: {"messages": [...], "fetched_at": float}}
 
 
+def telegram_enabled() -> bool:
+    """텔레그램 수집 on/off. 계정 차단 등으로 기본 OFF.
+    .env에 TELEGRAM_ENABLED=true 로 명시해야만 동작."""
+    return os.getenv("TELEGRAM_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _normalize_group(g: str) -> str:
     """t.me/숫자 → 숫자, t.me/@이름 → @이름, 나머지는 그대로."""
     g = g.strip()
@@ -111,6 +117,8 @@ def fetch_telegram_messages(group: str = None, force: bool = False) -> list[dict
     모든 설정된 방(또는 특정 방)의 메시지를 수집해 합쳐서 반환.
     시간순 정렬.
     """
+    if not telegram_enabled():
+        return []   # 텔레그램 비활성 (계정 차단) — 조용히 빈 결과
     groups = [group] if group else _get_groups()
     if not groups:
         return []

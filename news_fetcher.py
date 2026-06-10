@@ -348,10 +348,18 @@ def collect_all_news_stocks() -> str:
 
 
 def get_watched_stocks_for_watchlist() -> list[dict]:
-    """워치리스트용 관심 종목 반환 (최근 7일 이내 언급된 것)."""
+    """워치리스트용 관심 종목 반환.
+    일반 소스는 최근 7일, **어닝(earnings) 소스는 30일** 유지 — 어닝 종목 누적 모니터링."""
     from db import get_watched_stocks
     from datetime import date, timedelta
-    cutoff = (date.today() - timedelta(days=7)).isoformat()
+    today = date.today()
+    cut_default = (today - timedelta(days=7)).isoformat()
+    cut_earnings = (today - timedelta(days=30)).isoformat()
 
-    stocks = get_watched_stocks(limit=100)
-    return [s for s in stocks if s.get("last_seen", "") >= cutoff]
+    out = []
+    for s in get_watched_stocks(limit=300):
+        src = (s.get("source") or "").lower()
+        cut = cut_earnings if "earnings" in src else cut_default
+        if s.get("last_seen", "") >= cut:
+            out.append(s)
+    return out
