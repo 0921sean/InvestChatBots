@@ -522,6 +522,21 @@
     #chat-header h2 { font-size: 12.5px; }
     .sub { font-size: 9.5px; }
   }
+
+  /* ───────── 업데이트 내역 (changelog) ───────── */
+  #changelog-box { margin: 6px 0 2px; padding: 7px 9px; background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.07); border-radius: 8px; cursor: pointer; user-select: none; }
+  #changelog-box .cl-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+  #changelog-box .cl-chev { font-size: 8px; opacity: .6; transition: transform .15s; }
+  #changelog-box.open .cl-chev { transform: rotate(90deg); }
+  #changelog-box .cl-title { font-weight: 600; color: #e6e6e6; }
+  #changelog-box .cl-date { margin-left: auto; font-size: 10px; color: #8aa0b6; }
+  #changelog-box .cl-body { display: none; margin-top: 7px; }
+  #changelog-box.open .cl-body { display: block; }
+  #changelog-box .cl-entry { margin-bottom: 8px; }
+  #changelog-box .cl-entry-date { font-size: 9.5px; color: #7f93a8; margin-bottom: 3px; }
+  #changelog-box .cl-entry ul { margin: 0; padding-left: 14px; }
+  #changelog-box .cl-entry li { font-size: 10.5px; line-height: 1.45; color: #c4cdd6; margin: 1px 0; }
 </style>
 </head>
 <body class="readonly">
@@ -533,6 +548,15 @@
       <span>📈 InvestChatBots <span class="beta-tag">BETA</span></span>
       <span id="admin-mark" title="클릭하면 로그아웃" onclick="ownerLogout(event)">ADMIN</span>
     </div>
+  </div>
+
+  <div id="changelog-box" onclick="toggleChangelog(event)" title="업데이트 내역 보기">
+    <div class="cl-head">
+      <span class="cl-chev">▶</span>
+      <span class="cl-title">🆕 업데이트</span>
+      <span class="cl-date" id="cl-latest-date">—</span>
+    </div>
+    <div class="cl-body" id="cl-body"></div>
   </div>
 
   <div id="sidebar-scroll">
@@ -2127,11 +2151,30 @@ window.fetch = function(input, init) {
   return _origFetch.call(this, input, init);
 };
 
+// ── 업데이트 내역 (changelog) ──────────────────────────
+function toggleChangelog(e) {
+  if (e) e.stopPropagation();
+  document.getElementById('changelog-box').classList.toggle('open');
+}
+async function loadChangelog() {
+  try {
+    const r = await fetch('/static/changelog.json?_=' + Date.now());
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) return;
+    document.getElementById('cl-latest-date').textContent = data[0].date;
+    document.getElementById('cl-body').innerHTML = data.map(e =>
+      `<div class="cl-entry"><div class="cl-entry-date">${e.date}</div><ul>` +
+      (e.items || []).map(it => `<li>${it.replace(/</g,'&lt;')}</li>`).join('') +
+      `</ul></div>`).join('');
+  } catch (_) {}
+}
+
 // 첫 호출은 무조건 whoami 먼저 (다른 콜들이 fetch 가드를 통과하기 위해)
 loadWhoami().then(() => {
   loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
   initialLoad();
 });
+loadChangelog();
 setInterval(poll, 3000);
 setInterval(loadState, 10000);
 setInterval(loadMarket, 60000);

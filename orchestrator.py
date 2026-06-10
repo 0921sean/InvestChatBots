@@ -1461,7 +1461,7 @@ _watchlist_lock = threading.Lock()
 _watchlist_disabled = False  # True면 새 슬롯은 스킵, 진행 중도 다음 봇 호출 직전 중단
 
 # 서브 사이클 1회당 분석할 최대 종목 수 (후보가 많으면 무작위 샘플)
-SUB_CYCLE_MAX_STOCKS = 20
+SUB_CYCLE_MAX_STOCKS = 8   # 서브 슬롯당 분석 종목 상한 (토큰 절약 ↔ 발굴 폭 균형). 소싱 개선 후 20→8
 
 
 def pause_watchlist():
@@ -1578,15 +1578,27 @@ def _run_telegram_watchlist_inner(force: bool = False, market: str = None):
     except Exception as e:
         logger.debug(f"뉴스 소스 오류: {e}")
 
-    # 두 소스 합치기 (중복 제거)
+    # 네이버 급등·거래량 상위 발굴 (국장 전용 — 로그인·LLM 불필요, pykrx 대체)
+    naver_tickers = []
+    if market is None or _norm_market(market) == "KRX":
+        try:
+            from discovery_naver import fetch_kr_movers
+            naver_tickers = fetch_kr_movers()
+        except Exception as e:
+            logger.debug(f"네이버 발굴 오류: {e}")
+
+    # 소스 합치기 (중복 제거)
     seen_names = set()
     tickers = []
-    for t in tg_tickers + news_tickers:
+    for t in tg_tickers + news_tickers + naver_tickers:
         if t["name"] not in seen_names:
             seen_names.add(t["name"])
             tickers.append(t)
 
-    source_label = "텔레그램+뉴스" if tg_available else "뉴스/공시"
+    src_parts = (["텔레그램"] if tg_available else []) + ["뉴스"]
+    if naver_tickers:
+        src_parts.append("네이버발굴")
+    source_label = "+".join(src_parts)
 
     # 메인 섹터 종목 이름+코드 목록 (워치리스트에서 제외)
     main_stock_names = {s["name"] for sector in SECTORS for s in sector["stocks"]}
