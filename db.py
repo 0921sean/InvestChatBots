@@ -57,6 +57,7 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN account TEXT DEFAULT 'main'",
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
+            "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
         ]:
             try:
                 con.execute(sql)
@@ -833,9 +834,9 @@ def _is_bot_ua(ua: str) -> bool:
 
 
 def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
-              referer: str = "", path: str = "/") -> bool:
+              referer: str = "", path: str = "/", verified: int = 0) -> bool:
     """방문 1건 기록. 동일 (visitor_id, source)가 VISIT_DEDUP_SECONDS 이내면 skip.
-    봇/스크립트 UA는 기록하지 않음.
+    봇/스크립트 UA는 기록하지 않음. verified=1 → JS 비콘으로 검증된 실방문.
     반환값: 실제로 새로 기록했으면 True, 중복/봇으로 skip했으면 False."""
     if _is_bot_ua(user_agent):
         return False
@@ -850,9 +851,9 @@ def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
             if row:
                 return False
         con.execute("""
-            INSERT INTO visit_log (source, visitor_id, user_agent, referer, path)
-            VALUES (?, ?, ?, ?, ?)
-        """, (source or None, visitor_id, user_agent[:200], referer[:300], path[:200]))
+            INSERT INTO visit_log (source, visitor_id, user_agent, referer, path, verified)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (source or None, visitor_id, user_agent[:200], referer[:300], path[:200], verified))
         return True
 
 
@@ -869,7 +870,8 @@ def get_visit_stats(days: int = 30) -> dict:
     """방문 통계 — 총합 / 출처별 / 날짜별(신규·재방문). KST 기준.
     재방문 판정: visitor_id가 '서로 다른 날(KST)' 2일 이상 방문 → 재방문자.
     날짜별 신규/재방문은 전체 기간 기준 첫 방문일로 판정."""
-    nb = _NOT_BOT_SQL
+    # 봇 UA 제외 + JS 비콘으로 검증된 실방문(verified=1)만 집계 (전환형)
+    nb = f"({_NOT_BOT_SQL}) AND verified=1"
     win = "date(ts,'+9 hours') >= date('now','+9 hours','-' || ? || ' day')"
     with _conn() as con:
         con.row_factory = sqlite3.Row

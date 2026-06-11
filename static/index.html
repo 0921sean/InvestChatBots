@@ -2185,7 +2185,8 @@ window.fetch = function(input, init) {
   const url = typeof input === 'string' ? input : input.url;
   const method = (init && init.method) || 'GET';
   const isWrite = method === 'POST' || method === 'DELETE';
-  const isOwnerEndpoint = !isOwner && isWrite && url.startsWith('/api/');
+  // /api/visit(방문 비콘)은 누구나 호출 가능 — 가드 예외
+  const isOwnerEndpoint = !isOwner && isWrite && url.startsWith('/api/') && !url.startsWith('/api/visit');
   if (isOwnerEndpoint) {
     // 익명이 쓰기 API 호출 시도 → 조용히 거부 (403 응답 흉내)
     return Promise.resolve(new Response(
@@ -2211,10 +2212,21 @@ async function loadChangelog() {
   } catch (_) {}
 }
 
+// 실방문 비콘 — JS가 실행됐다 = 진짜 브라우저. 봇·미리보기는 여기 못 옴.
+function _sendVisitBeacon() {
+  try {
+    const s = (new URLSearchParams(location.search).get('s') || '').trim();
+    const url = '/api/visit' + (s ? ('?s=' + encodeURIComponent(s)) : '');
+    if (navigator.sendBeacon) navigator.sendBeacon(url);
+    else _origFetch(url, { method: 'POST', keepalive: true, credentials: 'same-origin' });
+  } catch (_) {}
+}
+
 // 첫 호출은 무조건 whoami 먼저 (다른 콜들이 fetch 가드를 통과하기 위해)
 loadWhoami().then(() => {
   loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
   initialLoad();
+  _sendVisitBeacon();   // owner 여부 확인 후 비콘 (owner면 서버가 제외)
 });
 loadChangelog();
 setInterval(poll, 3000);
