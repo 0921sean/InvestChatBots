@@ -311,21 +311,39 @@ def root(request: Request, s: str = ""):
             vsid = secrets.token_urlsafe(12)
             resp.set_cookie("vsid", vsid, max_age=60 * 60 * 24 * 365,
                             httponly=True, samesite="lax")
-        if not is_owner(request):
-            log_visit(
-                source=(s or "").strip().lower()[:32] or "direct",
-                visitor_id=vsid,
-                user_agent=request.headers.get("user-agent", ""),
-                referer=request.headers.get("referer", ""),
-                path="/",
-            )
-        else:
+        # 방문 집계는 JS 비콘(POST /api/visit)에서만 — 봇(JS 미실행)은 빠짐 (전환형)
+        if is_owner(request):
             # 본인(owner) — 이 vsid의 과거 방문 기록도 일괄 정리 (지표 오염 제거, 1회성·idempotent)
             from db import purge_visits_for
             purge_visits_for(vsid)
     except Exception as e:
-        logger.debug(f"visit log 실패: {e}")
+        logger.debug(f"visit cookie 실패: {e}")
     return resp
+
+
+@app.post("/api/visit")
+def api_visit(request: Request, s: str = ""):
+    """JS 실방문 비콘 — 페이지가 실제 브라우저에서 로드되어 JS가 실행됐을 때만 호출.
+    봇·스캐너·링크 미리보기는 JS를 실행하지 않으므로 집계에서 제외된다. owner는 제외."""
+    try:
+        vsid = request.cookies.get("vsid")
+        if is_owner(request):
+            if vsid:
+                from db import purge_visits_for
+                purge_visits_for(vsid)
+            return {"ok": True, "owner": True}
+        from db import log_visit
+        log_visit(
+            source=(s or "").strip().lower()[:32] or "direct",
+            visitor_id=vsid,
+            user_agent=request.headers.get("user-agent", ""),
+            referer=request.headers.get("referer", ""),
+            path="/",
+            verified=1,
+        )
+    except Exception as e:
+        logger.debug(f"visit beacon 실패: {e}")
+    return {"ok": True}
 
 
 @app.get("/api/messages")
