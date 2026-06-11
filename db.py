@@ -792,9 +792,24 @@ _BOT_UA_KEYWORDS = ("bot", "crawl", "spider", "python", "curl", "wget",
                     "java/", "postman", "facebookexternalhit", "slackbot",
                     "axios", "node-fetch", "libwww", "httpclient",
                     # 보안 스캐너·자동화 도구
-                    "scanner", "audit", "palo alto", "expanse", "censys",
+                    "scanner", "audit", "palo alto", "paloalto", "expanse", "censys",
                     "masscan", "zgrab", "nmap", "dalvik", "aiohttp",
                     "uptime", "monitoring", "fetch", "http-client",
+                    "nuclei", "wpscan", "sqlmap", "nikto", "gobuster", "feroxbuster",
+                    "dirbuster", "shodan", "internetmeasurement", "l9scan", "l9tcpid",
+                    "netcraft",
+                    # HTTP 라이브러리·헤드리스
+                    "httpx", "urllib", "requests", "winhttp", "powershell", "guzzle",
+                    "restsharp", "phantomjs", "puppeteer", "playwright", "selenium",
+                    "wkhtmltopdf", "lua-resty", "apache-httpclient", "wininet",
+                    # SEO·분석·성능 봇
+                    "ahrefs", "semrush", "mj12", "dataforseo", "lighthouse",
+                    "pagespeed", "gtmetrix", "pingdom", "statuscake", "uptimerobot",
+                    "site24x7", "newrelic", "datadog", "validator", "google-read-aloud",
+                    # 링크 미리보기 스크레이퍼 (인앱 브라우저 아님 — 사람 아님)
+                    "facebookcatalog", "kakaotalk-scrap", "skypeuripreview",
+                    "embedly", "vkshare", "tumblr", "redditbot", "discordbot",
+                    "telegrambot", "twitterbot", "whatsapp",
                     # 합성 봇팜 (구형 iOS 13.2.3 단일 UA 256개 — 사람 트래픽 아님)
                     "iphone os 13_2_3")
 # 정확히 일치하면 봇 (플랫폼 정보 없는 깡통 UA)
