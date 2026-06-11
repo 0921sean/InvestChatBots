@@ -1006,7 +1006,10 @@ def api_admin_visits(request: Request, days: int = 30):
     if not is_owner(request):
         raise HTTPException(403, "owner only")
     from db import get_visit_stats
-    return get_visit_stats(days=days)
+    return {
+        "verified": get_visit_stats(days=days, verified_only=True),   # JS 실방문
+        "all": get_visit_stats(days=days, verified_only=False),       # 구 방식(UA필터)
+    }
 
 
 @app.get("/api/_debug/state")

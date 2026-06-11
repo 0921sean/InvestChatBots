@@ -866,12 +866,12 @@ def purge_visits_for(visitor_id: str) -> int:
         return cur.rowcount
 
 
-def get_visit_stats(days: int = 30) -> dict:
+def get_visit_stats(days: int = 30, verified_only: bool = True) -> dict:
     """방문 통계 — 총합 / 출처별 / 날짜별(신규·재방문). KST 기준.
     재방문 판정: visitor_id가 '서로 다른 날(KST)' 2일 이상 방문 → 재방문자.
-    날짜별 신규/재방문은 전체 기간 기준 첫 방문일로 판정."""
-    # 봇 UA 제외 + JS 비콘으로 검증된 실방문(verified=1)만 집계 (전환형)
-    nb = f"({_NOT_BOT_SQL}) AND verified=1"
+    날짜별 신규/재방문은 전체 기간 기준 첫 방문일로 판정.
+    verified_only=True → JS 비콘 검증 실방문만(전환형). False → 봇 UA필터만(구 방식)."""
+    nb = f"({_NOT_BOT_SQL})" + (" AND verified=1" if verified_only else "")
     win = "date(ts,'+9 hours') >= date('now','+9 hours','-' || ? || ' day')"
     with _conn() as con:
         con.row_factory = sqlite3.Row
