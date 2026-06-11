@@ -538,6 +538,18 @@
   .pf-acct-btn:hover { color: #e6edf3; }
   .pf-acct-btn.active { background: rgba(88,166,255,.16); color: #e6edf3; border-color: rgba(88,166,255,.5); }
   .pf-acct-btn .pf-acct-cap { font-size: 9px; font-weight: 400; opacity: .6; margin-left: 2px; }
+
+  /* ───────── 방문 통계: 재방문/날짜별 ───────── */
+  .stats-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stats-legend { display: flex; gap: 12px; margin: 0 0 6px; font-size: 10px; color: #8b949e; }
+  .stats-legend .lg { display: flex; align-items: center; gap: 4px; }
+  .stats-legend .lg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .stats-day2 { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 3px 0; }
+  .stats-day2-date { width: 40px; flex: none; color: #8b949e; }
+  .stats-day2-bar { flex: 1; height: 9px; display: flex; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,.05); }
+  .stats-day2-bar .seg-new { background: #3b82f6; }
+  .stats-day2-bar .seg-ret { background: #22c55e; }
+  .stats-day2-cnt { flex: none; min-width: 132px; text-align: right; font-size: 10px; color: #c9d1d9; }
 </style>
 </head>
 <body class="readonly">
@@ -1788,17 +1800,21 @@ function renderStats(data) {
       }).join('')
     : '<div class="stats-empty">아직 방문 기록 없음</div>';
 
-  // 일자별 — 최근 14일까지만
-  const dayRows = byDay.slice(0, 30).map(r =>
-    `<div class="stats-day-row">
-       <div class="stats-day-date">${r.day}</div>
-       <div class="stats-day-src">${r.source}</div>
-       <div class="stats-day-cnt">${r.uv}명 · ${r.pv}회</div>
-     </div>`
-  ).join('');
+  // 날짜별 신규·재방문 (스택 막대)
+  const maxDayUv = Math.max(1, ...byDay.map(r => r.uv || 0));
+  const dayRows = byDay.slice(0, 30).map(r => {
+    const nw = Math.round((r.new_uv||0) / maxDayUv * 100);
+    const rt = Math.round((r.returning_uv||0) / maxDayUv * 100);
+    return `<div class="stats-day2">
+       <div class="stats-day2-date">${(r.day||'').slice(5)}</div>
+       <div class="stats-day2-bar"><div class="seg-new" style="width:${nw}%"></div><div class="seg-ret" style="width:${rt}%"></div></div>
+       <div class="stats-day2-cnt">신규 ${r.new_uv||0} · <b style="color:#22c55e">재방문 ${r.returning_uv||0}</b> <span style="color:#6e7681">· ${r.pv||0}PV</span></div>
+     </div>`;
+  }).join('');
   const dayBlock = byDay.length
     ? `<div class="stats-block">
-         <div class="stats-block-title">일자별 (KST · 최근 30일)</div>
+         <div class="stats-block-title">날짜별 신규·재방문 (KST · 최근 ${data.window_days||30}일)</div>
+         <div class="stats-legend"><span class="lg"><i style="background:#3b82f6"></i>신규</span><span class="lg"><i style="background:#22c55e"></i>재방문</span></div>
          ${dayRows}
        </div>`
     : '';
@@ -1807,14 +1823,10 @@ function renderStats(data) {
     <div class="stats-block">
       <div class="stats-block-title">총 합 (최근 ${data.window_days || 30}일)</div>
       <div class="stats-totals">
-        <div class="stat">
-          <div class="stat-num">${t.unique_visitors ?? 0}</div>
-          <div class="stat-label">고유 방문자 (UV)</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num">${t.page_views ?? 0}</div>
-          <div class="stat-label">페이지뷰 (PV)</div>
-        </div>
+        <div class="stat"><div class="stat-num">${t.unique_visitors ?? 0}</div><div class="stat-label">고유 방문자 (UV)</div></div>
+        <div class="stat"><div class="stat-num">${t.page_views ?? 0}</div><div class="stat-label">페이지뷰 (PV)</div></div>
+        <div class="stat"><div class="stat-num" style="color:#22c55e">${t.returning_visitors ?? 0}</div><div class="stat-label">재방문자</div></div>
+        <div class="stat"><div class="stat-num" style="color:#22c55e">${t.returning_rate ?? 0}%</div><div class="stat-label">재방문율</div></div>
       </div>
     </div>
     <div class="stats-block">
@@ -1823,9 +1835,10 @@ function renderStats(data) {
     </div>
     ${dayBlock}
     <div class="sched-note">
-      • 같은 방문자 + 같은 출처는 24시간 내 중복 카운트 안 됨<br>
-      • 출처 표식: ?s=kakao / ?s=kora / ?s=insta / ?s=mail<br>
-      • URL에 ?s= 없으면 <b>direct</b>로 분류
+      • 재방문자 = 서로 다른 날(KST) <b>2일 이상</b> 방문한 사람 · 재방문율 = 재방문자 / UV<br>
+      • 날짜별 신규/재방문 = 그 날 방문자 중 '첫 방문일이 그 날인지'로 구분<br>
+      • 같은 방문자+출처는 24시간 내 중복 카운트 안 됨 · ?s= 없으면 <b>direct</b><br>
+      • 봇·스캐너·미리보기 UA는 집계에서 제외
     </div>
   `;
 }

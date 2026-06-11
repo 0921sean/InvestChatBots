@@ -851,39 +851,73 @@ def purge_visits_for(visitor_id: str) -> int:
 
 
 def get_visit_stats(days: int = 30) -> dict:
-    """방문 통계 — 출처별 / 일자별 / 총합. KST 기준."""
+    """방문 통계 — 총합 / 출처별 / 날짜별(신규·재방문). KST 기준.
+    재방문 판정: visitor_id가 '서로 다른 날(KST)' 2일 이상 방문 → 재방문자.
+    날짜별 신규/재방문은 전체 기간 기준 첫 방문일로 판정."""
+    nb = _NOT_BOT_SQL
+    win = "date(ts,'+9 hours') >= date('now','+9 hours','-' || ? || ' day')"
     with _conn() as con:
         con.row_factory = sqlite3.Row
         totals = con.execute(f"""
             SELECT COUNT(DISTINCT visitor_id) AS uv, COUNT(*) AS pv
-            FROM visit_log
-            WHERE ts > datetime('now', '-' || ? || ' day')
-              AND {_NOT_BOT_SQL}
+            FROM visit_log WHERE {nb} AND {win}
         """, (days,)).fetchone()
         by_source = con.execute(f"""
             SELECT COALESCE(source,'direct') AS source,
-                   COUNT(DISTINCT visitor_id) AS uv,
-                   COUNT(*) AS pv
-            FROM visit_log
-            WHERE ts > datetime('now', '-' || ? || ' day')
-              AND {_NOT_BOT_SQL}
+                   COUNT(DISTINCT visitor_id) AS uv, COUNT(*) AS pv
+            FROM visit_log WHERE {nb} AND {win}
             GROUP BY COALESCE(source,'direct')
             ORDER BY uv DESC
         """, (days,)).fetchall()
+        # 날짜별 신규/재방문 + PV (전체기간 첫방문일 기준)
         by_day = con.execute(f"""
-            SELECT date(ts, '+9 hours') AS day,
-                   COALESCE(source,'direct') AS source,
-                   COUNT(DISTINCT visitor_id) AS uv,
-                   COUNT(*) AS pv
-            FROM visit_log
-            WHERE ts > datetime('now', '-' || ? || ' day')
-              AND {_NOT_BOT_SQL}
-            GROUP BY day, COALESCE(source,'direct')
-            ORDER BY day DESC, uv DESC
+            WITH vd AS (
+                SELECT visitor_id, date(ts,'+9 hours') AS d
+                FROM visit_log WHERE {nb}
+                GROUP BY visitor_id, date(ts,'+9 hours')
+            ),
+            firsts AS (SELECT visitor_id, MIN(d) AS fd FROM vd GROUP BY visitor_id),
+            pv AS (
+                SELECT date(ts,'+9 hours') AS d, COUNT(*) AS pv
+                FROM visit_log WHERE {nb}
+                GROUP BY date(ts,'+9 hours')
+            )
+            SELECT vd.d AS day,
+                   COUNT(DISTINCT vd.visitor_id) AS uv,
+                   COUNT(DISTINCT CASE WHEN vd.d = f.fd THEN vd.visitor_id END) AS new_uv,
+                   COUNT(DISTINCT CASE WHEN vd.d > f.fd THEN vd.visitor_id END) AS returning_uv,
+                   MAX(COALESCE(pv.pv,0)) AS pv
+            FROM vd
+            JOIN firsts f ON vd.visitor_id = f.visitor_id
+            LEFT JOIN pv ON pv.d = vd.d
+            WHERE vd.d >= date('now','+9 hours','-' || ? || ' day')
+            GROUP BY vd.d ORDER BY vd.d DESC
         """, (days,)).fetchall()
+        # 재방문자 총합 (윈도우 내 활동 + 전체기간 2일 이상 방문)
+        ret = con.execute(f"""
+            WITH vd AS (
+                SELECT visitor_id, date(ts,'+9 hours') AS d
+                FROM visit_log WHERE {nb}
+                GROUP BY visitor_id, date(ts,'+9 hours')
+            )
+            SELECT COUNT(*) AS ruv FROM (
+                SELECT visitor_id FROM vd GROUP BY visitor_id HAVING COUNT(*) >= 2
+            ) r
+            WHERE r.visitor_id IN (
+                SELECT DISTINCT visitor_id FROM vd
+                WHERE d >= date('now','+9 hours','-' || ? || ' day')
+            )
+        """, (days,)).fetchone()
+        uv = totals["uv"] or 0
+        ruv = ret["ruv"] or 0
         return {
             "window_days": days,
-            "totals": {"unique_visitors": totals["uv"], "page_views": totals["pv"]},
+            "totals": {
+                "unique_visitors": uv,
+                "page_views": totals["pv"],
+                "returning_visitors": ruv,
+                "returning_rate": round(ruv / uv * 100, 1) if uv else 0.0,
+            },
             "by_source": [dict(r) for r in by_source],
             "by_day": [dict(r) for r in by_day],
         }
