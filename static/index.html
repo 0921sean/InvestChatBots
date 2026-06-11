@@ -748,6 +748,10 @@
     <button id="stats-close" onclick="closeStats()">✕</button>
     <h3>📊 방문 통계</h3>
     <div class="stats-sub" id="stats-window">최근 30일 · KST</div>
+    <div class="pf-acct-toggle" style="margin:8px 0">
+      <button id="st-tab-verified" class="pf-acct-btn active" onclick="switchStatsMode('verified')">🙋 실방문 (JS)</button>
+      <button id="st-tab-all" class="pf-acct-btn" onclick="switchStatsMode('all')">📦 전체 (UA필터)</button>
+    </div>
     <div id="stats-content">로딩 중...</div>
   </div>
 </div>
@@ -1773,10 +1777,20 @@ async function openStats() {
     const res = await fetch('/api/admin/visits?days=30');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    renderStats(data);
+    // 신구 둘 다 캐시 (전환형 응답 {verified, all}). 옛 평면 응답도 호환.
+    window._statsData = (data && data.verified) ? data : { verified: data, all: data };
+    switchStatsMode(window._statsMode || 'verified');
   } catch (e) {
     content.innerHTML = `<div class="stats-empty">통계를 불러오지 못함: ${e.message}</div>`;
   }
+}
+function switchStatsMode(mode) {
+  window._statsMode = mode;
+  const v = document.getElementById('st-tab-verified'), a = document.getElementById('st-tab-all');
+  if (v) v.classList.toggle('active', mode==='verified');
+  if (a) a.classList.toggle('active', mode==='all');
+  const d = window._statsData || {};
+  renderStats(d[mode] || d.verified || {});
 }
 function closeStats() {
   document.getElementById('stats-modal').classList.remove('open');
