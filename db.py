@@ -981,6 +981,34 @@ def get_visit_stats(days: int = 30, verified_only: bool = True) -> dict:
         }
 
 
+def get_buy_debate(pos_id: int) -> dict:
+    """포지션의 매수 직전 라운드 토론 전체를 반환. opened_at에 가장 가까운
+    '매수 체결' System 메시지의 라운드를 찾아 그 라운드 메시지를 순서대로 준다."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        pos = con.execute(
+            "SELECT symbol, opened_at FROM virtual_positions WHERE id=?", (pos_id,)
+        ).fetchone()
+        if not pos:
+            return {"found": False, "messages": []}
+        sym = pos["symbol"]
+        r = con.execute("""
+            SELECT round_id FROM messages
+            WHERE agent_name='System' AND content LIKE ?
+            ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC, id DESC
+            LIMIT 1
+        """, (f"🟢 매수 체결: {sym}%", pos["opened_at"])).fetchone()
+        if not r:
+            return {"found": False, "symbol": sym, "messages": []}
+        rid = r["round_id"]
+        rows = con.execute(
+            "SELECT agent_name, content, timestamp FROM messages WHERE round_id=? ORDER BY id",
+            (rid,)
+        ).fetchall()
+        return {"found": True, "round_id": rid, "symbol": sym,
+                "messages": [dict(x) for x in rows]}
+
+
 # ── 피드백 ────────────────────────────────────────────────
 def add_feedback(content: str, visitor_id: str = None,
                  user_agent: str = "", referer: str = "") -> int:
