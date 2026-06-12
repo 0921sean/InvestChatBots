@@ -1420,13 +1420,14 @@ async function loadBuyDebate(posId) {
   try {
     const r = await fetch('/api/buy-debate-image?pos_id=' + posId);
     const d = await r.json();
-    if (!d.found || !d.url) {
+    const urls = d.urls || (d.url ? [d.url] : []);
+    if (!d.found || !urls.length) {
       body.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:10px">이 매수의 토론 기록을 찾지 못했어요 (옛 데이터일 수 있음).</div>';
       return;
     }
     body.innerHTML =
-      `<img src="${d.url}" style="width:100%;border-radius:8px;display:block" alt="봇 토론 이미지">
-       <div style="font-size:10px;color:#6e7681;margin-top:6px;text-align:center">길게 눌러/우클릭으로 이미지 저장${d.cached ? ' · 캐시됨' : ''}</div>`;
+      urls.map((u, i) => `<img src="${u}" style="width:100%;border-radius:8px;display:block;margin-bottom:8px" alt="봇 토론 ${i + 1}/${urls.length}">`).join('') +
+      `<div style="font-size:10px;color:#6e7681;margin-top:2px;text-align:center">길게 눌러/우클릭으로 이미지 저장 (${urls.length}장)${d.cached ? ' · 캐시됨' : ''}</div>`;
   } catch (e) {
     body.innerHTML = '<div style="color:#f85149;font-size:11px;padding:10px">불러오기 실패</div>';
   }
