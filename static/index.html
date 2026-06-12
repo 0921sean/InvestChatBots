@@ -1416,20 +1416,17 @@ function showPositionReason(idx) {
 }
 async function loadBuyDebate(posId) {
   const body = document.getElementById('r-body');
-  body.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:10px">봇 토론 불러오는 중…</div>';
+  body.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:10px">봇 토론 이미지 준비 중… (처음 한 번만 생성)</div>';
   try {
-    const r = await fetch('/api/buy-debate?pos_id=' + posId);
+    const r = await fetch('/api/buy-debate-image?pos_id=' + posId);
     const d = await r.json();
-    if (!d.found || !(d.messages || []).length) {
+    if (!d.found || !d.url) {
       body.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:10px">이 매수의 토론 기록을 찾지 못했어요 (옛 데이터일 수 있음).</div>';
       return;
     }
-    body.innerHTML = d.messages.map(m => {
-      if (m.agent_name === 'System')
-        return `<div style="margin:7px 0;padding:6px 8px;background:rgba(255,255,255,.04);border-radius:6px;font-size:10px;color:#9aa6b2;white-space:pre-wrap;line-height:1.5">${esc(m.content)}</div>`;
-      const col = BOT_COLORS[m.agent_name] || '#8b949e';
-      return `<div style="margin:9px 0"><div style="font-weight:700;color:${col};font-size:11px;margin-bottom:2px">${esc(m.agent_name)}</div><div style="white-space:pre-wrap;line-height:1.6;color:#c9d1d9;font-size:11px">${esc(m.content)}</div></div>`;
-    }).join('');
+    body.innerHTML =
+      `<img src="${d.url}" style="width:100%;border-radius:8px;display:block" alt="봇 토론 이미지">
+       <div style="font-size:10px;color:#6e7681;margin-top:6px;text-align:center">길게 눌러/우클릭으로 이미지 저장${d.cached ? ' · 캐시됨' : ''}</div>`;
   } catch (e) {
     body.innerHTML = '<div style="color:#f85149;font-size:11px;padding:10px">불러오기 실패</div>';
   }

@@ -605,6 +605,36 @@ def api_buy_debate(pos_id: int):
     return d
 
 
+@app.get("/api/buy-debate-image")
+def api_buy_debate_image(pos_id: int):
+    """매수 토론을 PNG로 렌더해 캐시. 한 번 만들면 static/debates/round_{id}.png 재사용."""
+    from db import get_buy_debate
+    d = get_buy_debate(pos_id)
+    if not d.get("found"):
+        return {"found": False}
+    rid = d["round_id"]
+    os.makedirs(os.path.join("static", "debates"), exist_ok=True)
+    fname = f"round_{rid}.png"
+    fpath = os.path.join("static", "debates", fname)
+    url = f"/static/debates/{fname}"
+    if os.path.exists(fpath):
+        return {"found": True, "url": url, "cached": True}
+    msgs = d["messages"]
+    for m in msgs:
+        m["content"] = _remap_old_bot_names(m.get("content") or "")
+    sym = d.get("symbol", "")
+    ts = (msgs[0]["timestamp"] if msgs else "") or ""
+    title = f"{sym} 매수 토론"
+    subtitle = f"{ts[:10]} · 라운드 {rid} · AI 봇 투표"
+    try:
+        from debate_image import render_debate_png
+        render_debate_png(fpath, title, subtitle, msgs)
+    except Exception as e:
+        logger.warning(f"debate image 생성 실패: {e}")
+        return {"found": True, "url": None}
+    return {"found": True, "url": url, "cached": False}
+
+
 @app.post("/api/positions/evaluate")
 def api_evaluate_positions():
     threading.Thread(target=evaluate_positions, daemon=True).start()
