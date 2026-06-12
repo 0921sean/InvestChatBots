@@ -925,16 +925,57 @@ def get_visit_stats(days: int = 30, verified_only: bool = True) -> dict:
                 WHERE d >= date('now','+9 hours','-' || ? || ' day')
             )
         """, (days,)).fetchone()
+        # ── 코호트 재방문: 첫 방문일(cohort) 기준 D1·D7 복귀 ──
+        # D1 = 첫 방문 다음날(+1일) 복귀, D7 = 첫 방문 후 7일 내(+1~+7일) 복귀
+        kst_today = con.execute("SELECT date('now','+9 hours')").fetchone()[0]
+        cohort_rows = con.execute(f"""
+            WITH vd AS (
+                SELECT visitor_id, date(ts,'+9 hours') AS d
+                FROM visit_log WHERE {nb}
+                GROUP BY visitor_id, date(ts,'+9 hours')
+            ),
+            firsts AS (SELECT visitor_id, MIN(d) AS fd FROM vd GROUP BY visitor_id)
+            SELECT f.fd AS cohort,
+                   COUNT(DISTINCT f.visitor_id) AS cohort_size,
+                   COUNT(DISTINCT CASE WHEN vd.d = date(f.fd,'+1 day') THEN f.visitor_id END) AS d1,
+                   COUNT(DISTINCT CASE WHEN vd.d > f.fd AND vd.d <= date(f.fd,'+7 day') THEN f.visitor_id END) AS d7
+            FROM firsts f
+            JOIN vd ON vd.visitor_id = f.visitor_id
+            WHERE f.fd >= date('now','+9 hours','-' || ? || ' day')
+            GROUP BY f.fd ORDER BY f.fd DESC
+        """, (days,)).fetchall()
+        cohorts = [dict(r) for r in cohort_rows]
+
+        from datetime import date as _date, timedelta as _td
+        def _pd(s):
+            y, m, dd = map(int, s.split('-')); return _date(y, m, dd)
+        ty = _pd(kst_today)
+        d1_cut = (ty - _td(days=1)).isoformat()   # 이 날짜 이하 코호트만 D1 측정 가능(성숙)
+        d7_cut = (ty - _td(days=7)).isoformat()
+        d1_base = sum(c["cohort_size"] for c in cohorts if c["cohort"] <= d1_cut)
+        d1_ret  = sum(c["d1"] for c in cohorts if c["cohort"] <= d1_cut)
+        d7_base = sum(c["cohort_size"] for c in cohorts if c["cohort"] <= d7_cut)
+        d7_ret  = sum(c["d7"] for c in cohorts if c["cohort"] <= d7_cut)
+        retention = {
+            "d1_rate": round(d1_ret / d1_base * 100, 1) if d1_base else None,
+            "d7_rate": round(d7_ret / d7_base * 100, 1) if d7_base else None,
+            "d1_base": d1_base, "d1_ret": d1_ret,
+            "d7_base": d7_base, "d7_ret": d7_ret,
+        }
+
         uv = totals["uv"] or 0
         ruv = ret["ruv"] or 0
         return {
             "window_days": days,
+            "today": kst_today,
             "totals": {
                 "unique_visitors": uv,
                 "page_views": totals["pv"],
                 "returning_visitors": ruv,
                 "returning_rate": round(ruv / uv * 100, 1) if uv else 0.0,
             },
+            "retention": retention,
+            "cohorts": cohorts,
             "by_source": [dict(r) for r in by_source],
             "by_day": [dict(r) for r in by_day],
         }
