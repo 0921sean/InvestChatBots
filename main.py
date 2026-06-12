@@ -595,6 +595,16 @@ def api_positions():
     return get_all_positions(50)
 
 
+@app.get("/api/buy-debate")
+def api_buy_debate(pos_id: int):
+    """포지션 매수 직전 봇 토론 전체 (라운드 메시지). 옛 봇 이름은 새 이름으로 치환."""
+    from db import get_buy_debate
+    d = get_buy_debate(pos_id)
+    for m in d.get("messages", []):
+        m["content"] = _remap_old_bot_names(m.get("content") or "")
+    return d
+
+
 @app.post("/api/positions/evaluate")
 def api_evaluate_positions():
     threading.Thread(target=evaluate_positions, daemon=True).start()
