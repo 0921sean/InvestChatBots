@@ -613,12 +613,13 @@ def api_buy_debate_image(pos_id: int):
     if not d.get("found"):
         return {"found": False}
     rid = d["round_id"]
-    os.makedirs(os.path.join("static", "debates"), exist_ok=True)
-    fname = f"round_{rid}.png"
-    fpath = os.path.join("static", "debates", fname)
-    url = f"/static/debates/{fname}"
-    if os.path.exists(fpath):
-        return {"found": True, "url": url, "cached": True}
+    import glob
+    ddir = os.path.join("static", "debates")
+    os.makedirs(ddir, exist_ok=True)
+    existing = sorted(glob.glob(os.path.join(ddir, f"round_{rid}_*.png")))
+    if existing:
+        return {"found": True, "cached": True,
+                "urls": ["/static/debates/" + os.path.basename(p) for p in existing]}
     msgs = d["messages"]
     for m in msgs:
         m["content"] = _remap_old_bot_names(m.get("content") or "")
@@ -627,12 +628,13 @@ def api_buy_debate_image(pos_id: int):
     title = f"{sym} 매수 토론"
     subtitle = f"{ts[:10]} · 라운드 {rid} · AI 봇 투표"
     try:
-        from debate_image import render_debate_png
-        render_debate_png(fpath, title, subtitle, msgs)
+        from debate_image import render_debate_pages
+        paths = render_debate_pages(os.path.join(ddir, f"round_{rid}"), title, subtitle, msgs, pages=2)
     except Exception as e:
         logger.warning(f"debate image 생성 실패: {e}")
-        return {"found": True, "url": None}
-    return {"found": True, "url": url, "cached": False}
+        return {"found": True, "urls": []}
+    return {"found": True, "cached": False,
+            "urls": ["/static/debates/" + os.path.basename(p) for p in paths]}
 
 
 @app.post("/api/positions/evaluate")
