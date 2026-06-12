@@ -8,3 +8,4 @@ __pycache__/
 venv/
 .gstack/
 *.session
+static/debates/

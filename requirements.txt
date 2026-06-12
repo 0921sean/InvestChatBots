@@ -12,3 +12,4 @@ httpx==0.27.2
 tradingview-ta
 pykrx
 telethon
+pillow
