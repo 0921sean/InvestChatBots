@@ -550,6 +550,18 @@
   .stats-day2-bar .seg-new { background: #3b82f6; }
   .stats-day2-bar .seg-ret { background: #22c55e; }
   .stats-day2-cnt { flex: none; min-width: 132px; text-align: right; font-size: 10px; color: #c9d1d9; }
+
+  /* ───────── 재방문 코호트 (D1/D7) ───────── */
+  .ret-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .ret-card { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.22); border-radius: 8px; padding: 9px; text-align: center; }
+  .ret-card .ret-num { font-size: 21px; font-weight: 800; color: #22c55e; line-height: 1.1; }
+  .ret-card .ret-label { font-size: 10px; color: #9aa6b2; margin-top: 3px; }
+  .ret-card .ret-sub { font-size: 9px; color: #6e7681; margin-top: 1px; }
+  .coh-row { display: flex; align-items: center; font-size: 10.5px; padding: 2px 0; color: #c9d1d9; }
+  .coh-head { color: #6e7681; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,.07); padding-bottom: 3px; margin-bottom: 2px; }
+  .coh-d { width: 46px; flex: none; color: #8b949e; }
+  .coh-n { width: 42px; flex: none; text-align: right; padding-right: 16px; }
+  .coh-v { flex: 1; text-align: right; }
 </style>
 </head>
 <body class="readonly">
@@ -1833,6 +1845,38 @@ function renderStats(data) {
        </div>`
     : '';
 
+  // ── 재방문 코호트 (D1/D7) ──
+  const ret = data.retention || {};
+  const cohorts = data.cohorts || [];
+  const today = data.today || '';
+  const dMinus = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const d1cut = today ? dMinus(today, 1) : '';
+  const d7cut = today ? dMinus(today, 7) : '';
+  const retCard = (rate, base, label) =>
+    `<div class="ret-card">
+       <div class="ret-num">${rate == null ? '—' : rate + '%'}</div>
+       <div class="ret-label">${label}</div>
+       <div class="ret-sub">${base ? base + '명 기준' : '데이터 쌓는 중'}</div>
+     </div>`;
+  const cohRows = cohorts.slice(0, 14).map(co => {
+    const sz = co.cohort_size || 0;
+    const p1 = sz ? Math.round(co.d1 / sz * 100) : 0;
+    const p7 = sz ? Math.round(co.d7 / sz * 100) : 0;
+    const d1c = (today && co.cohort <= d1cut) ? `${co.d1} <span style="color:#6e7681">(${p1}%)</span>` : '<span style="color:#444c56">…</span>';
+    const d7c = (today && co.cohort <= d7cut) ? `${co.d7} <span style="color:#6e7681">(${p7}%)</span>` : '<span style="color:#444c56">…</span>';
+    return `<div class="coh-row"><span class="coh-d">${(co.cohort||'').slice(5)}</span><span class="coh-n">${sz}</span><span class="coh-v">${d1c}</span><span class="coh-v">${d7c}</span></div>`;
+  }).join('');
+  const retBlock = `
+    <div class="stats-block">
+      <div class="stats-block-title">재방문 추적 — 관전 후 다시 오나? (코호트)</div>
+      <div class="ret-summary">
+        ${retCard(ret.d1_rate, ret.d1_base, 'D1 · 다음날 복귀')}
+        ${retCard(ret.d7_rate, ret.d7_base, 'D7 · 7일내 복귀')}
+      </div>
+      <div class="coh-row coh-head"><span class="coh-d">첫방문</span><span class="coh-n">신규</span><span class="coh-v">D1</span><span class="coh-v">D7</span></div>
+      ${cohRows || '<div class="stats-empty">아직 코호트 없음</div>'}
+    </div>`;
+
   c.innerHTML = `
     <div class="stats-block">
       <div class="stats-block-title">총 합 (최근 ${data.window_days || 30}일)</div>
@@ -1843,12 +1887,15 @@ function renderStats(data) {
         <div class="stat"><div class="stat-num" style="color:#22c55e">${t.returning_rate ?? 0}%</div><div class="stat-label">재방문율</div></div>
       </div>
     </div>
+    ${retBlock}
     <div class="stats-block">
       <div class="stats-block-title">출처별 (UV 많은 순)</div>
       ${sourceBars}
     </div>
     ${dayBlock}
     <div class="sched-note">
+      • <b>D1</b> = 첫 방문 '다음날' 복귀율 · <b>D7</b> = 첫 방문 후 '7일 내' 복귀율 (visitor_id 추적)<br>
+      • 코호트 = 첫 방문일이 같은 사람 묶음 · 아직 기간 안 지난 코호트는 <b>…</b>로 표시<br>
       • 재방문자 = 서로 다른 날(KST) <b>2일 이상</b> 방문한 사람 · 재방문율 = 재방문자 / UV<br>
       • 날짜별 신규/재방문 = 그 날 방문자 중 '첫 방문일이 그 날인지'로 구분<br>
       • 같은 방문자+출처는 24시간 내 중복 카운트 안 됨 · ?s= 없으면 <b>direct</b><br>
