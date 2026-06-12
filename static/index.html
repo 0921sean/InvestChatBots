@@ -294,6 +294,8 @@
   #reason-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; }
   #reason-modal.open { display:flex; }
   #reason-box { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:22px 24px; max-width:420px; width:90%; position:relative; }
+  #reason-box.wide { max-width:1180px; }
+  #reason-box.wide .r-body { max-height:82vh; overflow-y:auto; }
   #reason-box h3 { font-size:15px; font-weight:700; margin-bottom:4px; }
   #reason-box .r-meta { font-size:11px; color:#6e7681; margin-bottom:16px; }
   #reason-box .r-body { font-size:13px; line-height:1.8; color:#c9d1d9; white-space:pre-wrap; }
@@ -1372,6 +1374,7 @@ async function requestSummary() {
 function showPositionReason(idx) {
   const p = (window._posData || [])[idx];
   if (!p) return;
+  document.getElementById('reason-box').classList.remove('wide');  // 기본은 좁게
   const isUS = p.market === 'US';
   const fmtKst = (s) => s ? new Date(s+'Z').toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
   const fmtPrice = (v) => isUS
@@ -1425,15 +1428,19 @@ async function loadBuyDebate(posId) {
       body.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:10px">이 매수의 토론 기록을 찾지 못했어요 (옛 데이터일 수 있음).</div>';
       return;
     }
+    document.getElementById('reason-box').classList.add('wide');  // 가로로 넓게
     body.innerHTML =
-      urls.map((u, i) => `<img src="${u}" style="width:100%;border-radius:8px;display:block;margin-bottom:8px" alt="봇 토론 ${i + 1}/${urls.length}">`).join('') +
-      `<div style="font-size:10px;color:#6e7681;margin-top:2px;text-align:center">길게 눌러/우클릭으로 이미지 저장 (${urls.length}장)${d.cached ? ' · 캐시됨' : ''}</div>`;
+      `<div style="display:flex;gap:12px;align-items:flex-start">` +
+      urls.map((u, i) => `<img src="${u}" style="flex:1;min-width:0;width:100%;border-radius:8px;display:block" alt="봇 토론 ${i + 1}/${urls.length}">`).join('') +
+      `</div>` +
+      `<div style="font-size:10px;color:#6e7681;margin-top:8px;text-align:center">길게 눌러/우클릭으로 이미지 저장 (${urls.length}장)${d.cached ? ' · 캐시됨' : ''}</div>`;
   } catch (e) {
     body.innerHTML = '<div style="color:#f85149;font-size:11px;padding:10px">불러오기 실패</div>';
   }
 }
 function closeReason() {
   document.getElementById('reason-modal').classList.remove('open');
+  document.getElementById('reason-box').classList.remove('wide');
 }
 document.addEventListener('keydown', e => { if(e.key==='Escape') { closeReason(); closeSchedule(); closeDonationModal(); } });
 
@@ -1842,7 +1849,7 @@ function renderStats(data) {
         return `<div class="stats-bar-row">
           <div class="stats-bar-src">${r.source}</div>
           <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%"></div></div>
-          <div class="stats-bar-num">${r.uv}명 · ${r.pv}회</div>
+          <div class="stats-bar-num" style="white-space:nowrap">${r.uv}명 · ${r.pv}회</div>
         </div>`;
       }).join('')
     : '<div class="stats-empty">아직 방문 기록 없음</div>';
