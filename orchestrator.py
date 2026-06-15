@@ -1,6 +1,6 @@
 """
 AI 투자 토론 그룹 — 섹터 라운드 시스템
-섹터 토론(3라운드) → 종목 분석(5봇 결정) → 포트폴리오 실행
+섹터 토론 → 종목 분석(장기 데스크 7봇 결정) → 포트폴리오 실행
 """
 import json
 import logging
@@ -985,7 +985,7 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
             return [str(x).strip().lstrip("•-· ").strip() for x in v if str(x).strip()][:limit]
         return []
 
-    # spokesperson 화이트리스트 검증 — 9봇 중 하나만, 아니면 빈값
+    # spokesperson 화이트리스트 검증 — AGENT_ORDER(7봇) 중 하나만, 아니면 빈값
     spokesperson_raw = (d.get("spokesperson") or "").strip()
     spokesperson = spokesperson_raw if spokesperson_raw in AGENT_ORDER else ""
 
@@ -2121,7 +2121,7 @@ def _review_holdings_inner(force: bool = False, market: str = None):
     _save_msg(intro_round_id, "System",
               f"📋 {mkt_label}보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
               f"대상: {names}\n"
-              f"각 종목별로 9봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
+              f"각 종목별로 7봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
     complete_round(intro_round_id)
 
     market_summary, _ = _get_or_refresh_market_summary()

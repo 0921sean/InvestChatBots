@@ -1300,7 +1300,7 @@ class DonationIn(BaseModel):
 
 @app.post("/api/donations")
 def api_add_donation(body: DonationIn):
-    """owner — 후원 항목 추가 (KRW 기준). 채팅에 시스템 메시지 + 봇 9명 감사 인사."""
+    """owner — 후원 항목 추가 (KRW 기준). 채팅에 시스템 메시지 + 봇 7명 감사 인사."""
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be > 0")
     add_donation(body.amount, body.note or "")
@@ -1316,7 +1316,7 @@ def api_add_donation(body: DonationIn):
 
 
 def _run_donation_thanks(amount: float, note: str):
-    """후원 알림 + 9봇 한마디씩 감사 인사. 각 봇 캐릭터 살린 톤."""
+    """후원 알림 + 7봇 한마디씩 감사 인사. 각 봇 캐릭터 살린 톤."""
     from db import create_round, save_message, complete_round
     from agents import call_agent, is_claude_token_exhausted
     from orchestrator import AGENT_ORDER, _build_system
@@ -1332,7 +1332,7 @@ def _run_donation_thanks(amount: float, note: str):
                      f"💰 충전: ₩{int(amount):,} (~{_fmt_tokens(amount_tokens)} 토큰){note_disp}\n"
                      f"누적 충전: ₩{int(total['total_krw']):,} · {_fmt_tokens(total['total_tokens'])} 토큰")
 
-        # 2) 봇 9명 감사 인사 — 토큰 소진 아닐 때만
+        # 2) 봇 7명 감사 인사 — 토큰 소진 아닐 때만
         if is_claude_token_exhausted():
             save_message(round_id, "System", None, "⏸ 토큰 소진 — 봇 감사 인사는 충전 후 자동 이어집니다.")
             complete_round(round_id)
