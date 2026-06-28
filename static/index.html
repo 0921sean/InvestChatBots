@@ -154,6 +154,7 @@
   body.readonly #input-area input,
   body.readonly #input-area button { display: none !important; }
   body.readonly #readonly-notice { display: flex !important; }
+  body.readonly #chat-queue { display: none !important; }  /* 채팅 오픈 전엔 대기열 숨김 */
 
   /* 안내 박스 — owner엔 숨김, visitor에서 표시 */
   #readonly-notice { display: none; align-items: center; gap: 8px; flex: 1;
@@ -230,6 +231,20 @@
   #chat-queue .cq-pos { color: #58a6ff; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   #chat-queue .cq-prev { color: #adb6c0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #chat-queue .cq-empty { color: #6e7681; padding: 1px 0 6px; }
+  /* 면책 푸터 (상시 — 안전장치 2/3) */
+  #chat-disclaimer { padding: 7px 16px; font-size: 10px; line-height: 1.5; color: #6e7681; border-top: 1px solid #21262d; flex-shrink: 0; }
+  #chat-disclaimer b { color: #8b949e; font-weight: 600; }
+  /* 면책 동의 모달 */
+  #consent-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 400; align-items: center; justify-content: center; padding: 20px; }
+  #consent-modal.open { display: flex; }
+  #consent-modal .cm-box { background: #161b22; border: 1px solid #30363d; border-radius: 10px; max-width: 420px; width: 100%; padding: 22px; }
+  #consent-modal h3 { margin: 0 0 12px; font-size: 15px; color: #e2e8f0; }
+  #consent-modal ul { margin: 0 0 16px; padding-left: 18px; color: #adb6c0; font-size: 12.5px; line-height: 1.7; }
+  #consent-modal ul b { color: #e2e8f0; }
+  #consent-modal .cm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  #consent-modal button { padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; border: none; }
+  #consent-modal .cm-agree { background: #1f6feb; color: #fff; font-weight: 600; }
+  #consent-modal .cm-cancel { background: #21262d; color: #adb6c0; }
 
   /* ── 우측 — 합의 메모 ── */
   #memo-panel { width: 240px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -670,6 +685,22 @@
     </div>
     <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" data-owner-placeholder="투자 의견이나 질문을 입력하세요..." data-readonly-placeholder="현재는 읽기 전용입니다 — 추후 개방 예정" />
     <button onclick="sendMessage()">전송</button>
+  </div>
+  <div id="chat-disclaimer">⚠️ 표시되는 모든 매매·종목·수익은 <b>가상 포트폴리오</b> 기준이며 실거래가 아닙니다. 투자자문·권유가 아니고 AI 의견의 정확성을 보장하지 않습니다. 투자 판단·책임은 본인에게 있습니다.</div>
+</div>
+
+<div id="consent-modal" onclick="if(event.target===this)cancelConsent()">
+  <div class="cm-box">
+    <h3>채팅 이용 안내</h3>
+    <ul>
+      <li>표시되는 모든 매매·종목·수익은 <b>가상 포트폴리오</b> 기준이며 실거래가 아닙니다.</li>
+      <li>봇 발언은 <b>투자자문·권유가 아니며</b> 정확성·수익을 보장하지 않습니다.</li>
+      <li>투자 판단과 그 <b>책임은 전적으로 본인</b>에게 있습니다.</li>
+    </ul>
+    <div class="cm-actions">
+      <button class="cm-cancel" onclick="cancelConsent()">취소</button>
+      <button class="cm-agree" onclick="agreeConsent()">동의하고 계속</button>
+    </div>
   </div>
 </div>
 
@@ -1319,10 +1350,26 @@ function _renderPfAccount(acct) {
   document.getElementById('pf-positions').innerHTML = html;
 }
 
+const CONSENT_KEY = 'icb_chat_consent_v1';
+
+function agreeConsent() {
+  localStorage.setItem(CONSENT_KEY, '1');
+  document.getElementById('consent-modal').classList.remove('open');
+  sendMessage();   // 입력 텍스트 그대로 — 이제 동의 게이트 통과
+}
+function cancelConsent() {
+  document.getElementById('consent-modal').classList.remove('open');
+}
+
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
   if (!text) return;
+  // 면책 1회 동의 게이트 (안전장치 2/3) — 동의 전엔 전송 보류, 입력 유지
+  if (!localStorage.getItem(CONSENT_KEY)) {
+    document.getElementById('consent-modal').classList.add('open');
+    return;
+  }
   input.value = ''; input.disabled = true;
   try {
     const res = await fetch('/api/user-message', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:text})});
