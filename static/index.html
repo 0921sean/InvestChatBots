@@ -220,6 +220,16 @@
   #input-area input { flex: 1; background: #1c2128; border: 1px solid #30363d; border-radius: 6px; padding: 9px 12px; color: #e2e8f0; font-size: 13px; outline: none; }
   #input-area input:focus { border-color: #388bfd; }
   #input-area button { background: #1f6feb; border: none; color: #fff; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  #chat-queue { padding: 0 16px; flex-shrink: 0; font-size: 11px; color: #8b949e; }
+  #chat-queue:empty { display: none; }
+  #chat-queue .cq-head { display: flex; justify-content: space-between; align-items: center; padding: 7px 0 4px; }
+  #chat-queue .cq-cap { color: #6e7681; font-variant-numeric: tabular-nums; }
+  #chat-queue.closed .cq-cap { color: #f85149; font-weight: 600; }
+  #chat-queue .cq-list { list-style: none; margin: 0 0 6px; padding: 0; max-height: 84px; overflow-y: auto; }
+  #chat-queue .cq-item { display: flex; gap: 6px; padding: 2px 0; }
+  #chat-queue .cq-pos { color: #58a6ff; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  #chat-queue .cq-prev { color: #adb6c0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #chat-queue .cq-empty { color: #6e7681; padding: 1px 0 6px; }
 
   /* ── 우측 — 합의 메모 ── */
   #memo-panel { width: 240px; background: #161b22; border-left: 1px solid #21262d; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -652,6 +662,7 @@
   </div>
   <div id="messages"><div id="msg-anchor"></div></div>
   <div id="typing"><span class="typing-dots" id="typing-text">분석 중...</span></div>
+  <div id="chat-queue"></div>
   <div id="input-area">
     <div id="readonly-notice">
       <span class="rn-icon">🔒</span>
@@ -1314,9 +1325,37 @@ async function sendMessage() {
   if (!text) return;
   input.value = ''; input.disabled = true;
   try {
-    await fetch('/api/user-message', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:text})});
+    const res = await fetch('/api/user-message', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:text})});
+    const data = await res.json().catch(() => null);
+    if (data && data.closed) {
+      alert('🛑 ' + (data.message || '오늘 질문이 마감되었습니다.'));
+      input.value = text;  // 마감 — 입력 복원
+    } else if (data && data.position > 1) {
+      alert(`⏳ 대기 ${data.position}번째로 접수됐어요. 순서가 되면 봇들이 답합니다.`);
+    }
+    loadChatQueue();
   } catch(e) {}
   input.disabled = false; input.focus();
+}
+
+async function loadChatQueue() {
+  const box = document.getElementById('chat-queue');
+  if (!box) return;
+  let d;
+  try { d = await (await fetch('/api/chat/queue')).json(); } catch(e) { return; }
+  box.classList.toggle('closed', !!d.closed);
+  const head = d.closed
+    ? `<span class="cq-cap">🛑 오늘 질문 마감 ${d.today_count}/${d.cap}</span>`
+    : `<span class="cq-cap">💬 오늘 ${d.today_count}/${d.cap}</span><span class="cq-cap">대기 ${d.waiting}건</span>`;
+  let list = '';
+  if ((d.queue || []).length) {
+    list = '<ul class="cq-list">' + d.queue.map(q =>
+      `<li class="cq-item"><span class="cq-pos">${q.position}.</span><span class="cq-prev">${esc(q.preview)}</span></li>`
+    ).join('') + '</ul>';
+  } else if (!d.closed) {
+    list = '<div class="cq-empty">대기 중인 질문 없음</div>';
+  }
+  box.innerHTML = `<div class="cq-head">${head}</div>${list}`;
 }
 
 async function runMainCycle() {
@@ -2313,7 +2352,7 @@ function _sendVisitBeacon() {
 
 // 첫 호출은 무조건 whoami 먼저 (다른 콜들이 fetch 가드를 통과하기 위해)
 loadWhoami().then(() => {
-  loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage();
+  loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage(); loadChatQueue();
   initialLoad();
   _sendVisitBeacon();   // owner 여부 확인 후 비콘 (owner면 서버가 제외)
 });
@@ -2324,6 +2363,7 @@ setInterval(loadMarket, 60000);
 setInterval(syncPlayStatus, 5000);
 setInterval(loadConsensus, 20000);
 setInterval(loadPortfolio, 15000);
+setInterval(loadChatQueue, 7000);
 setInterval(loadTokenUsage, 10000);
 setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인
 setInterval(updateVisitorTimers, 30000);  // 30초마다 카운트다운 갱신

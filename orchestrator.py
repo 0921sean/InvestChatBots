@@ -1898,6 +1898,26 @@ def run_round(market_summary=None, force=False):
 
 
 # ── 사용자 메시지 처리 ─────────────────────────────────────
+def chat_queue_worker():
+    """채팅 질문 큐를 FIFO로 1건씩 직렬 처리 (안전장치 1/3). 데몬 스레드로 기동."""
+    from db import claim_next_chat_question, complete_chat_question
+    while True:
+        try:
+            q = claim_next_chat_question()
+            if not q:
+                time.sleep(1.0)
+                continue
+            try:
+                handle_user_message(q["content"])
+                complete_chat_question(q["id"], "done")
+            except Exception as e:
+                logger.error(f"채팅 큐 처리 오류 (id={q['id']}): {e}")
+                complete_chat_question(q["id"], "error")
+        except Exception as e:
+            logger.error(f"채팅 큐 워커 루프 오류: {e}")
+            time.sleep(2.0)
+
+
 def handle_user_message(user_text: str):
     global _user_active_until
     _user_active_until = time.time() + USER_IDLE_SECONDS
