@@ -498,6 +498,14 @@ def build_holdings_review_prompt(symbol, code, entry_price, current_price, pnl_p
 1-2문장. 다른 봇 의견에 자유롭게 반응. 반드시 한국어."""
 
 
+# 채팅 응답 권유금지 가드레일 (안전장치 3/3) — 모든 채팅 답변에 강제
+CHAT_GUARDRAIL = """[필수 준수 — 표현 가드레일]
+- 모든 매매·종목·수익 언급은 '가상 포트폴리오' 기준이다. 실제 투자 권유가 아니다.
+- 사용자에게 "사세요/파세요/사라/팔아라/오릅니다" 같은 직접 권유·단정은 금지. 의견은 "내 가상계좌 관점에선 ~" 식으로만 말한다.
+- 미래 예측·수익 보장 금지(오를 것이다·무조건 수익 같은 단정 금지). 이미 일어난 사실·확정 데이터에 근거해서만 말한다.
+- [결정]을 쓰더라도 그건 내 가상계좌의 판단일 뿐, 사용자에게 사라/팔라는 권유가 아니다."""
+
+
 def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = "",
                                spoken_names=None):
     stock_section = f"\n\n[자동 조회된 종목 데이터]\n{stock_context}" if stock_context else ""
@@ -509,7 +517,7 @@ def build_user_response_prompt(user_message, history_text, agent_name, stock_con
         # 자유 질문 → 각 봇 캐릭터로 자연스럽게 대화
         format_instruction = "[결정] 포맷 없이 자연스럽게 대화하세요. 2-3문장 이내. 봇 캐릭터에 맞게."
 
-    return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
+    return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{CHAT_GUARDRAIL}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
 
 
 def build_feedback_prompt(stock_name, pnl, pnl_pct, history_summary):
