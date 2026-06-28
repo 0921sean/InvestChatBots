@@ -252,7 +252,101 @@ def init_db():
             ts DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(ts);
+
+        CREATE TABLE IF NOT EXISTS chat_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            visitor_id TEXT,
+            status TEXT DEFAULT 'pending',   -- pending | processing | done | error
+            day TEXT NOT NULL,               -- KST 날짜 'YYYY-MM-DD' (일일 캡 카운트 기준)
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            done_at DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_queue_status ON chat_queue(status, id);
+        CREATE INDEX IF NOT EXISTS idx_chat_queue_day ON chat_queue(day);
         """)
+
+
+# ── 채팅 질문 큐 (안전장치 1/3: 하드 캡 + FIFO) ──────────────
+def _kst_date() -> str:
+    """오늘 KST 날짜 'YYYY-MM-DD' — 일일 캡 카운트 기준."""
+    from datetime import datetime, timezone, timedelta
+    return datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+
+
+def enqueue_chat_question(content: str, visitor_id: str = None, daily_cap: int = 30) -> dict:
+    """오늘 캡 미달이면 큐에 넣고 순번 반환, 도달이면 거부.
+    반환: {accepted, closed, queue_id, position, today_count, cap, remaining}.
+    거부는 INSERT하지 않으므로 today_count = day별 row 수와 동일."""
+    day = _kst_date()
+    with _conn() as con:
+        today_count = con.execute(
+            "SELECT COUNT(*) FROM chat_queue WHERE day=?", (day,)
+        ).fetchone()[0]
+        if today_count >= daily_cap:
+            return {"accepted": False, "closed": True, "queue_id": None,
+                    "position": None, "today_count": today_count,
+                    "cap": daily_cap, "remaining": 0}
+        cur = con.execute(
+            "INSERT INTO chat_queue (content, visitor_id, status, day) VALUES (?, ?, 'pending', ?)",
+            (content, visitor_id, day))
+        qid = cur.lastrowid
+        # 순번 = 아직 안 끝난(pending/processing) 질문 중 내 id 이하 개수
+        position = con.execute(
+            "SELECT COUNT(*) FROM chat_queue WHERE status IN ('pending','processing') AND id<=?",
+            (qid,)).fetchone()[0]
+        new_count = today_count + 1
+        return {"accepted": True, "closed": False, "queue_id": qid,
+                "position": position, "today_count": new_count,
+                "cap": daily_cap, "remaining": max(0, daily_cap - new_count)}
+
+
+def claim_next_chat_question() -> dict | None:
+    """가장 오래된 pending 1건을 processing으로 잠그고 반환 (FIFO). 없으면 None.
+    단일 워커 전용."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT * FROM chat_queue WHERE status='pending' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        con.execute("UPDATE chat_queue SET status='processing' WHERE id=?", (row["id"],))
+        return dict(row)
+
+
+def complete_chat_question(qid: int, status: str = "done"):
+    """처리 끝난 질문을 done(또는 error)으로 마감."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE chat_queue SET status=?, done_at=CURRENT_TIMESTAMP WHERE id=?",
+            (status, qid))
+
+
+def get_chat_queue_status(daily_cap: int = 30, max_list: int = 20) -> dict:
+    """캡 현황 + 대기 목록(처리중 1건 포함, 순번 부여) 공개용."""
+    day = _kst_date()
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        today_count = con.execute(
+            "SELECT COUNT(*) FROM chat_queue WHERE day=?", (day,)).fetchone()[0]
+        processing = con.execute(
+            "SELECT id, content FROM chat_queue WHERE status='processing' ORDER BY id LIMIT 1"
+        ).fetchone()
+        pend_rows = con.execute(
+            "SELECT id, content FROM chat_queue WHERE status='pending' ORDER BY id LIMIT ?",
+            (max_list,)).fetchall()
+    waiting = ([processing] if processing else []) + list(pend_rows)
+    queue = [{"position": i, "preview": (w["content"] or "")[:40]}
+             for i, w in enumerate(waiting, start=1)]
+    return {
+        "cap": daily_cap,
+        "today_count": today_count,
+        "remaining": max(0, daily_cap - today_count),
+        "closed": today_count >= daily_cap,
+        "waiting": len(waiting),
+        "queue": queue,
+    }
 
 
 def add_donation(amount: float, note: str = ""):

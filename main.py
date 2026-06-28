@@ -20,7 +20,7 @@ from db import (
 )
 import time as _time_module
 from orchestrator import (
-    run_round, handle_user_message, is_user_active, USER_IDLE_SECONDS,
+    run_round, handle_user_message, chat_queue_worker, is_user_active, USER_IDLE_SECONDS,
     is_market_open, get_current_state, evaluate_positions, review_holdings,
     SECTORS, request_pause, clear_pause,
 )
@@ -41,6 +41,9 @@ if not OWNER_TOKEN:
 # /admin 로그인 페이지용 비번 (선택) — .env에 ADMIN_PASSWORD 설정 시 OWNER_TOKEN 대신 이걸 사용
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 COOKIE_NAME = "investchat_owner"
+
+# 채팅 안전장치 1/3 — 하루 질문 총량 하드 캡 (상수, KST 자정 리셋)
+CHAT_DAILY_CAP = 30
 
 
 def is_owner(request: Request) -> bool:
@@ -139,6 +142,8 @@ async def lifespan(app: FastAPI):
     _loop_running = True
     _loop_thread = threading.Thread(target=_conversation_loop, daemon=True)
     _loop_thread.start()
+    # 채팅 질문 큐 워커 (안전장치 1/3) — FIFO 1건씩 직렬 처리
+    threading.Thread(target=chat_queue_worker, daemon=True).start()
     yield
     with _loop_lock:
         _loop_running = False
@@ -504,10 +509,24 @@ class UserMessage(BaseModel):
 
 @app.post("/api/user-message")
 def api_user_message(body: UserMessage):
-    if not body.content.strip():
+    content = body.content.strip()
+    if not content:
         raise HTTPException(status_code=400, detail="Empty message")
-    handle_user_message(body.content.strip())
-    return {"ok": True}
+    # 서버단 하드 캡 + FIFO 큐 — 프론트 우회 불가. 워커가 1건씩 처리.
+    from db import enqueue_chat_question
+    res = enqueue_chat_question(content, daily_cap=CHAT_DAILY_CAP)
+    if not res["accepted"]:
+        return {"ok": False, "closed": True,
+                "message": f"오늘 질문이 마감되었습니다 (하루 {res['cap']}개). 내일 다시 이용해 주세요.",
+                "today_count": res["today_count"], "cap": res["cap"]}
+    return {"ok": True, "queued": True, "position": res["position"],
+            "remaining": res["remaining"], "cap": res["cap"]}
+
+
+@app.get("/api/chat/queue")
+def api_chat_queue():
+    from db import get_chat_queue_status
+    return get_chat_queue_status(CHAT_DAILY_CAP)
 
 
 _price_cache: dict = {}          # {symbol: price}
