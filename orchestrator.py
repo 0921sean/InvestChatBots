@@ -820,7 +820,9 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             f"- key_picks: 다수가 동의한 종목 0-3개 (종목명만).\n"
             f"- spokesperson: 이번 합의를 가장 잘 대표하는 봇 1명. 다음 중 하나만 정확히: {bots_csv}\n"
             f"- quote: spokesperson이 토론에서 한 발언을 그 봇 어투로 한 줄 정리 (20-40자). 결론·핵심·태도가 드러나야 함.\n"
-            f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요."
+            f"- 핵심: 토론에서 나온 구체 숫자·내러티브를 추상화하지 말고 그대로 살리세요.\n"
+            f"- **필수: 모든 필드를 빈 값 없이 채울 것.** 특히 thesis·spokesperson·quote는 위 토론에 실제 나온 내용으로 반드시 작성 — 빈 문자열·'-'·'미정'·null 금지.\n"
+            f"- 출력은 여는 중괄호로 시작해 닫는 중괄호로 끝나는 JSON 하나뿐. 앞뒤 설명·코드블록 금지."
         )
         # 합의 추출 — claude haiku 사용 (opus는 큰 한국어 prompt에 60s+ 걸려 timeout)
         raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"], summary_prompt, timeout=120, model="haiku")
@@ -879,8 +881,12 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     picks = consensus_json.get("key_picks") or []
     if picks:
         lines.append(f"주목 종목: {', '.join(picks)}")
-    # 봇 한마디 — 강제 계층이 spokesperson/quote를 항상 보장
-    lines.append(f"{consensus_json['spokesperson']} 한마디: \"{consensus_json['quote']}\"")
+    # 봇 한마디 — 실제 내용 있으면 표시, 없으면 '-'(정직한 빈값)
+    sp, qt = consensus_json["spokesperson"], consensus_json["quote"]
+    if sp != "-" and qt != "-":
+        lines.append(f"{sp} 한마디: \"{qt}\"")
+    else:
+        lines.append("봇 한마디: -")
     lines.append("")
     lines.append(f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
     _save_msg(round_id, "System", "\n".join(lines))
@@ -1014,40 +1020,28 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
 
 def _enforce_consensus_schema(d, sector_name: str,
                               fallback_sp: str = "", fallback_qt: str = "") -> dict:
-    """섹터 합의 4필수 필드를 반드시 유효/비지 않게 채워 반환. (앱단 스키마 강제)
-    방향=outlook, 결론=decision, 핵심이유=thesis, 봇_한마디=spokesperson+quote.
-    어떤 입력(빈 dict·None·문자열·엉뚱값)에도 '-'/'—'/빈값으로 끝나지 않는다."""
+    """섹터 합의 4필드의 구조를 항상 완성해 반환. (앱단 — 합성 금지)
+    방향=outlook, 결론=decision는 enum 기본값(중립/관망). 핵심이유=thesis,
+    봇_한마디=spokesperson/quote는 실제 내용 우선, 없으면 '-'(정직한 빈값).
+    가짜 문장 합성은 하지 않는다 — 근본 해결은 추후 API tool_use로."""
     EMPTY = {"", "-", "—", "–", ".", "...", "…"}
     src = d if isinstance(d, dict) else {}
 
-    def _clean(v):
-        return v.strip() if isinstance(v, str) else ("" if v is None else str(v).strip())
+    def _val(v):
+        s = v.strip() if isinstance(v, str) else ("" if v is None else str(v).strip())
+        return s if s and s not in EMPTY else ""
 
     out = dict(src)
-    # 방향 / 결론 — enum 강제
+    # 방향 / 결론 — enum 강제 (범주형이라 '-' 대신 기본값)
     out["outlook"] = src.get("outlook") if src.get("outlook") in ("긍정", "중립", "부정") else "중립"
     out["decision"] = src.get("decision") if src.get("decision") in ("매수", "관망", "매도") else "관망"
-    # 핵심이유 — 비면 drivers/risks로 보강, 그래도 없으면 안전문구
-    thesis = _clean(src.get("thesis"))
-    if thesis in EMPTY:
-        alt = []
-        for k in ("drivers", "risks"):
-            v = src.get(k)
-            if isinstance(v, list):
-                alt += [_clean(x) for x in v if _clean(x) not in EMPTY]
-            elif _clean(v) not in EMPTY:
-                alt.append(_clean(v))
-        thesis = " / ".join(alt[:3]) if alt else \
-            f"{sector_name} 섹터 토론 종합 — 구체 합의는 도출되지 않아 중립 관점으로 정리."
-    out["thesis"] = thesis[:600]
-    # 봇_한마디 — spokesperson + quote 둘 다 보장
-    sp = _clean(src.get("spokesperson"))
-    if sp in EMPTY:
-        sp = _clean(fallback_sp) or (AGENT_ORDER[0] if AGENT_ORDER else "드가자")
-    qt = _clean(src.get("quote"))
-    if qt in EMPTY:
-        qt = _clean(fallback_qt) or (out["thesis"][:38] + ("…" if len(out["thesis"]) > 38 else ""))
-    out["spokesperson"], out["quote"] = sp, qt[:120]
+    # 핵심이유 — 모델 출력만 사용, 없으면 '-'
+    out["thesis"] = (_val(src.get("thesis"))[:600]) or "-"
+    # 봇_한마디 — 모델 → 토론 마지막 봇 발언(실데이터) → '-'
+    sp = _val(src.get("spokesperson")) or _val(fallback_sp)
+    qt = _val(src.get("quote")) or _val(fallback_qt)
+    out["spokesperson"] = sp or "-"
+    out["quote"] = (qt[:120]) if qt else "-"
     return out
 
 
