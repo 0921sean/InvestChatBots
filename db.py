@@ -174,6 +174,7 @@ def init_db():
             user_agent TEXT,
             referer TEXT,
             path TEXT,
+            verified INTEGER DEFAULT 0,
             ts DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_visit_log_ts ON visit_log(ts);
@@ -927,6 +928,15 @@ def _is_bot_ua(ua: str) -> bool:
     return any(k in u for k in _BOT_UA_KEYWORDS)
 
 
+def _normalize_source(s) -> str:
+    """방문 출처(?s=) 정규화 — 소문자·허용문자([a-z0-9_-])만·최대 32자.
+    화이트리스트 없이 임의 태그 허용하되, 공백·특수문자·태그 등 오염/인젝션 문자는 제거.
+    유효 문자가 하나도 없으면 'direct'."""
+    import re
+    s = re.sub(r'[^a-z0-9_-]', '', (s or "").strip().lower())
+    return s[:32] or "direct"
+
+
 def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
               referer: str = "", path: str = "/", verified: int = 0) -> bool:
     """방문 1건 기록. 동일 (visitor_id, source)가 VISIT_DEDUP_SECONDS 이내면 skip.
@@ -934,6 +944,7 @@ def log_visit(source: str, visitor_id: str | None, user_agent: str = "",
     반환값: 실제로 새로 기록했으면 True, 중복/봇으로 skip했으면 False."""
     if _is_bot_ua(user_agent):
         return False
+    source = _normalize_source(source)   # 임의 태그 허용 + 정규화(오염 방지)
     with _conn() as con:
         if visitor_id:
             row = con.execute(f"""
