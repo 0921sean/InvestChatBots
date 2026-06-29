@@ -151,10 +151,7 @@
   }
   body.readonly #typing { display: none; }
   /* visitor 모드 — input·전송 버튼 숨기고 안내 banner 표시 */
-  body.readonly #input-area input,
-  body.readonly #input-area button { display: none !important; }
-  body.readonly #readonly-notice { display: flex !important; }
-  body.readonly #chat-queue { display: none !important; }  /* 채팅 오픈 전엔 대기열 숨김 */
+  /* 채팅 공개 — 입력창·전송·대기열은 방문자에게도 표시 (owner 전용 기능은 .owner-only 등으로 별도 숨김 유지) */
 
   /* 안내 박스 — owner엔 숨김, visitor에서 표시 */
   #readonly-notice { display: none; align-items: center; gap: 8px; flex: 1;
@@ -683,7 +680,7 @@
       <span class="rn-icon">🔒</span>
       <span class="rn-text"><b>현재는 읽기 전용</b> — 채팅 입력은 추후 개방 예정입니다</span>
     </div>
-    <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" data-owner-placeholder="투자 의견이나 질문을 입력하세요..." data-readonly-placeholder="현재는 읽기 전용입니다 — 추후 개방 예정" />
+    <input id="msg-input" placeholder="투자 의견이나 질문을 입력하세요..." onkeydown="if(event.key==='Enter')sendMessage()" data-owner-placeholder="투자 의견이나 질문을 입력하세요..." data-readonly-placeholder="투자 의견이나 질문을 입력하세요..." />
     <button onclick="sendMessage()">전송</button>
   </div>
   <div id="chat-disclaimer">⚠️ 표시되는 모든 매매·종목·수익은 <b>가상 포트폴리오</b> 기준이며 실거래가 아닙니다. 투자자문·권유가 아니고 AI 의견의 정확성을 보장하지 않습니다. 투자 판단·책임은 본인에게 있습니다.</div>
@@ -2267,7 +2264,7 @@ async function loadWhoami() {
     if (input) {
       const ph = isOwner ? input.dataset.ownerPlaceholder : input.dataset.readonlyPlaceholder;
       if (ph) input.placeholder = ph;
-      input.readOnly = !isOwner;
+      input.readOnly = false;  // 채팅 공개 — 방문자도 입력 가능
     }
   } catch (e) {
     document.body.classList.add('readonly');
@@ -2376,8 +2373,9 @@ window.fetch = function(input, init) {
   const url = typeof input === 'string' ? input : input.url;
   const method = (init && init.method) || 'GET';
   const isWrite = method === 'POST' || method === 'DELETE';
-  // /api/visit(방문 비콘)은 누구나 호출 가능 — 가드 예외
-  const isOwnerEndpoint = !isOwner && isWrite && url.startsWith('/api/') && !url.startsWith('/api/visit');
+  // /api/visit(방문 비콘)·/api/user-message(채팅 공개)는 누구나 호출 가능 — 가드 예외
+  const isOwnerEndpoint = !isOwner && isWrite && url.startsWith('/api/')
+    && !url.startsWith('/api/visit') && !url.startsWith('/api/user-message');
   if (isOwnerEndpoint) {
     // 익명이 쓰기 API 호출 시도 → 조용히 거부 (403 응답 흉내)
     return Promise.resolve(new Response(
