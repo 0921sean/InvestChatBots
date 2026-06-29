@@ -24,17 +24,27 @@ EMPTY = {"", "-", "—", "–", "…", "..."}
     {"thesis": None, "spokesperson": None, "quote": None},
     "완전히 깨진 문자열",  # dict 아님
 ])
-def test_consensus_four_fields_always_filled(bad):
+def test_consensus_structure_always_complete(bad):
+    # 구조는 항상 완성: 방향/결론은 유효 enum, 핵심이유/봇한마디는 채워지거나 '-'(정직한 빈값).
     d = _enforce_consensus_schema(bad, "반도체")
     assert d["outlook"] in OUTLOOKS
     assert d["decision"] in DECISIONS
     for f in ("thesis", "spokesperson", "quote"):
-        assert d[f] and d[f].strip() not in EMPTY, f"{f} 비었음: {d[f]!r}"
+        assert isinstance(d[f], str) and d[f] != "", f"{f} 비정상: {d[f]!r}"  # 실값 또는 '-'
 
 
-def test_consensus_thesis_backfilled_from_drivers():
-    d = _enforce_consensus_schema({"thesis": "-", "drivers": ["AI 수요 급증", "HBM 단가 상승"]}, "반도체")
-    assert "AI 수요 급증" in d["thesis"]
+def test_consensus_empty_fields_show_dash_not_fabricated():
+    # 모델이 핵심/봇한마디를 안 주면 합성하지 않고 '-'
+    d = _enforce_consensus_schema({"outlook": "긍정", "decision": "매수"}, "반도체")
+    assert d["thesis"] == "-"
+    assert d["spokesperson"] == "-"
+    assert d["quote"] == "-"
+
+
+def test_consensus_no_fabrication_from_drivers():
+    # drivers만 있고 thesis 없으면 → drivers로 합성하지 않고 '-'
+    d = _enforce_consensus_schema({"thesis": "", "drivers": ["AI 수요 급증"]}, "반도체")
+    assert d["thesis"] == "-"
 
 
 def test_consensus_keeps_valid_values():
@@ -92,5 +102,7 @@ def test_consensus_live_path_renders_all_fields_on_empty_model(monkeypatch, tmp_
                if m["agent_name"] == "System" and "섹터 토론 완료" in m["content"]]
     assert sysmsgs, "합의 System 메시지가 없음"
     txt = sysmsgs[0]
-    assert all(k in txt for k in ("방향:", "결론:", "핵심:", "한마디:"))
-    assert "핵심: —" not in txt and "핵심: -" not in txt and "핵심: \n" not in txt
+    # 빈 모델 출력에도 4필드 라벨이 모두 렌더된다 (값은 enum 기본값 또는 정직한 '-')
+    assert all(k in txt for k in ("방향:", "결론:", "핵심:", "한마디"))
+    assert "방향: 중립" in txt and "결론: 관망" in txt
+    assert "핵심: -" in txt and "봇 한마디: -" in txt  # 빈값은 '-'로 정직 표기, 크래시 없음
