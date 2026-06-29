@@ -855,6 +855,7 @@ if ('caches' in window) {
 try {
   const u = new URL(window.location.href);
   if (u.searchParams.has('s')) {
+    window._visitSource = u.searchParams.get('s');  // 비콘 전송용 — URL 정리 전에 먼저 캡처
     u.searchParams.delete('s');
     const clean = u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '') + u.hash;
     window.history.replaceState({}, '', clean);
@@ -2407,7 +2408,8 @@ async function loadChangelog() {
 // 실방문 비콘 — JS가 실행됐다 = 진짜 브라우저. 봇·미리보기는 여기 못 옴.
 function _sendVisitBeacon() {
   try {
-    const s = (new URLSearchParams(location.search).get('s') || '').trim();
+    // URL은 init에서 이미 정리되므로, 먼저 캡처해 둔 _visitSource를 우선 사용
+    const s = (window._visitSource || new URLSearchParams(location.search).get('s') || '').trim();
     const url = '/api/visit' + (s ? ('?s=' + encodeURIComponent(s)) : '');
     if (navigator.sendBeacon) navigator.sendBeacon(url);
     else _origFetch(url, { method: 'POST', keepalive: true, credentials: 'same-origin' });

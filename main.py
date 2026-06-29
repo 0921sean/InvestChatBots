@@ -339,7 +339,7 @@ def api_visit(request: Request, s: str = ""):
             return {"ok": True, "owner": True}
         from db import log_visit
         log_visit(
-            source=(s or "").strip().lower()[:32] or "direct",
+            source=s,  # 임의 태그 허용 — log_visit이 _normalize_source로 정규화(단일 출처)
             visitor_id=vsid,
             user_agent=request.headers.get("user-agent", ""),
             referer=request.headers.get("referer", ""),
