@@ -160,7 +160,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 _OWNER_ONLY_ROUTES = {
     ("POST", "/api/conversation/start"),
     ("POST", "/api/conversation/stop"),
-    ("POST", "/api/user-message"),
+    # /api/user-message — 채팅 공개: 방문자도 호출 가능(서버 하드캡 30/일 + FIFO 큐로 보호)
     ("POST", "/api/positions/evaluate"),
     ("POST", "/api/holdings/review"),
     ("POST", "/api/summary/request"),
