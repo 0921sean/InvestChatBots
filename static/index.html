@@ -1299,7 +1299,23 @@ async function loadPortfolio() {
 }
 
 // 포트폴리오·Members 공유 데스크 상태 — 하나 전환하면 둘 다 전환
-window._activeDesk = window._activeDesk || 'main';  // 'main'(장기) | 'trading'(트레이딩)
+// 시간 기반 기본 탭 (작업 B) — 사이클 1시간 전부터 해당 데스크 탭을 '로드 시점' 기본값으로.
+// 사이클 시각은 일정표(_nextKstWeekdayAt)와 동일: 메인=06·18, 트레이딩=12·00 (KST).
+const MAIN_CYCLE_HOURS = [6, 18];      // 장기 데스크 (메인 사이클)
+const TRADING_CYCLE_HOURS = [12, 0];   // 트레이딩 데스크 (서브 사이클)
+function _defaultDeskForNow(now) {
+  now = now || _kstNow();
+  // 전환 경계 = 각 사이클 시각 - 1h. 그 시점부터 다음 경계 전까지 해당 데스크가 기본.
+  const pts = [
+    ...MAIN_CYCLE_HOURS.map(h => ({ at: (h + 23) % 24, desk: 'main' })),
+    ...TRADING_CYCLE_HOURS.map(h => ({ at: (h + 23) % 24, desk: 'trading' })),
+  ].sort((a, b) => a.at - b.at);
+  const hf = now.getUTCHours() + now.getUTCMinutes() / 60;  // _kstNow 보정값 → KST 시
+  let chosen = pts[pts.length - 1];   // 첫 경계 이전(자정대)은 전날 마지막 구간으로 wrap
+  for (const p of pts) { if (p.at <= hf) chosen = p; }
+  return chosen.desk;
+}
+window._activeDesk = window._activeDesk || _defaultDeskForNow();  // 'main'(장기) | 'trading'(트레이딩)
 function setDesk(desk) {
   window._activeDesk = desk;
   const isTrade = desk === 'trading';
@@ -1309,6 +1325,7 @@ function setDesk(desk) {
   if (window._pfData) _renderPfAccount(isTrade ? 'sub' : 'main');
   if (window._agentsData) _renderMembers(desk);
 }
+setDesk(window._activeDesk);  // 로드 시 기본 탭으로 버튼·뷰 동기화 (이후 수동선택·자동변경 없음)
 
 function _renderPfAccount(acct) {
   const d = (window._pfData || {})[acct];
