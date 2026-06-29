@@ -538,6 +538,17 @@ def _extract_reason(response: str) -> str:
     return lines[-1][:120] if lines else response[:120]
 
 
+def _ensure_decision_line(text: str) -> str:
+    """봇 종목 분석 응답에 [결정] 줄이 없으면 안전기본값(관망)+근거를 덧붙여
+    '결정 없이 텍스트만' 출력을 구조적으로 차단한다. (앱단 스키마 강제 — API tool_use 대체)
+    이미 [결정]이 있으면 원문 그대로 반환."""
+    t = text or ""
+    if re.search(r'\[결정\]\s*(매수|관망|홀드|매도)', t):
+        return t
+    reason = _extract_reason(t).strip() or "근거 미상 — 보수적 관망"
+    return t.rstrip() + f"\n[결정] 관망 | 이유: {reason}"
+
+
 def _tally_votes(decisions: list[tuple[str, int]],
                  buy_majority: int = BUY_MAJORITY, sell_majority: int = SELL_MAJORITY,
                  tiers: dict = BUY_CONVICTION_TIERS, capital: float = INITIAL_CAPITAL
@@ -823,6 +834,23 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
             "risks": "", "key_picks": [],
         }
 
+    # 봇_한마디 fallback 후보(토론 마지막 봇 발언) — 강제 계층에 넘김
+    _fb_sp, _fb_qt = "", ""
+    try:
+        _bot_msgs_fb = [m for m in get_recent_messages(30)
+                        if m["agent_name"] not in ("System", "User")]
+        if _bot_msgs_fb:
+            _last = _bot_msgs_fb[-1]
+            _fb_sp = _last["agent_name"]
+            _raw_q = (_last["content"] or "").strip().replace("\n", " ")
+            _m_end = re.search(r"[.?!…]", _raw_q)
+            _fb_qt = _raw_q[:_m_end.end()] if (_m_end and _m_end.end() < 80) \
+                else (_raw_q[:60] + ("…" if len(_raw_q) > 60 else ""))
+    except Exception:
+        pass
+    # 4필수 필드 스키마 강제 — 빈/엉뚱 출력도 항상 채워 '-'로 끝나지 않게
+    consensus_json = _enforce_consensus_schema(consensus_json, sector["name"], _fb_sp, _fb_qt)
+
     # DB 저장: v=2 JSON 형태로 통일
     try:
         save_consensus(round_id, json.dumps(consensus_json, ensure_ascii=False))
@@ -838,7 +866,7 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
         f"📊 [{sector['name']}] 섹터 토론 완료",
         f"{o_emoji} 방향: {o} · 결론: {d}" + (f" · {headline}" if headline else ""),
         f"",
-        f"핵심: {consensus_json.get('thesis','—')}",
+        f"핵심: {consensus_json['thesis']}",
     ]
     drivers = consensus_json.get("drivers") or []
     if drivers:
@@ -851,28 +879,8 @@ def _extract_sector_consensus(round_id: int, sector: dict, market_summary: str):
     picks = consensus_json.get("key_picks") or []
     if picks:
         lines.append(f"주목 종목: {', '.join(picks)}")
-    # 봇 한마디 — claude가 채웠으면 그대로, 안 채웠으면 토론 마지막 봇 발언으로 fallback
-    sp = (consensus_json.get("spokesperson") or "").strip()
-    qt = (consensus_json.get("quote") or "").strip()
-    if not (sp and qt):
-        try:
-            bot_msgs_fb = [m for m in get_recent_messages(30)
-                           if m["agent_name"] not in ("System", "User")]
-            if bot_msgs_fb:
-                last_bot = bot_msgs_fb[-1]
-                sp = sp or last_bot["agent_name"]
-                if not qt:
-                    raw_q = (last_bot["content"] or "").strip().replace("\n", " ")
-                    import re as _re2
-                    m_end = _re2.search(r"[.?!…]", raw_q)
-                    if m_end and m_end.end() < 80:
-                        qt = raw_q[:m_end.end()]
-                    else:
-                        qt = raw_q[:60] + ("…" if len(raw_q) > 60 else "")
-        except Exception:
-            pass
-    if sp and qt:
-        lines.append(f"{sp} 한마디: \"{qt}\"")
+    # 봇 한마디 — 강제 계층이 spokesperson/quote를 항상 보장
+    lines.append(f"{consensus_json['spokesperson']} 한마디: \"{consensus_json['quote']}\"")
     lines.append("")
     lines.append(f"→ 종목 분석 시작: {sector['stocks'][0]['name']} 부터")
     _save_msg(round_id, "System", "\n".join(lines))
@@ -1002,6 +1010,45 @@ def _parse_consensus_json(raw: str, sector_name: str) -> dict:
         "spokesperson": spokesperson,
         "quote": (d.get("quote") or "").strip()[:120],
     }
+
+
+def _enforce_consensus_schema(d, sector_name: str,
+                              fallback_sp: str = "", fallback_qt: str = "") -> dict:
+    """섹터 합의 4필수 필드를 반드시 유효/비지 않게 채워 반환. (앱단 스키마 강제)
+    방향=outlook, 결론=decision, 핵심이유=thesis, 봇_한마디=spokesperson+quote.
+    어떤 입력(빈 dict·None·문자열·엉뚱값)에도 '-'/'—'/빈값으로 끝나지 않는다."""
+    EMPTY = {"", "-", "—", "–", ".", "...", "…"}
+    src = d if isinstance(d, dict) else {}
+
+    def _clean(v):
+        return v.strip() if isinstance(v, str) else ("" if v is None else str(v).strip())
+
+    out = dict(src)
+    # 방향 / 결론 — enum 강제
+    out["outlook"] = src.get("outlook") if src.get("outlook") in ("긍정", "중립", "부정") else "중립"
+    out["decision"] = src.get("decision") if src.get("decision") in ("매수", "관망", "매도") else "관망"
+    # 핵심이유 — 비면 drivers/risks로 보강, 그래도 없으면 안전문구
+    thesis = _clean(src.get("thesis"))
+    if thesis in EMPTY:
+        alt = []
+        for k in ("drivers", "risks"):
+            v = src.get(k)
+            if isinstance(v, list):
+                alt += [_clean(x) for x in v if _clean(x) not in EMPTY]
+            elif _clean(v) not in EMPTY:
+                alt.append(_clean(v))
+        thesis = " / ".join(alt[:3]) if alt else \
+            f"{sector_name} 섹터 토론 종합 — 구체 합의는 도출되지 않아 중립 관점으로 정리."
+    out["thesis"] = thesis[:600]
+    # 봇_한마디 — spokesperson + quote 둘 다 보장
+    sp = _clean(src.get("spokesperson"))
+    if sp in EMPTY:
+        sp = _clean(fallback_sp) or (AGENT_ORDER[0] if AGENT_ORDER else "드가자")
+    qt = _clean(src.get("quote"))
+    if qt in EMPTY:
+        qt = _clean(fallback_qt) or (out["thesis"][:38] + ("…" if len(out["thesis"]) > 38 else ""))
+    out["spokesperson"], out["quote"] = sp, qt[:120]
+    return out
 
 
 def _advance_stock(round_id: int, sector: dict):
@@ -1290,6 +1337,9 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         if not resp:
             resp = f"[{agent_name} 응답 오류]"
 
+        # 결정 없이 텍스트만 끝나는 출력 차단 — 저장 전 [결정] 줄 보강 (오류 응답 제외)
+        if "응답 오류" not in resp:
+            resp = _ensure_decision_line(resp)
         _save_msg(round_id, agent_name, resp)
         decision, weight = _parse_decision(resp)
         decisions.append((decision, weight))
