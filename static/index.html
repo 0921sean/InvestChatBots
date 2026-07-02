@@ -397,15 +397,20 @@
     min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
     background: #da3633; color: #fff; border-radius: 8px; font-size: 10px; font-weight: 700; }
 
-  #feedback-modal, #feedback-list-modal { display:none; position:fixed; inset:0;
+  #feedback-modal, #feedback-list-modal, #chatlog-modal { display:none; position:fixed; inset:0;
     background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; padding: 20px; }
-  #feedback-modal.open, #feedback-list-modal.open { display:flex; }
-  #feedback-box, #feedback-list-box { background:#161b22; border:1px solid #30363d; border-radius:14px;
+  #feedback-modal.open, #feedback-list-modal.open, #chatlog-modal.open { display:flex; }
+  #feedback-box, #feedback-list-box, #chatlog-box { background:#161b22; border:1px solid #30363d; border-radius:14px;
     padding:24px 26px; max-width:520px; width:100%; position:relative; max-height:85vh; overflow-y:auto; }
-  #feedback-box h3, #feedback-list-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; color:#e2e8f0; }
-  #feedback-box .fb-sub, #feedback-list-box .fb-sub { font-size:11px; color:#6e7681; margin-bottom:14px; }
-  #feedback-close, #fb-list-close { position:absolute; top:14px; right:16px; background:none; border:none;
+  #feedback-box h3, #feedback-list-box h3, #chatlog-box h3 { font-size:16px; font-weight:700; margin-bottom:4px; color:#e2e8f0; }
+  #feedback-box .fb-sub, #feedback-list-box .fb-sub, #chatlog-box .fb-sub { font-size:11px; color:#6e7681; margin-bottom:14px; }
+  #feedback-close, #fb-list-close, #chatlog-close { position:absolute; top:14px; right:16px; background:none; border:none;
     color:#6e7681; font-size:20px; cursor:pointer; }
+  .cl-q { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+  .cl-q-head { display:flex; justify-content:space-between; gap:8px; font-size:11px; color:#6e7681; margin-bottom:6px; }
+  .cl-q-text { font-size:13px; color:#e2e8f0; font-weight:600; margin-bottom:8px; }
+  .cl-ans { font-size:12px; color:#adb6c0; line-height:1.5; padding:4px 0 4px 8px; border-left:2px solid #21262d; margin-top:5px; }
+  .cl-ans b { color:#8b949e; font-weight:600; }
   #fb-textarea { width: 100%; min-height: 140px; background: #0d1117; border: 1px solid #30363d;
     border-radius: 6px; padding: 10px 12px; color: #e2e8f0; font-size: 13px; font-family: inherit;
     outline: none; resize: vertical; line-height: 1.55; }
@@ -671,6 +676,7 @@
       <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
       <button class="btn btn-ghost owner-only" id="btn-stats" onclick="openStats()" title="방문 통계">📊 통계</button>
       <button class="btn btn-ghost owner-only" id="btn-feedback-list" onclick="openFeedbackList()" title="피드백 목록">📨 피드백 <span id="fb-badge" style="display:none"></span></button>
+      <button class="btn btn-ghost owner-only" id="btn-chatlog" onclick="openChatLog()" title="사용자 채팅 기록">🗨 채팅기록</button>
       <button class="btn btn-feedback visitor-only" id="btn-feedback-send" onclick="openFeedbackSend()" title="피드백 보내기">💬 피드백</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>
@@ -796,6 +802,15 @@
       <button onclick="markAllFbRead()">전부 읽음 처리</button>
     </div>
     <div id="fb-list-content">불러오는 중…</div>
+  </div>
+</div>
+
+<div id="chatlog-modal" onclick="if(event.target===this)closeChatLog()">
+  <div id="chatlog-box">
+    <button id="chatlog-close" onclick="closeChatLog()">✕</button>
+    <h3>🗨 사용자 채팅 기록</h3>
+    <div class="fb-sub" id="chatlog-sub">로딩…</div>
+    <div id="chatlog-content">불러오는 중…</div>
   </div>
 </div>
 
@@ -1544,7 +1559,7 @@ function closeReason() {
   document.getElementById('reason-modal').classList.remove('open');
   document.getElementById('reason-box').classList.remove('wide');
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') { closeReason(); closeSchedule(); closeDonationModal(); } });
+document.addEventListener('keydown', e => { if(e.key==='Escape') { closeReason(); closeSchedule(); closeDonationModal(); closeChatLog(); } });
 
 function fmtNum(n) {
   if (n == null) return '—';
@@ -2147,6 +2162,42 @@ function closeFeedbackList() {
   document.getElementById('feedback-list-modal').classList.remove('open');
   // 닫을 때 배지 갱신 (읽음 처리 반영)
   updateFeedbackBadge();
+}
+
+async function openChatLog() {
+  document.getElementById('chatlog-modal').classList.add('open');
+  await loadChatLog();
+}
+function closeChatLog() {
+  document.getElementById('chatlog-modal').classList.remove('open');
+}
+async function loadChatLog() {
+  const content = document.getElementById('chatlog-content');
+  const sub = document.getElementById('chatlog-sub');
+  content.innerHTML = '불러오는 중…';
+  try {
+    const r = await fetch('/api/admin/chats?limit=50');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    sub.textContent = `최근 ${d.items.length}건 (사용자 질문 + 봇 답변)`;
+    if (!d.items.length) {
+      content.innerHTML = '<div class="stats-empty">아직 사용자 채팅이 없습니다.</div>';
+      return;
+    }
+    content.innerHTML = d.items.map(it => {
+      const tsKst = it.ts ? new Date(it.ts.replace(' ', 'T') + 'Z').toLocaleString('ko-KR',
+        { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }) : '—';
+      const answers = (it.answers || []).map(a =>
+        `<div class="cl-ans"><b>${esc(a.agent)}</b> ${esc(a.content)}</div>`).join('');
+      return `<div class="cl-q">
+        <div class="cl-q-head"><span>#${it.round_id} · ${tsKst} KST</span><span>${(it.answers||[]).length}봇 답변</span></div>
+        <div class="cl-q-text">Q. ${esc(it.question || '(질문 없음)')}</div>
+        ${answers || '<div class="cl-ans" style="color:#6e7681">답변 없음</div>'}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    content.innerHTML = `<div class="stats-empty">목록 불러오기 실패: ${e.message}</div>`;
+  }
 }
 async function loadFeedbackList(unreadOnly) {
   const content = document.getElementById('fb-list-content');
