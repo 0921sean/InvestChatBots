@@ -461,6 +461,32 @@ def get_messages_for_round(round_id: int) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_user_chats(limit: int = 50) -> list[dict]:
+    """최근 사용자 채팅 라운드 — 질문 + 봇 답변만 (owner 검토용). 최신순.
+    System 메시지(종목 데이터·합의 알림)는 제외."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rounds = con.execute(
+            "SELECT id, started_at FROM rounds WHERE topic='user-message' ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        out = []
+        for r in rounds:
+            msgs = con.execute(
+                "SELECT agent_name, content, timestamp FROM messages WHERE round_id=? ORDER BY id",
+                (r["id"],)
+            ).fetchall()
+            question, ts, answers = "", r["started_at"], []
+            for m in msgs:
+                if m["agent_name"] == "User":
+                    question = m["content"]
+                    ts = m["timestamp"] or ts
+                elif m["agent_name"] != "System":
+                    answers.append({"agent": m["agent_name"], "content": m["content"]})
+            out.append({"round_id": r["id"], "question": question, "ts": ts, "answers": answers})
+        return out
+
+
 def create_round(topic):
     with _conn() as con:
         cur = con.execute("INSERT INTO rounds (topic) VALUES (?)", (topic,))

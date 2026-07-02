@@ -1051,6 +1051,15 @@ def api_admin_feedback_list(request: Request, limit: int = 100, unread_only: boo
     }
 
 
+@app.get("/api/admin/chats")
+def api_admin_chats(request: Request, limit: int = 50):
+    """사용자 채팅 질문 + 봇 답변 목록 (owner only) — 방문자 채팅 검토용."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_user_chats
+    return {"items": get_user_chats(limit=limit)}
+
+
 @app.post("/api/admin/feedback/read")
 def api_admin_feedback_read(request: Request, id: int = 0):
     """읽음 처리. id=0이면 전체 일괄."""
