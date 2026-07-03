@@ -29,7 +29,7 @@ from prompts import (
     build_sector_discussion_prompt,
     build_stock_analysis_prompt,
     build_user_response_prompt,
-    build_chat_summary_prompt,
+    build_chat_summary_prompt, CHAT_SUMMARY_SYSTEM,
     build_feedback_prompt,
     build_summarize_prompt,
     build_holdings_review_prompt,
@@ -2038,10 +2038,13 @@ def handle_user_message(user_text: str):
                                      if "응답 오류" not in r)
             if answers_text:
                 sp = build_chat_summary_prompt(user_text, answers_text)
-                raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"],
-                                 sp, timeout=60, model="haiku")
+                # 봇 페르소나 대신 '중립 진행자' 시스템 프롬프트로 라우팅(모델은 haiku)
+                raw = call_agent("드가자", CHAT_SUMMARY_SYSTEM, sp, timeout=60, model="haiku")
                 raw = (raw or "").strip()
-                if raw:
+                # 거부/캐릭터 이탈(Claude Code 정체 등) 감지 → 사용자에게 안 보이게 폐기
+                _refusal = ("claude code", "투자 봇이 아니", "어시스턴트", "소프트웨어 엔지니어",
+                            "제 역할이 아니", "디버깅", "죄송하지만 저는")
+                if raw and not any(m in raw.lower() for m in _refusal):
                     summary_msg = f"📌 한 줄 정리\n{raw}"
         except Exception as e:
             logger.debug(f"채팅 요약 오류: {e}")
