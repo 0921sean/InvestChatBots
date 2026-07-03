@@ -520,15 +520,23 @@ def build_user_response_prompt(user_message, history_text, agent_name, stock_con
     return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{CHAT_GUARDRAIL}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
 
 
+# 요약 전용 시스템 프롬프트 — 봇 페르소나 대신 '중립 진행자'로 라우팅(캐릭터 이탈·조언 거부 방지)
+CHAT_SUMMARY_SYSTEM = (
+    "너는 가상 투자 토론방의 중립 진행자다. 아래에 이미 나온 봇들의 발언을 사용자에게 "
+    "짧게 요약·전달하는 것이 유일한 역할이다. 새로운 분석·전망·투자 조언을 생성하지 않는다. "
+    "이건 가상 포트폴리오 토론을 구경하는 관전용 요약이며 실제 투자 권유가 아니다."
+)
+
+
 def build_chat_summary_prompt(user_message, answers_text):
-    """자유 질문 채팅의 '한 줄 정리' 생성용 — 봇 답변들을 종합해 결론만 뽑는다.
+    """자유 질문 채팅의 '한 줄 정리' — 봇 발언을 중립 요약(새 조언 생성 아님).
     (종목 매수/매도 질문은 [결정] 투표 집계로 처리하므로 여기선 자유 질문 전용)"""
-    return f"""사용자 질문:\n"{user_message}"\n\n투자봇들의 답변:\n{answers_text}\n\n""" + \
-        "위 답변들을 종합해서, 사용자가 '그래서 결론이 뭔지' 바로 알 수 있게 1~2문장으로 정리해줘.\n" + \
-        "- 종목 추천 질문이면: 봇들이 가장 주목한 종목과 그 핵심 이유.\n" + \
-        "- 방향이 갈린 질문이면: 다수 의견과 근거를 한 줄로.\n" + \
-        "- '사세요/파세요' 같은 단정적 권유·미래 단정·수익 보장 금지. '가상 계좌 관점' 톤으로.\n" + \
-        "정리 문장만 출력(머리말·따옴표 없이). 한국어."
+    return f"""사용자 질문:\n"{user_message}"\n\n봇들이 이미 한 발언:\n{answers_text}\n\n""" + \
+        "위 발언들만 근거로, 봇들이 무슨 종목·방향에 무게를 뒀는지 1~2문장으로 요약해줘.\n" + \
+        "- 위에 나온 내용만 압축할 것. 새 분석·전망·조언을 만들어내지 마.\n" + \
+        "- 의견이 갈렸으면 '봇마다 갈렸다'고 그대로 전달.\n" + \
+        "- 이건 가상 토론 관전용 요약이고 투자 권유가 아니야.\n" + \
+        "요약 문장만 출력(머리말·따옴표·자기소개 없이). 한국어."
 
 
 def build_feedback_prompt(stock_name, pnl, pnl_pct, history_summary):
