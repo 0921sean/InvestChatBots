@@ -520,6 +520,17 @@ def build_user_response_prompt(user_message, history_text, agent_name, stock_con
     return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{CHAT_GUARDRAIL}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
 
 
+def build_chat_summary_prompt(user_message, answers_text):
+    """자유 질문 채팅의 '한 줄 정리' 생성용 — 봇 답변들을 종합해 결론만 뽑는다.
+    (종목 매수/매도 질문은 [결정] 투표 집계로 처리하므로 여기선 자유 질문 전용)"""
+    return f"""사용자 질문:\n"{user_message}"\n\n투자봇들의 답변:\n{answers_text}\n\n""" + \
+        "위 답변들을 종합해서, 사용자가 '그래서 결론이 뭔지' 바로 알 수 있게 1~2문장으로 정리해줘.\n" + \
+        "- 종목 추천 질문이면: 봇들이 가장 주목한 종목과 그 핵심 이유.\n" + \
+        "- 방향이 갈린 질문이면: 다수 의견과 근거를 한 줄로.\n" + \
+        "- '사세요/파세요' 같은 단정적 권유·미래 단정·수익 보장 금지. '가상 계좌 관점' 톤으로.\n" + \
+        "정리 문장만 출력(머리말·따옴표 없이). 한국어."
+
+
 def build_feedback_prompt(stock_name, pnl, pnl_pct, history_summary):
     direction = "이익" if pnl >= 0 else "손실"
     return f"""[투자 피드백]

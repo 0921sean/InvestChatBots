@@ -29,6 +29,7 @@ from prompts import (
     build_sector_discussion_prompt,
     build_stock_analysis_prompt,
     build_user_response_prompt,
+    build_chat_summary_prompt,
     build_feedback_prompt,
     build_summarize_prompt,
     build_holdings_review_prompt,
@@ -2002,7 +2003,9 @@ def handle_user_message(user_text: str):
         spoken_names.append(agent_name)
         time.sleep(random.uniform(0.2, 0.5))
 
-    # 종목 질문이었으면 → 합의 결과 알림 발송
+    # ── 한 줄 정리(요약) — 사용자가 결론만 빠르게 보게 ──
+    # 종목 질문: 기존 [결정] 투표 집계로(추가 LLM 호출 0). 자유 질문: haiku 1콜로 종합.
+    summary_msg = None
     if stock_data_text:
         try:
             decisions = [_parse_decision(resp) for _, resp in bot_responses]
@@ -2015,6 +2018,10 @@ def handle_user_message(user_text: str):
             }
             # 종목명 추출 (stock_data_text 첫 줄에서)
             stock_name = stock_data_text.split("\n")[0].replace("===", "").strip().split("(")[0].strip()
+            summary_msg = (f"📌 한 줄 정리\n{emoji} [{stock_name}] 봇 7명 → "
+                           f"매수 {vote_counts['매수']} · 관망 {vote_counts['관망']} · 매도 {vote_counts['매도']}"
+                           f" → 종합: {final}")
+            # ntfy 알림 (기존)
             lines = [f"{emoji} [{stock_name}] 합의: {final}  매수{vote_counts['매수']} 관망{vote_counts['관망']} 매도{vote_counts['매도']}"]
             for agent_name, resp in bot_responses:
                 decision, _ = _parse_decision(resp)
@@ -2023,7 +2030,24 @@ def handle_user_message(user_text: str):
                 lines.append(f"{d_emoji}{agent_name}: {reason[:60]}")
             notify("\n".join(lines), f"[{stock_name}] 봇 합의: {final}")
         except Exception as e:
-            logger.debug(f"종목 알림 오류: {e}")
+            logger.debug(f"종목 요약/알림 오류: {e}")
+    else:
+        # 자유 질문 → 봇 답변 종합 1~2문장 (결론이 없으니 haiku 1콜로 뽑음)
+        try:
+            answers_text = "\n".join(f"{n}: {r[:200]}" for n, r in bot_responses
+                                     if "응답 오류" not in r)
+            if answers_text:
+                sp = build_chat_summary_prompt(user_text, answers_text)
+                raw = call_agent("드가자", AGENT_PROFILES["드가자"]["system"],
+                                 sp, timeout=60, model="haiku")
+                raw = (raw or "").strip()
+                if raw:
+                    summary_msg = f"📌 한 줄 정리\n{raw}"
+        except Exception as e:
+            logger.debug(f"채팅 요약 오류: {e}")
+
+    if summary_msg:
+        _save_msg(round_id, "System", summary_msg + "\n※ 가상 계좌 기준 의견이며 투자 권유가 아닙니다.")
 
     complete_round(round_id)
 
