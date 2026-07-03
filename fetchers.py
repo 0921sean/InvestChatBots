@@ -452,6 +452,34 @@ def _try_fetch_us_stock(ticker: str) -> dict | None:
     return data if data.get("price") else None
 
 
+_ticker_search_cache: dict = {}   # {name_lower: ticker or None}
+
+
+def _search_ticker(name: str) -> str | None:
+    """회사명 → 티커 (Yahoo 라이브 검색). 최상단 EQUITY·미국 보통주 티커만.
+    하드코딩 표에 없는 최신 상장(예: SpaceX→SPCX)을 실시간으로 해석. 실패 시 None. 결과 캐시."""
+    import re
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    if key in _ticker_search_cache:
+        return _ticker_search_cache[key]
+    result = None
+    try:
+        s = yf.Search(name, max_results=6)
+        for q in (getattr(s, "quotes", None) or []):
+            if q.get("quoteType") != "EQUITY":
+                continue
+            sym = (q.get("symbol") or "").strip().upper()
+            if sym and re.fullmatch(r"[A-Z]{1,5}", sym):  # 미국 보통주 형태만(.NE 등·지수 제외)
+                result = sym
+                break
+    except Exception:
+        result = None
+    _ticker_search_cache[key] = result
+    return result
+
+
 def detect_and_fetch_stocks(message: str) -> str:
     """
     메시지에서 종목 감지 → TradingView 데이터 페치 → 포맷 문자열 반환.
@@ -535,6 +563,20 @@ def detect_and_fetch_stocks(message: str) -> str:
         if data:
             results.append(format_stock_data(data))
             time.sleep(0.3)
+
+    # 폴백: 하드코딩 표·티커로 아무것도 못 찾았을 때만 → 회사명을 Yahoo 라이브 검색으로 해석
+    # (예: "SpaceX" → SPCX). 오탐·지연 최소화 위해 '아무 결과 없을 때'로 한정.
+    if not results:
+        # 회사명처럼 보이는 토큰(첫글자 대문자 또는 내부 대문자: SpaceX·Rivian)만, 최대 2개
+        name_toks = [t for t in re.findall(r'[A-Za-z][a-zA-Z]{2,15}', message)
+                     if t.upper() not in SKIP and (t[0].isupper() or any(c.isupper() for c in t[1:]))]
+        for tok in name_toks[:2]:
+            alt = _search_ticker(tok)
+            if alt:
+                data = _try_fetch_us_stock(alt)
+                if data:
+                    results.append(format_stock_data(data))
+                    break
 
     return "\n\n".join(results)
 
