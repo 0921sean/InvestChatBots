@@ -539,6 +539,51 @@ def _extract_reason(response: str) -> str:
     return lines[-1][:120] if lines else response[:120]
 
 
+# ── 채팅 답변 UX: 질문 의도 라우팅 + 입문자 요약 ──────────
+_INTENT_DECISION_KW = ("살까", "사도", "사야", "사?", "살만", "살 만", "팔까", "팔아", "팔지",
+                       "팔 만", "매수", "매도", "들고", "보유", "물렸", "물려", "담을", "담아",
+                       "비중", "손절", "익절", "교체", "갈아", "줍줍")
+_INTENT_REASON_KW = ("왜", "이유", "때문", "무슨 일", "뭔 일", "뭔일", "어떻게 이렇", "왜이",
+                     "왜 이", "어째서")
+
+
+def _classify_chat_intent(text: str) -> str:
+    """채팅 질문 의도 — 'decision'(살까/팔까·스탠스) vs 'reason'(왜/이유·설명)."""
+    t = text or ""
+    if any(k in t for k in _INTENT_DECISION_KW):
+        return "decision"
+    if any(k in t for k in _INTENT_REASON_KW):
+        return "reason"
+    return "decision"   # 종목 질문 기본: 스탠스 요구('어때?'·'전망')
+
+
+_EASY_DECISION = {
+    "매수": "봇 다수가 '지금 관심 가져볼 만하다'는 쪽이에요.",
+    "관망": "봇 다수가 '지금 당장보다 조금 더 지켜보자'는 쪽이에요.",
+    "매도": "봇 다수가 '지금은 비워두는 게 낫다'는 쪽이에요.",
+}
+
+
+def _build_decision_summary(bot_responses, stock_name: str) -> str:
+    """살까/팔까 질문의 종합 블록 — 쉬운 한 줄 + 종합(카운트) + 갈린 곳. (LLM 호출 0)"""
+    decisions = [_parse_decision(resp) for _, resp in bot_responses]
+    final, _ = _tally_votes(decisions)
+    c = {k: sum(1 for d, _ in decisions if d == k) for k in ("매수", "관망", "매도")}
+    emoji = {"매수": "🟢", "매도": "🔴", "관망": "🟡"}.get(final, "⚪")
+    # 소수의견(종합과 다른 봇) = 어디서 갈렸는지
+    diverge = []
+    for (d, _), (name, resp) in zip(decisions, bot_responses):
+        if d != final:
+            diverge.append(f"{name}({d}: {_extract_reason(resp)[:20]})")
+    split_line = ("봇 의견 대체로 일치." if not diverge
+                  else "갈린 곳 — " + ", ".join(diverge[:3]))
+    return (f"📌 한 줄 정리\n"
+            f"{emoji} 쉽게: {_EASY_DECISION.get(final, '의견이 갈렸어요.')}\n"
+            f"🧭 종합: [{stock_name}] 봇 {len(decisions)}명 → "
+            f"매수 {c['매수']} · 관망 {c['관망']} · 매도 {c['매도']} → {final}\n"
+            f"{split_line}")
+
+
 def _ensure_decision_line(text: str) -> str:
     """봇 종목 분석 응답에 [결정] 줄이 없으면 안전기본값(관망)+근거를 덧붙여
     '결정 없이 텍스트만' 출력을 구조적으로 차단한다. (앱단 스키마 강제 — API tool_use 대체)
@@ -1982,6 +2027,9 @@ def handle_user_message(user_text: str):
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
+    # 질문 의도 — '왜/이유'면 설명(결정 강제 X), '살까/팔까·어때'면 스탠스+[결정]
+    intent = _classify_chat_intent(user_text)
+
     # 항상 7봇 전원 응답 — 발언 순서는 매 채팅마다 랜덤
     responders = list(AGENT_ORDER)
     random.shuffle(responders)
@@ -1992,7 +2040,7 @@ def handle_user_message(user_text: str):
         system = _build_system(agent_name)
         prompt = build_user_response_prompt(user_text, history_text, agent_name,
                                             stock_context=stock_data_text,
-                                            spoken_names=list(spoken_names))
+                                            spoken_names=list(spoken_names), intent=intent)
         try:
             resp = call_agent(agent_name, system, prompt)
         except Exception as e:
@@ -2003,49 +2051,43 @@ def handle_user_message(user_text: str):
         spoken_names.append(agent_name)
         time.sleep(random.uniform(0.2, 0.5))
 
-    # ── 한 줄 정리(요약) — 사용자가 결론만 빠르게 보게 ──
-    # 종목 질문: 기존 [결정] 투표 집계로(추가 LLM 호출 0). 자유 질문: haiku 1콜로 종합.
+    # ── 한 줄 정리(요약) — 입문자 훅. 대화 끝(피드 최신)에 배치 ──
+    # decision(살까/팔까)+종목: 투표 집계 종합(LLM 0). reason·자유질문: 쉬운 말 요약(haiku 1콜).
     summary_msg = None
+    stock_name = ""
     if stock_data_text:
+        stock_name = stock_data_text.split("\n")[0].replace("===", "").strip().split("(")[0].strip()
+
+    if stock_data_text and intent == "decision":
         try:
+            summary_msg = _build_decision_summary(bot_responses, stock_name)
+            # ntfy — 매수/매도 합의만
             decisions = [_parse_decision(resp) for _, resp in bot_responses]
             final, _ = _tally_votes(decisions)
+            c = {k: sum(1 for d, _ in decisions if d == k) for k in ("매수", "관망", "매도")}
             emoji = {"매수": "🟢", "매도": "🔴", "관망": "🟡"}.get(final, "⚪")
-            vote_counts = {
-                "매수": sum(1 for d, _ in decisions if d == "매수"),
-                "관망": sum(1 for d, _ in decisions if d == "관망"),
-                "매도": sum(1 for d, _ in decisions if d == "매도"),
-            }
-            # 종목명 추출 (stock_data_text 첫 줄에서)
-            stock_name = stock_data_text.split("\n")[0].replace("===", "").strip().split("(")[0].strip()
-            summary_msg = (f"📌 한 줄 정리\n{emoji} [{stock_name}] 봇 7명 → "
-                           f"매수 {vote_counts['매수']} · 관망 {vote_counts['관망']} · 매도 {vote_counts['매도']}"
-                           f" → 종합: {final}")
-            # ntfy 알림 (기존)
-            lines = [f"{emoji} [{stock_name}] 합의: {final}  매수{vote_counts['매수']} 관망{vote_counts['관망']} 매도{vote_counts['매도']}"]
-            for agent_name, resp in bot_responses:
-                decision, _ = _parse_decision(resp)
-                reason = _extract_reason(resp)
-                d_emoji = {"매수": "🟢", "매도": "🔴", "관망": "🟡"}.get(decision, "⚪")
-                lines.append(f"{d_emoji}{agent_name}: {reason[:60]}")
-            notify("\n".join(lines), f"[{stock_name}] 봇 합의: {final}")
+            nlines = [f"{emoji} [{stock_name}] 합의: {final}  매수{c['매수']} 관망{c['관망']} 매도{c['매도']}"]
+            for name, resp in bot_responses:
+                d, _ = _parse_decision(resp)
+                de = {"매수": "🟢", "매도": "🔴", "관망": "🟡"}.get(d, "⚪")
+                nlines.append(f"{de}{name}: {_extract_reason(resp)[:60]}")
+            notify("\n".join(nlines), f"[{stock_name}] 봇 합의: {final}")
         except Exception as e:
-            logger.debug(f"종목 요약/알림 오류: {e}")
+            logger.debug(f"결정 요약/알림 오류: {e}")
     else:
-        # 자유 질문 → 봇 답변 종합 1~2문장 (결론이 없으니 haiku 1콜로 뽑음)
+        # reason(왜/이유) 또는 자유 질문 → 봇 발언을 쉬운 말 1~2문장으로 (haiku 1콜)
         try:
             answers_text = "\n".join(f"{n}: {r[:200]}" for n, r in bot_responses
                                      if "응답 오류" not in r)
             if answers_text:
                 sp = build_chat_summary_prompt(user_text, answers_text)
-                # 봇 페르소나 대신 '중립 진행자' 시스템 프롬프트로 라우팅(모델은 haiku)
                 raw = call_agent("드가자", CHAT_SUMMARY_SYSTEM, sp, timeout=60, model="haiku")
                 raw = (raw or "").strip()
                 # 거부/캐릭터 이탈(Claude Code 정체 등) 감지 → 사용자에게 안 보이게 폐기
                 _refusal = ("claude code", "투자 봇이 아니", "어시스턴트", "소프트웨어 엔지니어",
                             "제 역할이 아니", "디버깅", "죄송하지만 저는")
                 if raw and not any(m in raw.lower() for m in _refusal):
-                    summary_msg = f"📌 한 줄 정리\n{raw}"
+                    summary_msg = f"📌 한 줄 정리\n🟢 쉽게: {raw}"
         except Exception as e:
             logger.debug(f"채팅 요약 오류: {e}")
 

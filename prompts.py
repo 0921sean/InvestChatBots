@@ -507,12 +507,22 @@ CHAT_GUARDRAIL = """[필수 준수 — 표현 가드레일]
 
 
 def build_user_response_prompt(user_message, history_text, agent_name, stock_context: str = "",
-                               spoken_names=None):
+                               spoken_names=None, intent: str = "decision"):
     stock_section = f"\n\n[자동 조회된 종목 데이터]\n{stock_context}" if stock_context else ""
 
     if stock_context:
-        # 종목 데이터가 있으면 → 분석 포맷 사용
-        format_instruction = "종목 데이터를 반드시 활용해서 구체적 수치와 근거 포함. [결정] 포맷으로 결론 내세요."
+        # 압축·렌즈 공통 규칙 — 팩트는 위 데이터에 이미 있으니 재인용 금지, 봇 고유 렌즈로만
+        common = ("1~2문장으로 짧게. 위 데이터의 가격·EMA·RSI 같은 수치를 다시 나열하지 말고, "
+                  "네 캐릭터 고유 렌즈로 본 판단만 말해라. 앞 봇이 쓴 근거(예: EMA20)는 반복하지 말고 "
+                  "다른 각도(차트/재무/거시/모멘텀 등 네 렌즈)로.")
+        if intent == "reason":
+            # '왜/이유' 질문 → 결정 강제 금지, 설명
+            format_instruction = ("사용자는 '왜/이유'를 물었다. 매수·매도 결정을 내리지 말고 왜 그런지 "
+                                  "네 렌즈로 설명해라. [결정] 표기 금지. " + common)
+        else:
+            # '살까/팔까' 등 → 스탠스 + [결정]
+            format_instruction = ("먼저 네 스탠스를 밝히고, 마지막 줄은 정확히 "
+                                  "`[결정] 매수|관망|매도 | 이유: <한 줄>`. " + common)
     else:
         # 자유 질문 → 각 봇 캐릭터로 자연스럽게 대화
         format_instruction = "[결정] 포맷 없이 자연스럽게 대화하세요. 2-3문장 이내. 봇 캐릭터에 맞게."
@@ -532,8 +542,9 @@ def build_chat_summary_prompt(user_message, answers_text):
     """자유 질문 채팅의 '한 줄 정리' — 봇 발언을 중립 요약(새 조언 생성 아님).
     (종목 매수/매도 질문은 [결정] 투표 집계로 처리하므로 여기선 자유 질문 전용)"""
     return f"""사용자 질문:\n"{user_message}"\n\n봇들이 이미 한 발언:\n{answers_text}\n\n""" + \
-        "위 발언들만 근거로, 봇들이 무슨 종목·방향에 무게를 뒀는지 1~2문장으로 요약해줘.\n" + \
+        "위 발언들만 근거로, 투자 입문자도 이해하게 쉬운 말로 1~2문장 요약해줘.\n" + \
         "- 위에 나온 내용만 압축할 것. 새 분석·전망·조언을 만들어내지 마.\n" + \
+        "- **전문용어(EMA·RSI·PER·PEG·ROE 등) 쓰지 말고** 쉬운 일상어로 풀어써.\n" + \
         "- 의견이 갈렸으면 '봇마다 갈렸다'고 그대로 전달.\n" + \
         "- 이건 가상 토론 관전용 요약이고 투자 권유가 아니야.\n" + \
         "요약 문장만 출력(머리말·따옴표·자기소개 없이). 한국어."
