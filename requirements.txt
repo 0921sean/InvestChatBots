@@ -13,3 +13,5 @@ tradingview-ta
 pykrx
 telethon
 pillow
+imageio
+imageio-ffmpeg
