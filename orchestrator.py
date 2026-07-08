@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 logger = logging.getLogger("investchat")
 
 from db import (
+    INITIAL_BALANCE, TRADING_BALANCE,
     create_round, complete_round, save_message, get_recent_messages,
     get_latest_market_snapshot, save_market_snapshot, save_consensus,
     get_consensus_notes, buy_shared_position, sell_shared_position,
@@ -245,7 +246,7 @@ SECTORS = [
 SECTOR_DISCUSSION_ROUNDS = 1   # 섹터 토론 라운드 수 (간단하게 1라운드)
 BUY_MAJORITY = 4               # 매수 결정에 필요한 최소 투표 수 (7봇 중 과반)
 SELL_MAJORITY = 4              # 매도 결정에 필요한 최소 투표 수
-INITIAL_CAPITAL = 100_000_000  # 초기 자본 (매수 금액 기준)
+INITIAL_CAPITAL = INITIAL_BALANCE  # 초기 자본 (매수 금액 기준) — db 시드와 단일 출처
 
 # 확신도 티어: 매수 투표 수 → 초기 자본 대비 비중
 BUY_CONVICTION_TIERS = {
@@ -257,8 +258,8 @@ BUY_CONVICTION_TIERS = {
 MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
 
-# 트레이딩 데스크(서브 사이클) — 공격적·별도 계좌(3천만), 5봇 중 3표(과반) 매수
-TRADING_INITIAL_CAPITAL = 30_000_000
+# 트레이딩 데스크(서브 사이클) — 공격적·별도 계좌, 5봇 중 3표(과반) 매수
+TRADING_INITIAL_CAPITAL = TRADING_BALANCE
 TRADING_BUY_MAJORITY = 3
 TRADING_SELL_MAJORITY = 3
 TRADING_BUY_CONVICTION_TIERS = {5: 0.20, 4: 0.14, 3: 0.09}  # 매수표 → 자본 대비 비중

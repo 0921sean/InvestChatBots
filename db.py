@@ -1,8 +1,10 @@
 import sqlite3
 import os
 
-INITIAL_BALANCE = 100_000_000  # 1억 (메인=장기투자 계좌)
-TRADING_BALANCE = 30_000_000   # 3천만 (서브=트레이딩 계좌)
+TOTAL_BALANCE = 100_000_000    # 공유 포트폴리오 총액 (1억)
+LONG_RATIO = 0.75              # 장기 비율 (조절 가능; 트레이딩 = 1 - 이 값)
+INITIAL_BALANCE = int(TOTAL_BALANCE * LONG_RATIO)     # 장기(메인) 시드 = 7,500만
+TRADING_BALANCE = TOTAL_BALANCE - INITIAL_BALANCE     # 트레이딩(서브) 시드 = 2,500만
 
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
 _ACCT_ID = {"main": 1, "sub": 2}
