@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from db import (
+    INITIAL_BALANCE, TRADING_BALANCE,
     init_db, get_messages_since, get_latest_market_snapshot,
     get_consensus_notes, get_shared_portfolio, get_all_positions, get_open_positions,
     add_lecture_note, get_active_lecture_notes, clear_lecture_notes,
@@ -597,12 +598,12 @@ def api_portfolio():
     # 메인(장기) 계좌
     pf = get_shared_portfolio("main")
     pf["market_status"] = is_market_open()
-    pf["initial_balance"] = 100_000_000
+    pf["initial_balance"] = INITIAL_BALANCE
     pf["positions"] = _enrich_positions(get_all_positions(30, account="main"))
 
     # 서브(트레이딩) 계좌
     sub = get_shared_portfolio("sub")
-    sub["initial_balance"] = 30_000_000
+    sub["initial_balance"] = TRADING_BALANCE
     sub["positions"] = _enrich_positions(get_all_positions(30, account="sub"))
     pf["sub"] = sub
 
