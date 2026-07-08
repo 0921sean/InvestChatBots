@@ -303,8 +303,8 @@
   .pf-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
   .pf-label { font-size: 10px; color: #6e7681; }
   .pf-value { font-size: 12px; font-weight: 600; }
-  .pf-pos { color: #3fb950; }
-  .pf-neg { color: #f85149; }
+  .pf-pos { color: #f85149; }  /* 상승·이익 = 빨강 (한국 증권계좌식) */
+  .pf-neg { color: #58a6ff; }  /* 하락·손실 = 파랑 */
   .pf-neu { color: #8b949e; }
   #pf-positions { flex: 1; overflow-y: auto; }
   .pos-section-label { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #6e7681; text-transform: uppercase; }
@@ -734,8 +734,8 @@
     <p id="market-status-label">시작 잔액 ₩100,000,000</p>
   </div>
   <div class="pf-acct-toggle">
-    <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">1억</span></button>
-    <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">3천만</span></button>
+    <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">7,500만</span></button>
+    <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">2,500만</span></button>
   </div>
   <div class="pf-summary">
     <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
@@ -1085,7 +1085,7 @@ async function loadMarket() {
         const v = md[k];
         if (!v || v.price==null) return '';
         const arrow = (v.change_pct||0)>=0 ? '▲' : '▼';
-        const col   = (v.change_pct||0)>=0 ? '#3fb950' : '#f85149';
+        const col   = (v.change_pct||0)>=0 ? '#f85149' : '#58a6ff';  /* 상승 빨강 / 하락 파랑 (한국식) */
         return `<span style="color:${col}">${k} ${arrow}${Math.abs(v.change_pct||0).toFixed(1)}%</span>`;
       }).filter(Boolean);
       document.getElementById('market-ticker').innerHTML = `<span class="live">● Live</span><br>${lines.join(' &nbsp; ')}`;
@@ -1270,7 +1270,7 @@ function _openPosItemHtml(p) {
   const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
   const upnl  = p.unrealized_pnl || 0;
   const upnlP = p.unrealized_pnl_pct || 0;
-  const upnlColor = upnl > 0 ? '#3fb950' : upnl < 0 ? '#f85149' : '#8b949e';
+  const upnlColor = upnl > 0 ? '#f85149' : upnl < 0 ? '#58a6ff' : '#8b949e';
   const upnlStr = upnl !== 0
     ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
     : '';
@@ -1278,7 +1278,7 @@ function _openPosItemHtml(p) {
   window._posData.push(p);
   return `<div class="pos-item" onclick="showPositionReason(${posIdx})">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-weight:600;color:#e2e8f0">${p.symbol}${isUS?'<span style="color:#60a5fa;margin-left:4px;font-size:9px">US</span>':''}</span>
+        <span style="font-weight:600;color:#e2e8f0">${p.symbol}<span style="color:#3fb950;margin-left:4px;font-size:9px">${isUS?'US':'KR'}</span></span>
         ${upnlStr}
       </div>
       <div class="pos-meta">진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span></div>
@@ -1291,7 +1291,7 @@ function _closedPosItemHtml(p) {
   window._posData.push(p);
   return `<div class="pos-item" onclick="showPositionReason(${posIdx})">
       <div><span style="font-weight:600;color:#e2e8f0">${p.symbol}</span>
-        <span style="color:${win?'#3fb950':'#f85149'};font-size:10px;margin-left:6px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span></div>
+        <span style="color:${win?'#f85149':'#58a6ff'};font-size:10px;margin-left:6px">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}%</span></div>
       <div class="pos-meta">${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수/매도 이유 보기</span></div>
     </div>`;
 }
@@ -1358,7 +1358,7 @@ function _renderPfAccount(acct) {
 
   const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
   document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
-  document.getElementById('pf-balance').className = `pf-value ${pc(balance-INITIAL)}`;
+  document.getElementById('pf-balance').className = `pf-value pf-neu`;  /* 현금 잔액은 손익색 아님 — 중립 */
   document.getElementById('pf-invested').textContent = invested > 0 ? `₩${Math.round(invested).toLocaleString()}` : '없음';
   document.getElementById('pf-pnl').textContent = `${totalPnl>=0?'+':''}₩${Math.round(totalPnl).toLocaleString()}`;
   document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
@@ -1507,12 +1507,12 @@ function showPositionReason(idx) {
   if (p.status === 'closed') {
     const win = (p.pnl||0) >= 0;
     metaLines.push(`매도 ${fmtKst(p.closed_at)} · 청산 ${fmtPrice(p.exit_price||0)}`);
-    metaLines.push(`<span style="color:${win?'#3fb950':'#f85149'};font-weight:700">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}% (${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()})</span>`);
+    metaLines.push(`<span style="color:${win?'#f85149':'#58a6ff'};font-weight:700">${win?'+':''}${(p.pnl_pct||0).toFixed(1)}% (${win?'이익':'손실'} ₩${Math.round(Math.abs(p.pnl||0)).toLocaleString()})</span>`);
   } else {
     const upnlP = p.unrealized_pnl_pct;
     if (typeof upnlP === 'number') {
       const win = upnlP >= 0;
-      metaLines.push(`현재가 ${p.current_price ? fmtPrice(p.current_price) : '—'} · <span style="color:${win?'#3fb950':'#f85149'};font-weight:700">${win?'+':''}${upnlP.toFixed(1)}% 평가</span>`);
+      metaLines.push(`현재가 ${p.current_price ? fmtPrice(p.current_price) : '—'} · <span style="color:${win?'#f85149':'#58a6ff'};font-weight:700">${win?'+':''}${upnlP.toFixed(1)}% 평가</span>`);
     }
   }
   document.getElementById('r-meta').innerHTML = metaLines.join('<br>');
@@ -1867,22 +1867,22 @@ function openSchedule() {
   const items = [
     {
       key: 'main_kr', title: '🇰🇷 국장 메인 사이클', time: '평일 06:00',
-      desc: '한국 11개 섹터 분석. 장기 데스크 7봇이 섹터 토론 + 종목별 투표 → 4표(과반) 시 매수 · 장기 계좌(1억)',
+      desc: '한국 11개 섹터 분석. 장기 데스크 7봇이 섹터 토론 + 종목별 투표 → 4표(과반) 시 매수 · 장기 계좌(7,500만)',
       next: _nextKstWeekdayAt(6, 0),
     },
     {
       key: 'sub_kr', title: '🇰🇷 국장 트레이딩 (워치리스트)', time: '평일 12:00',
-      desc: '네이버 급등·거래량 + 뉴스로 한국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(3천만)',
+      desc: '네이버 급등·거래량 + 뉴스로 한국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(2,500만)',
       next: _nextKstWeekdayAt(12, 0),
     },
     {
       key: 'main_us', title: '🇺🇸 미장 메인 사이클', time: '평일 18:00',
-      desc: '미국 9개 섹터 분석 (미국장 22:30 개장 직전). 장기 데스크 7봇 · 4표(과반) 시 매수 · 장기 계좌(1억)',
+      desc: '미국 9개 섹터 분석 (미국장 22:30 개장 직전). 장기 데스크 7봇 · 4표(과반) 시 매수 · 장기 계좌(7,500만)',
       next: _nextKstWeekdayAt(18, 0),
     },
     {
       key: 'sub_us', title: '🇺🇸 미장 트레이딩 (워치리스트)', time: '평일 24:00 (00:00)',
-      desc: '야후 급등·거래량 + 뉴스·어닝(누적)으로 미국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(3천만)',
+      desc: '야후 급등·거래량 + 뉴스·어닝(누적)으로 미국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(2,500만)',
       next: _nextKstWeekdayAt(0, 0),
     },
     {
