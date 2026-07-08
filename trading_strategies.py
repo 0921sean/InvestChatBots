@@ -197,14 +197,23 @@ def meanrev_exit_reason(closes: list[float]):
     return None
 
 
-def should_exit(strategy: str, closes: list[float], pnl_pct: float):
-    """(청산여부, 사유). 하드스톱은 전략 무관 최우선. 그 외엔 연 전략 규칙만."""
+def should_exit(strategy: str, closes: list[float], pnl_pct: float,
+                price: float = None, stop: float = None, entry: float = None):
+    """(청산여부, 사유). 전량 청산 v1(부분매도 없음). 하드스톱은 전략 무관 최우선.
+    모멘텀은 진입 시 저장한 손절가(stop)·현재가(price)·진입가(entry)로 손절/목표를 판정."""
     if pnl_pct is not None and pnl_pct <= HARD_STOP_PCT:
         return True, f"-20% 하드스톱 ({pnl_pct:.1f}%)"
     if len(closes) < _MIN_BARS:
         return False, ""
     if strategy == MOMENTUM:
-        return (True, "MACD 데드크로스·RSI 50 이탈") if momentum_exit(closes) else (False, "")
+        if stop is not None and price is not None and price <= stop:
+            return True, "손절(최근 저점)"
+        if stop is not None and entry is not None and price is not None \
+                and price >= momentum_target(entry, stop):
+            return True, "목표 1:2 익절"
+        if momentum_exit(closes):
+            return True, "추세 이탈(DC·RSI50)"
+        return False, ""
     if strategy == MEANREV:
         r = meanrev_exit_reason(closes)
         return (True, r) if r else (False, "")

@@ -46,7 +46,22 @@ def test_momentum_entry_C_on_pullback_support(monkeypatch):
 
 def test_momentum_stop_and_target():
     assert ts.momentum_stop([100, 98, 95, 97, 96]) == 95      # 최근 저점
-    assert ts.momentum_target(100, 95) == 110                 # 손절폭 5 × 2 = 목표 +10   # 크로스는 떴지만 RSI 게이트 미달
+    assert ts.momentum_target(100, 95) == 110                 # 손절폭 5 × 2 = 목표 +10
+
+def test_momentum_full_exit_on_stop_hit():
+    ok, reason = ts.should_exit(ts.MOMENTUM, [100.0] * 40, pnl_pct=-4.0,
+                                price=94.0, stop=95.0, entry=100.0)
+    assert ok is True and "손절" in reason
+
+def test_momentum_full_exit_on_target_hit():
+    ok, reason = ts.should_exit(ts.MOMENTUM, [100.0] * 40, pnl_pct=11.0,
+                                price=111.0, stop=95.0, entry=100.0)   # 목표 110
+    assert ok is True and "익절" in reason
+
+def test_momentum_hold_between_stop_and_target():
+    ok, _ = ts.should_exit(ts.MOMENTUM, [100.0] * 40, pnl_pct=3.0,
+                           price=103.0, stop=95.0, entry=100.0)         # 95<103<110, 신호 없음
+    assert ok is False   # 크로스는 떴지만 RSI 게이트 미달
 
 def test_momentum_no_signal_when_flat():
     assert ts.momentum_entry([100.0] * 40) is False
@@ -96,7 +111,7 @@ def test_momentum_exit_on_dead_cross(monkeypatch):
     closes = [100.0] * 40
     assert ts.momentum_exit(closes) is True
     exit_now, reason = ts.should_exit(ts.MOMENTUM, closes, pnl_pct=1.0)
-    assert exit_now is True and "데드크로스" in reason
+    assert exit_now is True and "추세 이탈" in reason
 
 def test_meanrev_position_not_closed_by_momentum_rule(monkeypatch):
     monkeypatch.setattr(ts, "macd_series", lambda c: ([1.0, -0.5], [0.0, 0.0]))  # 모멘텀 데드크로스 상태
