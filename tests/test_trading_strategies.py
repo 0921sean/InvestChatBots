@@ -20,16 +20,33 @@ def test_rsi_all_down_is_0():
 
 
 # ── 진입 신호 ────────────────────────────────────────────────
-def test_momentum_entry_on_golden_cross(monkeypatch):
-    # 마지막 봉 MACD 골든크로스(-1<=0 → 0.5>0) + RSI≥50 → 진입
+def test_momentum_entry_A_immediate(monkeypatch):
+    # A(정석): GC + 50≤RSI<70 → 즉시 매수
     monkeypatch.setattr(ts, "macd_series", lambda c: ([-1.0, 0.5], [0.0, 0.0]))
-    monkeypatch.setattr(ts, "rsi", lambda c, period=ts.RSI_PERIOD: 60.0)
-    assert ts.momentum_entry([0.0] * 40) is True
+    monkeypatch.setattr(ts, "rsi_series", lambda c, period=ts.RSI_PERIOD: [60.0, 60.0])
+    assert ts.momentum_signal([0.0] * 40) == "A"
 
-def test_momentum_entry_blocked_by_low_rsi(monkeypatch):
+def test_momentum_no_immediate_entry_when_rsi_below_50(monkeypatch):
+    # B 케이스 진입조건(RSI 50 상향돌파)이 아직 안 옴 → 즉시 매수 안 함
     monkeypatch.setattr(ts, "macd_series", lambda c: ([-1.0, 0.5], [0.0, 0.0]))
-    monkeypatch.setattr(ts, "rsi", lambda c, period=ts.RSI_PERIOD: 45.0)
-    assert ts.momentum_entry([0.0] * 40) is False   # 크로스는 떴지만 RSI 게이트 미달
+    monkeypatch.setattr(ts, "rsi_series", lambda c, period=ts.RSI_PERIOD: [45.0, 45.0])
+    assert ts.momentum_entry([0.0] * 40) is False
+
+def test_momentum_entry_B_on_rsi_cross_up(monkeypatch):
+    # B(약함): 최근 GC + 정배열 유지 + RSI 50 상향돌파 캔들
+    monkeypatch.setattr(ts, "macd_series", lambda c: ([-1.0, 0.2, 0.5], [0.0, 0.0, 0.0]))
+    monkeypatch.setattr(ts, "rsi_series", lambda c, period=ts.RSI_PERIOD: [48.0, 52.0])
+    assert ts.momentum_signal([0.0] * 40) == "B"
+
+def test_momentum_entry_C_on_pullback_support(monkeypatch):
+    # C(과열): 최근 GC + 정배열 + RSI 70 이력 후 50 부근 지지
+    monkeypatch.setattr(ts, "macd_series", lambda c: ([-1.0, 0.2, 0.5], [0.0, 0.0, 0.0]))
+    monkeypatch.setattr(ts, "rsi_series", lambda c, period=ts.RSI_PERIOD: [75.0, 72.0, 50.0])
+    assert ts.momentum_signal([0.0] * 40) == "C"
+
+def test_momentum_stop_and_target():
+    assert ts.momentum_stop([100, 98, 95, 97, 96]) == 95      # 최근 저점
+    assert ts.momentum_target(100, 95) == 110                 # 손절폭 5 × 2 = 목표 +10   # 크로스는 떴지만 RSI 게이트 미달
 
 def test_momentum_no_signal_when_flat():
     assert ts.momentum_entry([100.0] * 40) is False

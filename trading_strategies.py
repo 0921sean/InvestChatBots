@@ -19,6 +19,8 @@ MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
 RSI_PERIOD = 14
 RSI_MOMENTUM_MIN = 50.0        # 모멘텀 진입 RSI 하한
 BB_PERIOD, BB_STD = 20, 2.0
+MOM_GC_LOOKBACK = 5            # B/C 진입: 최근 골든크로스 인정 봉수
+MOM_STOP_LOOKBACK = 5         # 모멘텀 손절가 = 최근 N봉 저점
 WEIGHT_PCT = 0.12              # 종목당 비중 (§4: 10~20% 범위 내)
 MAX_POSITIONS = 8             # 동시 보유 상한 (§4: 5~10 범위 내)
 HARD_STOP_PCT = -20.0        # 무조건 청산 백스톱 (%)
@@ -56,24 +58,30 @@ def macd_series(closes: list[float]):
     return macd_line[-m:], signal
 
 
-def rsi(closes: list[float], period: int = RSI_PERIOD) -> float | None:
-    """Wilder RSI(마지막 값)."""
+def rsi_series(closes: list[float], period: int = RSI_PERIOD) -> list[float]:
+    """Wilder RSI 시계열(index=period부터)."""
     if len(closes) < period + 1:
-        return None
+        return []
     gains = losses = 0.0
     for i in range(1, period + 1):
         ch = closes[i] - closes[i - 1]
         gains += max(ch, 0.0)
         losses += max(-ch, 0.0)
     avg_g, avg_l = gains / period, losses / period
+    val = lambda ag, al: 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+    out = [val(avg_g, avg_l)]
     for i in range(period + 1, len(closes)):
         ch = closes[i] - closes[i - 1]
         avg_g = (avg_g * (period - 1) + max(ch, 0.0)) / period
         avg_l = (avg_l * (period - 1) + max(-ch, 0.0)) / period
-    if avg_l == 0:
-        return 100.0
-    rs = avg_g / avg_l
-    return 100 - 100 / (1 + rs)
+        out.append(val(avg_g, avg_l))
+    return out
+
+
+def rsi(closes: list[float], period: int = RSI_PERIOD) -> float | None:
+    """Wilder RSI(마지막 값)."""
+    s = rsi_series(closes, period)
+    return s[-1] if s else None
 
 
 def bollinger(closes: list[float], period: int = BB_PERIOD, std: float = BB_STD):
@@ -88,14 +96,50 @@ def bollinger(closes: list[float], period: int = BB_PERIOD, std: float = BB_STD)
 
 
 # ── 진입 신호 (독립 병렬) ────────────────────────────────────
-def momentum_entry(closes: list[float]) -> bool:
-    """MACD 골든크로스(신호선 상향 돌파) + RSI ≥ 50."""
+def _gc_within(macd_line, signal, lookback) -> bool:
+    """최근 lookback 봉 안에 골든크로스(정배열 진입)가 있었나."""
+    n = min(len(macd_line), len(signal))
+    for i in range(max(1, n - lookback), n):
+        if macd_line[i - 1] <= signal[i - 1] and macd_line[i] > signal[i]:
+            return True
+    return False
+
+
+def momentum_signal(closes: list[float]):
+    """§2.3 GC + RSI 3분기 진입. 발화 종류 'A'/'B'/'C' 또는 None.
+      A(정석): GC + 50≤RSI<70 → 즉시.
+      B(약함): GC(최근) + 정배열 유지 + RSI가 50 상향돌파하는 캔들.
+      C(과열): GC(최근) + 정배열 유지 + RSI 70 이력 후 50 부근(45~55) 지지."""
     macd_line, signal = macd_series(closes)
-    if len(macd_line) < 2 or len(signal) < 2:
-        return False
-    cross_up = macd_line[-2] <= signal[-2] and macd_line[-1] > signal[-1]
-    r = rsi(closes)
-    return bool(cross_up and r is not None and r >= RSI_MOMENTUM_MIN)
+    rs = rsi_series(closes)
+    if len(macd_line) < 2 or len(signal) < 2 or len(rs) < 2:
+        return None
+    aligned = macd_line[-1] > signal[-1]                       # 정배열
+    gc_now = macd_line[-2] <= signal[-2] and macd_line[-1] > signal[-1]
+    r, prev_r = rs[-1], rs[-2]
+    if gc_now and 50 <= r < 70:
+        return "A"
+    if not (aligned and _gc_within(macd_line, signal, MOM_GC_LOOKBACK)):
+        return None
+    if prev_r < 50 <= r:                                       # RSI 50 상향돌파
+        return "B"
+    if max(rs[-MOM_GC_LOOKBACK:]) > 70 and 45 <= r <= 55:      # 과열 후 지지
+        return "C"
+    return None
+
+
+def momentum_entry(closes: list[float]) -> bool:
+    return momentum_signal(closes) is not None
+
+
+def momentum_stop(lows: list[float], lookback: int = MOM_STOP_LOOKBACK) -> float:
+    """§2.3 손절가 = 진입 근처 최근 저점."""
+    return min(lows[-lookback:]) if lows else 0.0
+
+
+def momentum_target(entry: float, stop: float) -> float:
+    """§2.3 목표 = 손절폭 × 2 (손익비 1:2)."""
+    return entry + 2.0 * (entry - stop)
 
 
 def meanrev_entry(closes: list[float]) -> bool:
@@ -124,11 +168,13 @@ def scan_entries(closes: list[float]) -> list[str]:
 
 # ── 청산 (연 전략 규칙으로만 + 하드스톱 백스톱) ───────────────
 def momentum_exit(closes: list[float]) -> bool:
-    """MACD 데드크로스(신호선 하향 돌파) — 추세 이탈."""
+    """§2.3 잔량 청산 신호: MACD 데드크로스 OR RSI 50 하향이탈."""
     macd_line, signal = macd_series(closes)
-    if len(macd_line) < 2 or len(signal) < 2:
-        return False
-    return macd_line[-2] >= signal[-2] and macd_line[-1] < signal[-1]
+    rs = rsi_series(closes)
+    dc = (len(macd_line) >= 2 and len(signal) >= 2
+          and macd_line[-2] >= signal[-2] and macd_line[-1] < signal[-1])
+    rsi_down = len(rs) >= 2 and rs[-2] >= 50 and rs[-1] < 50
+    return bool(dc or rsi_down)
 
 
 def meanrev_exit(closes: list[float]) -> bool:
@@ -158,7 +204,7 @@ def should_exit(strategy: str, closes: list[float], pnl_pct: float):
     if len(closes) < _MIN_BARS:
         return False, ""
     if strategy == MOMENTUM:
-        return (True, "MACD 데드크로스") if momentum_exit(closes) else (False, "")
+        return (True, "MACD 데드크로스·RSI 50 이탈") if momentum_exit(closes) else (False, "")
     if strategy == MEANREV:
         r = meanrev_exit_reason(closes)
         return (True, r) if r else (False, "")
