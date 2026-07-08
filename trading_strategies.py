@@ -99,12 +99,15 @@ def momentum_entry(closes: list[float]) -> bool:
 
 
 def meanrev_entry(closes: list[float]) -> bool:
-    """종가가 볼린저 하단밴드 아래(과매도)."""
-    bb = bollinger(closes)
-    if not bb:
+    """§3 복귀확인 진입: 직전 종가가 하단밴드 아래로 이탈 → 당일 종가가 하단밴드 위로 복귀.
+    (단순 터치/이탈만으론 진입 안 함 = 칼받기 방지.)"""
+    if len(closes) < BB_PERIOD + 1:
         return False
-    lower, _, _ = bb
-    return closes[-1] < lower
+    prev = bollinger(closes[:-1])   # 직전 봉 기준 밴드
+    cur = bollinger(closes)         # 당일 봉 기준 밴드
+    if not prev or not cur:
+        return False
+    return closes[-2] < prev[0] and closes[-1] >= cur[0]
 
 
 def scan_entries(closes: list[float]) -> list[str]:
@@ -129,12 +132,23 @@ def momentum_exit(closes: list[float]) -> bool:
 
 
 def meanrev_exit(closes: list[float]) -> bool:
-    """종가가 중심선(20 SMA) 이상 회복 — 평균 회귀 완료."""
+    """§4: 익절(종가 ≥ 중심선; 상단밴드 포함) 또는 손절(종가 < 하단밴드 = 복귀 실패)."""
+    reason = meanrev_exit_reason(closes)
+    return reason is not None
+
+
+def meanrev_exit_reason(closes: list[float]):
+    """청산 사유 문자열 or None. 익절=중심선 이상, 손절=하단 재이탈."""
     bb = bollinger(closes)
     if not bb:
-        return False
-    _, mid, _ = bb
-    return closes[-1] >= mid
+        return None
+    lower, mid, _ = bb
+    c = closes[-1]
+    if c >= mid:
+        return "중심선 익절"
+    if c < lower:
+        return "복귀 실패 손절"
+    return None
 
 
 def should_exit(strategy: str, closes: list[float], pnl_pct: float):
@@ -144,9 +158,10 @@ def should_exit(strategy: str, closes: list[float], pnl_pct: float):
     if len(closes) < _MIN_BARS:
         return False, ""
     if strategy == MOMENTUM:
-        return (momentum_exit(closes), "MACD 데드크로스") if momentum_exit(closes) else (False, "")
+        return (True, "MACD 데드크로스") if momentum_exit(closes) else (False, "")
     if strategy == MEANREV:
-        return (meanrev_exit(closes), "중심선 회귀") if meanrev_exit(closes) else (False, "")
+        r = meanrev_exit_reason(closes)
+        return (True, r) if r else (False, "")
     return False, ""   # 태그 없는 레거시 포지션은 하드스톱만 적용
 
 
