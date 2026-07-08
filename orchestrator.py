@@ -1581,30 +1581,34 @@ def is_watchlist_disabled() -> bool:
 
 
 def run_telegram_watchlist(force: bool = False, market: str = None):
-    """텔레그램·뉴스 신규 종목 감지 → 봇 1라운드 즉석 토론 + 매수 판단.
-    market 지정 시 해당 시장(KRX/US) 후보만 분석.
-    `force=True`면 주말/phase 가드 우회 (측정 등 수동 트리거용)."""
+    """[트레이딩 계좌] 서브 사이클 = 규칙엔진 스캔(2026-07-09 컷오버).
+    차트천재(모멘텀)·역추세봇(볼린저) 규칙으로 유니버스 스캔 매수/매도. LLM·토큰 사용 없음.
+    구 5봇 LLM 경로는 `_run_telegram_watchlist_inner`에 보존(미사용). market=None이면 KR·US 둘 다."""
     if _watchlist_disabled and not force:
         logger.info("워치리스트 비활성 상태 — 이번 슬롯 스킵")
         return
+    if _pause_requested and not force:
+        return
     # 이미 실행 중이면 건너뜀 (동시 실행 방지)
     if not _watchlist_lock.acquire(blocking=False):
-        logger.info("워치리스트 이미 실행 중 — 이번 스케줄 건너뜀")
+        logger.info("트레이딩 규칙엔진 이미 실행 중 — 이번 스케줄 건너뜀")
         return
 
     try:
-        _run_telegram_watchlist_inner(force=force, market=market)
+        import trading_engine
+        for mk in ([market] if market else ["KRX", "US"]):
+            trading_engine.run_trading_cycle(mk)
     finally:
         _watchlist_lock.release()
 
 
 def run_watchlist_kr():
-    """스케줄러: 평일 12:00 — 국장 워치리스트."""
+    """스케줄러: 평일 12:00 — 국장 트레이딩 계좌 규칙엔진 스캔."""
     run_telegram_watchlist(market="KRX")
 
 
 def run_watchlist_us():
-    """스케줄러: 평일 00:00 — 미장 워치리스트."""
+    """스케줄러: 평일 00:00 — 미장 트레이딩 계좌 규칙엔진 스캔."""
     run_telegram_watchlist(market="US")
 
 
@@ -2244,7 +2248,7 @@ def _review_holdings_inner(force: bool = False, market: str = None):
                priority="default", cooldown=1800)
         return
 
-    positions = get_open_positions(market=mkt)
+    positions = get_open_positions(market=mkt, account="main")  # 장기 계좌만 — 트레이딩은 규칙엔진 전담
     intro_round_id = create_round(f"{mkt_label}보유 종목 점검")
     if not positions:
         _save_msg(intro_round_id, "System", f"✅ {mkt_label}보유 종목 없음 — 점검 생략")
