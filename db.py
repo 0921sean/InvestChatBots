@@ -58,6 +58,8 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN account TEXT DEFAULT 'main'",
+            "ALTER TABLE virtual_positions ADD COLUMN strategy TEXT",       # 트레이딩 규칙엔진: momentum/meanrev
+            "ALTER TABLE virtual_positions ADD COLUMN stop_price REAL",     # 모멘텀 손절가(진입 시점 최근 저점)
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
         ]:
