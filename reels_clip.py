@@ -248,10 +248,15 @@ def pick_debate(market=None):
     ).fetchall()
     con.close()
 
+    us = (market or "").upper() in ("US", "USD")
     cand = []
     for row in rows:
         rid = row["round_id"]
         r, msgs = _load_round(rid)
+        topic = (r["topic"] if r else "") or ""
+        if market:  # 시장 필터: 미장은 '미국' 접두, 국장은 그 외
+            if us != topic.startswith("미국"):
+                continue
         stock, ticker, price = _round_stock(msgs)
         if not stock:
             continue
@@ -268,16 +273,20 @@ def pick_debate(market=None):
                 c = _clean(m["content"])
                 mentions += sum(1 for b in _BOT_NAMES if b != m["agent_name"] and b in c)
         heat = mentions + dissent * 2 + len([m for m in msgs if m["agent_name"] in _BOT_NAMES]) * 0.3
-        traded = final in ("매수", "매도")
-        cand.append({"rid": rid, "stock": stock, "ticker": ticker, "price": price,
+        cand.append({"rid": rid, "date": (r["started_at"] or "")[:10] if r else "",
+                     "stock": stock, "ticker": ticker, "price": price,
                      "votes": votes, "final": final, "counts": counts, "heat": heat,
-                     "traded": traded, "msgs": msgs})
+                     "traded": final in ("매수", "매도"), "msgs": msgs})
 
     if not cand:
         return None
+    # 최신 사이클로 범위 한정: 가장 최근 날짜의 라운드만 (오래된 라운드 픽 방지)
+    latest = max(c["date"] for c in cand)
+    cand = [c for c in cand if c["date"] == latest]
     traded = [c for c in cand if c["traded"]]
-    pool = traded if traded else cand          # 1순위: 매매결정 있으면 그 안에서
-    return max(pool, key=lambda c: (c["traded"], c["heat"]))
+    if traded:                                 # 1순위: 매매결정 → 가장 최근(rid 최대)
+        return max(traded, key=lambda c: c["rid"])
+    return max(cand, key=lambda c: c["heat"])  # 2순위: 가장 격한 토론
 
 
 def _entry_reasons(reasoning):
