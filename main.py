@@ -395,8 +395,10 @@ def api_agents():
             "hidden_from_members": False,
         }
 
+    # 트레이딩 계좌 = 규칙엔진(차트천재 모멘텀 · 역추세봇 볼린저). 구 5봇 LLM(추세질주 등)은 은퇴 → 미표시
+    _TRADING_DESK = ["차트천재", "역추세봇"]
     result = [_entry(n, "main") for n in AGENT_ORDER]
-    result += [_entry(n, "trading") for n in TRADING_AGENT_ORDER]
+    result += [_entry(n, "trading") for n in _TRADING_DESK]
     return result
 
 
