@@ -12,7 +12,7 @@ import logging
 import os
 
 import trading_strategies as ts
-from db import (buy_shared_position, sell_shared_position, get_open_positions,
+from db import (TRADING_BALANCE, buy_shared_position, sell_shared_position, get_open_positions,
                 get_shared_portfolio, create_round, complete_round, save_message, _conn)
 from notifier import notify
 
@@ -123,7 +123,7 @@ def _run_buys(market, dry_run) -> list:
     if not universe:
         return []
     capital = get_shared_portfolio(ACCOUNT).get("balance", 0)
-    amount = ts.position_amount(ts.TRADING_BALANCE)
+    amount = ts.position_amount(TRADING_BALANCE)
     ohlc = _fetch_ohlc(universe)
     out = []
     for yfsym, (closes, lows, price) in ohlc.items():

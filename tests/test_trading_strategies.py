@@ -153,3 +153,9 @@ def test_max_positions_within_spec_range():
 def test_can_open_respects_cap():
     assert ts.can_open(ts.MAX_POSITIONS - 1) is True
     assert ts.can_open(ts.MAX_POSITIONS) is False
+
+def test_engine_buy_amount_resolves():
+    # 회귀: 엔진이 ts.TRADING_BALANCE(존재X)를 참조하던 크래시 버그 방지
+    import trading_engine as te
+    assert te.TRADING_BALANCE == 25_000_000
+    assert ts.position_amount(te.TRADING_BALANCE) == 3_000_000   # 25M × 12%
