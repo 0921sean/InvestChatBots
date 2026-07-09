@@ -737,6 +737,7 @@
   <div class="pf-acct-toggle">
     <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">7,500만</span></button>
     <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">2,500만</span></button>
+    <button id="pf-tab-all" class="pf-acct-btn" onclick="setDesk('all')">Σ 합산 <span class="pf-acct-cap">1억</span></button>
   </div>
   <div class="pf-summary">
     <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
@@ -1306,12 +1307,21 @@ async function loadPortfolio() {
               win_count: pf.win_count, loss_count: pf.loss_count,
               initial_balance: pf.initial_balance || 100000000, positions: pf.positions || [] },
       sub:  pf.sub || { balance: 0, invested: 0, total_pnl: 0, win_count: 0, loss_count: 0,
-                        initial_balance: 30000000, positions: [] },
+                        initial_balance: 25000000, positions: [] },
+    };
+    // 합산(combined) = 장기+트레이딩 실데이터 합
+    const _m = window._pfData.main, _s = window._pfData.sub;
+    window._pfData.combined = {
+      balance: _m.balance + _s.balance, invested: _m.invested + _s.invested,
+      total_pnl: _m.total_pnl + _s.total_pnl,
+      win_count: _m.win_count + _s.win_count, loss_count: _m.loss_count + _s.loss_count,
+      initial_balance: _m.initial_balance + _s.initial_balance,
+      positions: [...(_m.positions||[]), ...(_s.positions||[])],
     };
     const ms = pf.market_status;
     document.getElementById('market-status-label').textContent =
       ms==='KRX' ? '🟢 국장 장중' : ms==='US' ? '🔵 미장 장중' : '⚫ 장외 시간';
-    _renderPfAccount((window._activeDesk||'main')==='trading' ? 'sub' : 'main');
+    _renderPfAccount(_acctForDesk(window._activeDesk||'main'));
   } catch(e) { console.error('pf',e); }
 }
 
@@ -1331,14 +1341,14 @@ function _defaultDeskForNow(now) {
   return 'main';   // 트레이딩 창 밖은 전부 장기 우선
 }
 window._activeDesk = window._activeDesk || _defaultDeskForNow();  // 'main'(장기) | 'trading'(트레이딩)
+function _acctForDesk(desk) { return desk === 'trading' ? 'sub' : desk === 'all' ? 'combined' : 'main'; }
 function setDesk(desk) {
   window._activeDesk = desk;
-  const isTrade = desk === 'trading';
   const toggle = (id, on) => { const e = document.getElementById(id); if (e) e.classList.toggle('active', on); };
-  toggle('pf-tab-main', !isTrade); toggle('pf-tab-sub', isTrade);
-  toggle('mem-tab-main', !isTrade); toggle('mem-tab-trading', isTrade);
-  if (window._pfData) _renderPfAccount(isTrade ? 'sub' : 'main');
-  if (window._agentsData) _renderMembers(desk);
+  toggle('pf-tab-main', desk === 'main'); toggle('pf-tab-sub', desk === 'trading'); toggle('pf-tab-all', desk === 'all');
+  toggle('mem-tab-main', desk !== 'trading'); toggle('mem-tab-trading', desk === 'trading');
+  if (window._pfData) _renderPfAccount(_acctForDesk(desk));
+  if (window._agentsData) _renderMembers(desk === 'trading' ? 'trading' : 'main');
 }
 setDesk(window._activeDesk);  // 로드 시 기본 탭으로 버튼·뷰 동기화 (이후 수동선택·자동변경 없음)
 
