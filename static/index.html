@@ -316,6 +316,11 @@
   #pf-positions { flex: 1; overflow-y: auto; }
   .pos-section-label { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #6e7681; text-transform: uppercase; }
   .pos-item { padding: 6px 10px; border-bottom: 1px solid #0d1117; font-size: 11px; }
+  .pos-row1 { display: flex; align-items: center; gap: 8px; padding: 7px 10px; }
+  .pos-row1 .pos-name { flex: 1; min-width: 0; font-weight: 600; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pos-row1 .pos-tag { color: #6e7681; font-size: 9px; margin-left: 5px; font-weight: 400; }
+  .pos-row1 .pos-amt { flex: none; color: #8b949e; font-size: 10px; }
+  .pos-row1 .pos-pnl { flex: none; min-width: 50px; text-align: right; font-weight: 700; }
   .pos-meta { font-size: 10px; color: #6e7681; margin-top: 2px; }
   .pos-item { cursor: pointer; transition: background .15s; }
   .pos-item:hover { background: rgba(255,255,255,0.04); }
@@ -1273,26 +1278,20 @@ async function loadConsensus() {
 
 function _openPosItemHtml(p) {
   const isUS = p.market === 'US';
-  const fmt = (v, us) => us
-    ? `$${Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-    : `₩${Math.round(v).toLocaleString()}`;
-  const entryStr   = fmt(p.entry_price||0, isUS);
-  const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
-  const upnl  = p.unrealized_pnl || 0;
-  const upnlP = p.unrealized_pnl_pct || 0;
-  const upnlColor = upnl > 0 ? '#f85149' : upnl < 0 ? '#58a6ff' : '#8b949e';
-  const upnlStr = upnl !== 0
-    ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
-    : '';
+  // 압축 한 줄(정렬형): 종목명 · 전략/시장 | 투자금 | 손익%
+  const stratLabel = {momentum:'모멘텀', meanrev:'역추세'}[p.strategy] || '';
+  const tag = (stratLabel ? stratLabel + '·' : '') + (isUS ? 'US' : 'KR');
+  const amtMan = Math.round((p.amount || 0) / 10000).toLocaleString() + '만';
+  const upnlP = p.unrealized_pnl_pct;
+  const hasP = typeof upnlP === 'number' && p.current_price;
+  const pc = !hasP ? '#8b949e' : upnlP > 0 ? '#f85149' : upnlP < 0 ? '#58a6ff' : '#8b949e';
+  const pStr = hasP ? `${upnlP > 0 ? '+' : ''}${upnlP.toFixed(1)}%` : '—';
   const posIdx = window._posData.length;
   window._posData.push(p);
-  return `<div class="pos-item" onclick="showPositionReason(${posIdx})">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-weight:600;color:#e2e8f0">${p.symbol}<span style="color:#3fb950;margin-left:4px;font-size:9px">${isUS?'US':'KR'}</span></span>
-        ${upnlStr}
-      </div>
-      <div class="pos-meta">진입 ${entryStr} → 현재 <span style="color:#e2e8f0">${currentStr}</span></div>
-      <div class="pos-meta">투자금 ₩${Math.round(p.amount||0).toLocaleString()} <span style="color:#444c56">· 클릭해서 매수 이유 보기</span></div>
+  return `<div class="pos-item pos-row1" onclick="showPositionReason(${posIdx})">
+      <span class="pos-name">${p.symbol}<span class="pos-tag">${tag}</span></span>
+      <span class="pos-amt">${amtMan}</span>
+      <span class="pos-pnl" style="color:${pc}">${pStr}</span>
     </div>`;
 }
 function _closedPosItemHtml(p) {
