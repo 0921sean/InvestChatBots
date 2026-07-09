@@ -159,3 +159,9 @@ def test_engine_buy_amount_resolves():
     import trading_engine as te
     assert te.TRADING_BALANCE == 25_000_000
     assert ts.position_amount(te.TRADING_BALANCE) == 3_000_000   # 25M × 12%
+
+def test_display_name_label():
+    import trading_engine as te
+    assert te.display_name("NVDA", "US") == "NVDA"     # US=티커 그대로
+    te._name_cache["005930"] = "삼성전자"
+    assert te.display_name("005930", "KRX") == "삼성전자"  # KR=한글명(캐시)
