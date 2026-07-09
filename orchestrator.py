@@ -589,6 +589,30 @@ def _classify_chat_intent(text: str) -> str:
     return "decision"   # 종목 질문 기본: 스탠스 요구('어때?'·'전망')
 
 
+_HOLDINGS_KW = ("뭐 들고", "뭐들고", "들고 있", "들고있", "들고 계", "보유", "포지션",
+                "가지고 있", "뭐 샀", "뭐 사", "산 거", "산거", "뭐 담")
+
+
+def _is_holdings_q(text: str) -> bool:
+    return any(k in (text or "") for k in _HOLDINGS_KW)
+
+
+def _holdings_context() -> str:
+    """봇 실제 보유 현황(사실 기준) — 보유 질문에 지어내기 방지용으로 주입."""
+    from db import get_open_positions, get_shared_portfolio
+    lines = ["=== 봇 실제 보유 현황 (가상 포트폴리오, 사실) ==="]
+    for acct, label in (("main", "장기"), ("sub", "트레이딩")):
+        pf = get_shared_portfolio(acct)
+        pos = get_open_positions(account=acct)
+        if pos:
+            items = ", ".join(f"{p['symbol']}({p.get('market', '')})" for p in pos)
+        else:
+            items = "보유 없음(현금 대기)"
+        lines.append(f"{label} 계좌: {items} · 현금 {pf.get('balance', 0):,.0f}원")
+    lines.append("※ 위 목록이 실제 보유 전부다. 목록에 없는 종목을 보유했다고 말하지 말 것.")
+    return "\n".join(lines)
+
+
 _EASY_DECISION = {
     "매수": "봇 다수가 '지금 관심 가져볼 만하다'는 쪽이에요.",
     "관망": "봇 다수가 '지금 당장보다 조금 더 지켜보자'는 쪽이에요.",
@@ -625,6 +649,14 @@ def _ensure_decision_line(text: str) -> str:
         return t
     reason = _extract_reason(t).strip() or "근거 미상 — 보수적 관망"
     return t.rstrip() + f"\n[결정] 관망 | 이유: {reason}"
+
+
+def _strip_name_prefix(name: str, text: str) -> str:
+    """맨 앞 자기 이름 호칭 제거 — '차트천재요.' '역추세봇:' '실적왕,' 등 (전 봇 공통)."""
+    if not text or not name:
+        return text
+    pat = re.compile(rf"^\s*{re.escape(name)}\s*(요[.!·]?|입니다[.!]?|이에요[.!]?|[:：\-–,])\s*")
+    return pat.sub("", text, count=1).lstrip()
 
 
 def _tally_votes(decisions: list[tuple[str, int]],
@@ -1427,7 +1459,7 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
 
         # 결정 없이 텍스트만 끝나는 출력 차단 — 저장 전 [결정] 줄 보강 (오류 응답 제외)
         if "응답 오류" not in resp:
-            resp = _ensure_decision_line(resp)
+            resp = _strip_name_prefix(agent_name, _ensure_decision_line(resp))
         _save_msg(round_id, agent_name, resp)
         decision, weight = _parse_decision(resp)
         decisions.append((decision, weight))
@@ -2083,28 +2115,42 @@ def handle_user_message(user_text: str):
     except Exception as e:
         logger.debug(f"종목 감지 오류: {e}")
 
+    # "뭐 들고 있어?" 류 보유 질문 → 실제 포지션을 사실로 주입(지어내기 방지)
+    prompt_ctx = stock_data_text
+    if not stock_data_text and _is_holdings_q(user_text):
+        try:
+            prompt_ctx = _holdings_context()
+            _save_msg(round_id, "System", f"📌 봇 실제 보유 현황(사실 기준)\n{prompt_ctx}")
+        except Exception as e:
+            logger.debug(f"보유 컨텍스트 오류: {e}")
+
     history = get_recent_messages(15)
     history_text = format_history_compact([m for m in history if m["agent_name"] != "System"])
 
     # 질문 의도 — '왜/이유'면 설명(결정 강제 X), '살까/팔까·어때'면 스탠스+[결정]
     intent = _classify_chat_intent(user_text)
 
-    # 항상 위원회 전원(5봇) 응답 — 발언 순서는 매 채팅마다 랜덤
+    # 위원회 전원(5봇) 응답 — 단, 메타질문(휴장·장시간)은 1봇만 간결히
     responders = list(AGENT_ORDER)
     random.shuffle(responders)
+    _META_KW = ("장 쉬", "장 열", "휴장", "개장", "장 시간", "장 마감", "장 시작", "거래일", "몇 시")
+    if not stock_data_text and any(k in user_text for k in _META_KW):
+        responders = responders[:1]
     bot_responses: list[tuple[str, str]] = []
     spoken_names: list[str] = []   # 이번 채팅에서 이미 답한 봇 (미발언 봇 인용 방지)
 
     for agent_name in responders:
         system = _build_system(agent_name)
         prompt = build_user_response_prompt(user_text, history_text, agent_name,
-                                            stock_context=stock_data_text,
+                                            stock_context=prompt_ctx,
                                             spoken_names=list(spoken_names), intent=intent)
         try:
             resp = call_agent(agent_name, system, prompt)
         except Exception as e:
             _handle_agent_error(agent_name, e)
             resp = f"[{agent_name} 응답 오류]"
+        if "응답 오류" not in resp:
+            resp = _strip_name_prefix(agent_name, resp)   # 이름 프리픽스 제거(전 봇 공통)
         _save_msg(round_id, agent_name, resp)
         bot_responses.append((agent_name, resp))
         spoken_names.append(agent_name)
@@ -2439,6 +2485,8 @@ def _review_holdings_inner(force: bool = False, market: str = None):
             if token_exhausted:
                 break
             if resp:
+                if "응답 오류" not in resp:
+                    resp = _strip_name_prefix(agent_name, resp)
                 _save_msg(round_id, agent_name, resp)
                 d, _ = _parse_decision(resp)
                 decisions.append((d, 0))

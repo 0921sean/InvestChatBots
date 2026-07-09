@@ -296,7 +296,8 @@ def format_stock_data(data: dict) -> str:
 
     eps = data.get("eps")
     if eps and not math.isnan(eps):
-        lines.append(f"EPS: {eps:,.0f}원")
+        eps_str = f"${eps:,.2f}" if market == "US" else f"{eps:,.0f}원"
+        lines.append(f"EPS: {eps_str}")
 
     roe = data.get("roe")
     if roe and not math.isnan(roe):
@@ -310,7 +311,9 @@ def format_stock_data(data: dict) -> str:
     else:
         lines.append("PEG: 데이터 없음")
     if epsg is not None and not (isinstance(epsg, float) and math.isnan(epsg)):
-        lines.append(f"EPS성장률: {epsg*100:.0f}%")
+        gp = epsg * 100
+        gp = 0.0 if abs(gp) < 0.5 else gp   # -0% 방지
+        lines.append(f"EPS성장률: {gp:+.0f}%")
     else:
         lines.append("EPS성장률: 데이터 없음")
 
@@ -514,6 +517,9 @@ def detect_and_fetch_stocks(message: str) -> str:
         "코인베이스": ("COIN", "US"), "스포티파이": ("SPOT", "US"), "우버": ("UBER", "US"),
         "에어비앤비": ("ABNB", "US"), "세레브라스": ("CRWV", "US"),
         "TSMC": ("TSM", "US"),
+        "샌디스크": ("SNDK", "US"), "리비안": ("RIVN", "US"), "루시드": ("LCID", "US"),
+        "웨스턴디지털": ("WDC", "US"), "마이크론": ("MU", "US"), "코스트코": ("COST", "US"),
+        "스타벅스": ("SBUX", "US"), "디즈니": ("DIS", "US"), "보잉": ("BA", "US"),
         # 한국 상장 (한글)
         "삼성전자": ("005930", "KR"), "하이닉스": ("000660", "KR"), "SK하이닉스": ("000660", "KR"),
         "삼성바이오": ("207940", "KR"), "삼성바이오로직스": ("207940", "KR"),
@@ -543,7 +549,7 @@ def detect_and_fetch_stocks(message: str) -> str:
             if market == "US":
                 candidates_us.append(ticker)
             else:
-                candidates_kr.append(ticker)
+                candidates_kr.append((name, ticker))   # 한글명 보존(헤더 라벨용)
 
     # 2) 영문 대문자 티커/이름 감지
     pat = r'(?<![A-Za-z])([A-Z]{2,5}|[A-Z][a-z]{2,9})(?![A-Za-z])'
@@ -561,9 +567,9 @@ def detect_and_fetch_stocks(message: str) -> str:
     results = []
 
     # KR 종목 조회
-    for code in candidates_kr[:2]:
+    for kr_name, code in candidates_kr[:2]:
         try:
-            data = fetch_stock_data(code, f"{code}.KS", code, market="KRX", exchange="KRX")
+            data = fetch_stock_data(code, f"{code}.KS", kr_name, market="KRX", exchange="KRX")
             if data:
                 results.append(format_stock_data(data))
                 time.sleep(0.3)
