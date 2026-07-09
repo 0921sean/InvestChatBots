@@ -48,6 +48,34 @@ def test_momentum_stop_and_target():
     assert ts.momentum_stop([100, 98, 95, 97, 96]) == 95      # 최근 저점
     assert ts.momentum_target(100, 95) == 110                 # 손절폭 5 × 2 = 목표 +10
 
+def test_momentum_manage_half_at_target():
+    # entry 100·stop 95 → target 110. price 111·미절반 → 절반익절
+    a, r = ts.momentum_manage([100.0] * 40, 111, 100, 95, False, 5.0)
+    assert a == "half" and "절반" in r
+
+def test_momentum_manage_stop_full():
+    a, r = ts.momentum_manage([100.0] * 40, 94, 100, 95, False, -4.0)
+    assert a == "full" and "손절" in r
+
+def test_momentum_manage_hardstop_priority():
+    a, r = ts.momentum_manage([100.0] * 40, 80, 100, 95, True, -20.0)
+    assert a == "full" and "하드스톱" in r
+
+def test_momentum_manage_trend_exit(monkeypatch):
+    monkeypatch.setattr(ts, "momentum_exit", lambda c: True)
+    a, r = ts.momentum_manage([100.0] * 40, 103, 100, 95, False, 3.0)
+    assert a == "full" and "추세" in r
+
+def test_momentum_manage_breakeven_after_half():
+    # 절반청산 후 본전(price<=entry) + 추세신호 없음 → 잔량 전량
+    a, r = ts.momentum_manage([100.0] * 40, 99, 100, 95, True, -1.0)
+    assert a == "full" and "본전" in r
+
+def test_momentum_manage_hold():
+    a, _ = ts.momentum_manage([100.0] * 40, 103, 100, 95, False, 3.0)  # 손절<price<목표
+    assert a == "hold"
+
+
 def test_momentum_full_exit_on_stop_hit():
     ok, reason = ts.should_exit(ts.MOMENTUM, [100.0] * 40, pnl_pct=-4.0,
                                 price=94.0, stop=95.0, entry=100.0)
