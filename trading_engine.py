@@ -65,6 +65,18 @@ def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
     return out
 
 
+def fetch_one(code: str, market):
+    """단일 종목 일봉 (closes, lows, price) 또는 None. KR은 .KS→.KQ 폴백."""
+    if not code:
+        return None
+    cands = [code] if _norm(market) == "US" else [f"{code}.KS", f"{code}.KQ"]
+    for sym in cands:
+        d = _fetch_ohlc([sym])
+        if sym in d:
+            return d[sym]
+    return None
+
+
 def _log(round_id, content):
     save_message(round_id, "System", "", content)
 

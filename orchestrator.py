@@ -244,16 +244,15 @@ SECTORS = [
 
 # ── 라운드 설정 ──────────────────────────────────────────
 SECTOR_DISCUSSION_ROUNDS = 1   # 섹터 토론 라운드 수 (간단하게 1라운드)
-BUY_MAJORITY = 4               # 매수 결정에 필요한 최소 투표 수 (7봇 중 과반)
-SELL_MAJORITY = 4              # 매도 결정에 필요한 최소 투표 수
+BUY_MAJORITY = 3               # 장기 위원회 5봇 중 과반(조절 가능 상수)
+SELL_MAJORITY = 3              # 매도 과반 (5봇 중 3). 실적왕 thesis 훼손은 단독 트리거(별도)
 INITIAL_CAPITAL = INITIAL_BALANCE  # 초기 자본 (매수 금액 기준) — db 시드와 단일 출처
 
-# 확신도 티어: 매수 투표 수 → 초기 자본 대비 비중
+# 확신도 티어: 매수 투표 수(5봇) → 자본 대비 비중. 장기는 현행 5~15% 유지(§4 10~20%는 트레이딩용)
 BUY_CONVICTION_TIERS = {
-    8: 0.15,   # 만장일치 → 15%
-    7: 0.12,   # 7/8 → 12%
-    6: 0.08,   # 6/8 → 8%
-    5: 0.05,   # 턱걸이 → 5%
+    5: 0.15,   # 만장일치 → 15%
+    4: 0.10,   # 4/5 → 10%
+    3: 0.05,   # 턱걸이(과반) → 5%
 }
 MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
@@ -522,6 +521,38 @@ def _parse_decision(text: str) -> tuple[str, int]:
     if decision == "홀드":
         decision = "관망"
     return decision, 0
+
+
+# 장기 위원회 규칙 기술봇 — LLM 아닌 결정론적 신호로 참여(명세 §3: 기술=진입 타이밍 보조)
+_RULE_BOTS = {"차트천재": "momentum", "역추세봇": "meanrev"}
+
+
+def _rule_bot_message(agent_name: str, ohlc, context: str) -> tuple[str, str]:
+    """규칙 기술봇의 (메시지, 결정). ohlc=(closes,lows,price) 또는 None.
+    context='buy'(종목분석) / 'sell'(보유점검). 데이터 없으면 판단 보류→관망."""
+    import trading_strategies as ts
+    strat = _RULE_BOTS[agent_name]
+    if not ohlc:
+        return "[기술신호] 일봉 데이터 부족 — 판단 보류.\n[결정] 관망", "관망"
+    closes, _lows, _price = ohlc
+    if context == "buy":
+        if strat == "momentum":
+            sig = ts.momentum_signal(closes)
+            if sig:
+                r = ts.rsi(closes) or 0
+                return (f"[기술신호·타이밍 보조] MACD 골든크로스 + RSI {r:.0f} → {sig}형 진입 신호. 진입 타이밍 양호.\n[결정] 매수", "매수")
+            return "[기술신호·타이밍 보조] 모멘텀 진입신호 없음(골든크로스/RSI 미충족) — 타이밍 대기.\n[결정] 관망", "관망"
+        if ts.meanrev_entry(closes):
+            return "[기술신호·타이밍 보조] 볼린저 하단 이탈 후 복귀 확인 — 과매도 반등 자리.\n[결정] 매수", "매수"
+        return "[기술신호·타이밍 보조] 볼린저 복귀신호 없음 — 밴드 내 흐름.\n[결정] 관망", "관망"
+    # context == "sell" (보유 점검)
+    if strat == "momentum":
+        if ts.momentum_exit(closes):
+            return "[기술신호] MACD 데드크로스·RSI 50 이탈 — 추세 꺾임, 매도 관점.\n[결정] 매도", "매도"
+        return "[기술신호] 추세 유지 — 홀드.\n[결정] 관망", "관망"
+    if ts.meanrev_exit(closes):
+        return "[기술신호] 볼린저 청산신호(중심선 회복/하단 재이탈) — 매도 관점.\n[결정] 매도", "매도"
+    return "[기술신호] 밴드 내 — 홀드.\n[결정] 관망", "관망"
 
 
 def _extract_reason(response: str) -> str:
@@ -1244,7 +1275,7 @@ def _send_post_check_report():
         return str(n)
     notify(
         f"🛡 보유 종목 점검 완료 — {elapsed_min:.0f}분",
-        f"손절 + 7봇 점검\n"
+        f"손절 + 5봇 점검\n"
         f"총: {calls}콜 · {_fmt_n(total)} 토큰 · ${cost:.2f}",
         priority="high", cooldown=0,
     )
@@ -1344,11 +1375,27 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
             decision_summary.append(f"{m['agent_name']}: {d}")
             bot_responses.append((m["agent_name"], m["content"]))
 
+    # 규칙 기술봇(차트천재·역추세봇)용 일봉 1회 조회 (LLM 아닌 결정론적 신호)
+    _tech_ohlc = None
+    try:
+        import trading_engine
+        _tech_ohlc = trading_engine.fetch_one(stock.get("code"), _market)
+    except Exception as e:
+        logger.debug(f"기술신호 OHLC 조회 실패: {e}")
+
     for i, agent_name in enumerate(get_speak_order()):
         if agent_name in already_responded:
             continue  # 이미 응답한 봇 스킵
         if _pause_requested:
             break
+        # 규칙 기술봇 — LLM 호출 없이 결정론적 신호로 참여
+        if agent_name in _RULE_BOTS:
+            msg, decision = _rule_bot_message(agent_name, _tech_ohlc, "buy")
+            _save_msg(round_id, agent_name, msg)
+            decisions.append((decision, 0))
+            decision_summary.append(f"{agent_name}: {decision}")
+            bot_responses.append((agent_name, msg))
+            continue
         if is_claude_token_exhausted():
             _handle_agent_error(agent_name, ClaudeTokenExhausted())
             return
@@ -2035,7 +2082,7 @@ def handle_user_message(user_text: str):
     # 질문 의도 — '왜/이유'면 설명(결정 강제 X), '살까/팔까·어때'면 스탠스+[결정]
     intent = _classify_chat_intent(user_text)
 
-    # 항상 7봇 전원 응답 — 발언 순서는 매 채팅마다 랜덤
+    # 항상 위원회 전원(5봇) 응답 — 발언 순서는 매 채팅마다 랜덤
     responders = list(AGENT_ORDER)
     random.shuffle(responders)
     bot_responses: list[tuple[str, str]] = []
@@ -2259,7 +2306,7 @@ def _review_holdings_inner(force: bool = False, market: str = None):
     _save_msg(intro_round_id, "System",
               f"📋 {mkt_label}보유 종목 점검 — {len(positions)}개 (메인 사이클 완료 후)\n"
               f"대상: {names}\n"
-              f"각 종목별로 7봇이 홀드/매도 투표 → 매도 {SELL_MAJORITY}표 이상이면 청산")
+              f"각 종목별로 5봇이 홀드/매도 판단 → 매도 {SELL_MAJORITY}표(과반) 또는 실적왕 thesis 훼손 시 청산")
     complete_round(intro_round_id)
 
     market_summary, _ = _get_or_refresh_market_summary()
@@ -2338,9 +2385,22 @@ def _review_holdings_inner(force: bool = False, market: str = None):
         _save_msg(round_id, "System", header)
 
         decisions, bot_responses = [], []
+        _tech_ohlc = None
+        try:
+            import trading_engine
+            _tech_ohlc = trading_engine.fetch_one(code, market)
+        except Exception as e:
+            logger.debug(f"기술신호 OHLC 조회 실패: {e}")
         for agent_name in get_speak_order():
             if _pause_requested:
                 break
+            # 규칙 기술봇 — LLM 없이 결정론적 청산신호로 참여
+            if agent_name in _RULE_BOTS:
+                msg, decision = _rule_bot_message(agent_name, _tech_ohlc, "sell")
+                _save_msg(round_id, agent_name, msg)
+                decisions.append((decision, 0))
+                bot_responses.append((agent_name, msg))
+                continue
             if is_claude_token_exhausted():
                 token_exhausted = True
                 break
@@ -2398,15 +2458,19 @@ def _review_holdings_inner(force: bool = False, market: str = None):
             for n, r in bot_responses
         )
 
-        if sell_count >= SELL_MAJORITY:
+        # 실적왕(피터린치) 펀더 thesis 훼손 = 단독 매도 트리거 (§3 매매 로직)
+        siljeokwang_sell = any(n == "실적왕" and _parse_decision(r)[0] == "매도"
+                               for n, r in bot_responses)
+        if sell_count >= SELL_MAJORITY or siljeokwang_sell:
             sell_reasons = []
             for n, r in bot_responses:
                 if _parse_decision(r)[0] == "매도":
                     sell_reasons.append(f"• {n}: {_extract_reason(r)}")
-            sell_reasoning = "월요일 보유 점검 — 매도 과반\n" + "\n".join(sell_reasons)
+            trigger = ("매도 과반" if sell_count >= SELL_MAJORITY else "실적왕 thesis 훼손(단독)")
+            sell_reasoning = f"보유 점검 — {trigger}\n" + "\n".join(sell_reasons)
             _save_msg(round_id, "System",
                       f"🗳 점검 투표: {vote_text}\n"
-                      f"→ 매도 {sell_count}표 ≥ {SELL_MAJORITY} — 매도 실행")
+                      f"→ {trigger} — 매도 실행")
             _execute_sell({"name": symbol, "code": code, "market": market},
                           current, sell_reasoning, round_id)
             sold.append(symbol)
