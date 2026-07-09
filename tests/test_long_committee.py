@@ -82,7 +82,13 @@ def test_peg_injected_when_present():
         {"name": "테스트", "code": "000000", "market": "US", "price": 100,
          "peg": 0.8, "eps_growth": 0.3})
     assert "PEG: 0.80 (매력)" in block
-    assert "EPS성장률: 30%" in block
+    assert "EPS성장률: +30%" in block
+
+def test_us_eps_uses_dollar_unit():
+    import fetchers
+    block = fetchers.format_stock_data(
+        {"name": "NVDA", "code": "NVDA", "market": "US", "price": 200, "eps": 7.0})
+    assert "EPS: $7.00" in block      # US는 $ 단위(원 아님)
 
 def test_peg_marked_missing_when_absent():
     import fetchers
