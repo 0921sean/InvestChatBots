@@ -533,26 +533,26 @@ def _rule_bot_message(agent_name: str, ohlc, context: str) -> tuple[str, str]:
     import trading_strategies as ts
     strat = _RULE_BOTS[agent_name]
     if not ohlc:
-        return "[기술신호] 일봉 데이터 부족 — 판단 보류.\n[결정] 관망", "관망"
+        return "일봉 데이터가 부족해서 이번엔 차트로 판단하기가 좀 그래 — 일단 관망할게.\n[결정] 관망", "관망"
     closes, _lows, _price = ohlc
     if context == "buy":
         if strat == "momentum":
             sig = ts.momentum_signal(closes)
             if sig:
                 r = ts.rsi(closes) or 0
-                return (f"[기술신호·타이밍 보조] MACD 골든크로스 + RSI {r:.0f} → {sig}형 진입 신호. 진입 타이밍 양호.\n[결정] 매수", "매수")
-            return "[기술신호·타이밍 보조] 모멘텀 진입신호 없음(골든크로스/RSI 미충족) — 타이밍 대기.\n[결정] 관망", "관망"
+                return (f"차트 딱 보니까 MACD 골든크로스 떴고 RSI도 {r:.0f}이라 {sig}형 진입 자리야 — 타이밍 좋아, 나는 매수.\n[결정] 매수", "매수")
+            return "차트상 아직 골든크로스도 안 났고 RSI도 조건 미달이야 — 진입 타이밍 아니라 이번엔 관망할게.\n[결정] 관망", "관망"
         if ts.meanrev_entry(closes):
-            return "[기술신호·타이밍 보조] 볼린저 하단 이탈 후 복귀 확인 — 과매도 반등 자리.\n[결정] 매수", "매수"
-        return "[기술신호·타이밍 보조] 볼린저 복귀신호 없음 — 밴드 내 흐름.\n[결정] 관망", "관망"
+            return "볼린저 하단 찍고 다시 올라오는 게 확인됐어 — 과매도 반등 자리라 나는 매수 관점이야.\n[결정] 매수", "매수"
+        return "아직 밴드 안에서 그냥 흐르는 중이라 복귀 신호가 안 보여 — 나는 관망할게.\n[결정] 관망", "관망"
     # context == "sell" (보유 점검)
     if strat == "momentum":
         if ts.momentum_exit(closes):
-            return "[기술신호] MACD 데드크로스·RSI 50 이탈 — 추세 꺾임, 매도 관점.\n[결정] 매도", "매도"
-        return "[기술신호] 추세 유지 — 홀드.\n[결정] 관망", "관망"
+            return "MACD 데드크로스에 RSI도 50 밑으로 빠졌어 — 추세 꺾인 거라 나는 매도 관점이야.\n[결정] 매도", "매도"
+        return "아직 추세는 살아있어 — 나는 홀드 유지할게.\n[결정] 관망", "관망"
     if ts.meanrev_exit(closes):
-        return "[기술신호] 볼린저 청산신호(중심선 회복/하단 재이탈) — 매도 관점.\n[결정] 매도", "매도"
-    return "[기술신호] 밴드 내 — 홀드.\n[결정] 관망", "관망"
+        return "볼린저 중심선 회복했거나 하단 다시 이탈했어 — 청산 신호라 나는 매도 관점이야.\n[결정] 매도", "매도"
+    return "아직 밴드 안이라 나는 홀드할게.\n[결정] 관망", "관망"
 
 
 def _extract_reason(response: str) -> str:
