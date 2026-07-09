@@ -77,18 +77,18 @@ def fetch_one(code: str, market):
     return None
 
 
-def _log(round_id, content):
-    save_message(round_id, "System", "", content)
+def _pct(a, b):
+    return ((a - b) / b * 100) if b else 0.0
 
 
-# ── 매도(청산) — 연 전략 규칙 + 하드스톱 ─────────────────────
-def _run_exits(market, dry_run, round_id) -> list:
+# ── 매도(청산) — 연 전략 규칙 + 하드스톱. (봇, 한줄) 리스트 반환 ──
+def _run_exits(market, dry_run) -> list:
     mkt = _norm(market)
     positions = get_open_positions(market=mkt, account=ACCOUNT)
     if not positions:
         return []
     kr_map = _kr_map() if mkt == "KRX" else {}
-    sold = []
+    out = []
     for p in positions:
         code = p["code"] or ""
         yfsym = code if mkt == "US" else kr_map.get(code, f"{code}.KS")
@@ -97,39 +97,35 @@ def _run_exits(market, dry_run, round_id) -> list:
             continue
         closes, _lows, price = data[yfsym]
         entry = p["entry_price"] or 0
-        pnl_pct = ((price - entry) / entry * 100) if entry else 0.0
+        pnl_pct = _pct(price, entry)
         do_exit, reason = ts.should_exit(p["strategy"] or "", closes, pnl_pct,
                                          price=price, stop=p["stop_price"], entry=entry)
         if not do_exit:
             continue
-        tag = _BOT.get(p["strategy"], "규칙")
+        bot = _BOT.get(p["strategy"], "규칙")
         if dry_run:
-            sold.append(f"[DRY] {p['symbol']} 청산 예정 ({reason}, {pnl_pct:+.1f}%)")
+            out.append((bot, f"{p['symbol']} 매도(DRY) — {reason}·{pnl_pct:+.1f}%"))
             continue
-        pnl, err = sell_shared_position(p["id"], price, f"{tag}: {reason}")
+        pnl, err = sell_shared_position(p["id"], price, f"{bot}: {reason}")
         if err:
             logger.warning(f"청산 실패 {p['symbol']}: {err}")
             continue
-        sold.append(f"{p['symbol']} 청산 · {reason} · 손익 {pnl:+,.0f}원")
-    if sold:
-        _log(round_id, "🔻 트레이딩 청산\n" + "\n".join(f"• {s}" for s in sold))
-    return sold
+        out.append((bot, f"{p['symbol']} 매도 — {reason}·손익 {pnl:+,.0f}원"))
+    return out
 
 
-# ── 매수(진입) — 유니버스 스캔, 독립 병렬 신호 ───────────────
-def _run_buys(market, dry_run, round_id) -> list:
+# ── 매수(진입) — 유니버스 스캔, 독립 병렬 신호. (봇, 한줄) 리스트 ──
+def _run_buys(market, dry_run) -> list:
     mkt = _norm(market)
-    open_positions = get_open_positions(market=mkt, account=ACCOUNT)
-    held = {p["code"] for p in open_positions}
+    held = {p["code"] for p in get_open_positions(market=mkt, account=ACCOUNT)}
     open_count = len(get_open_positions(account=ACCOUNT))   # 계좌 전체 동시 보유수
     universe = [s for s in load_universe(market) if s.split(".")[0] not in held]
     if not universe:
         return []
-
     capital = get_shared_portfolio(ACCOUNT).get("balance", 0)
     amount = ts.position_amount(ts.TRADING_BALANCE)
     ohlc = _fetch_ohlc(universe)
-    bought = []
+    out = []
     for yfsym, (closes, lows, price) in ohlc.items():
         if not ts.can_open(open_count):
             break
@@ -138,17 +134,17 @@ def _run_buys(market, dry_run, round_id) -> list:
             continue
         strat = ts.MOMENTUM if ts.MOMENTUM in fired else ts.MEANREV   # 겹치면 모멘텀 우선
         code = yfsym.split(".")[0] if mkt == "KRX" else yfsym
-        stop = ts.momentum_stop(lows) if strat == ts.MOMENTUM else None
-        tag = _BOT[strat]
+        bot = _BOT[strat]
+        if strat == ts.MOMENTUM:
+            stop = ts.momentum_stop(lows)
+            detail = f"MACD GC·RSI {ts.rsi(closes) or 0:.0f}·손절 {_pct(stop, price):+.0f}%"
+        else:
+            stop, detail = None, "볼린저 하단복귀"
         if dry_run:
-            bought.append(f"[DRY] {code} 매수신호 · {tag} · ${price:,.2f}"
-                          + (f" (손절 {stop:,.2f})" if stop else ""))
-            open_count += 1
-            continue
+            out.append((bot, f"{code} 매수(DRY) — {detail}")); open_count += 1; continue
         if capital < amount:
             break
-        pos_id, err = buy_shared_position(code, code, price, amount,
-                                          f"{tag}: 규칙 신호 진입", mkt, ACCOUNT)
+        pos_id, err = buy_shared_position(code, code, price, amount, f"{bot}: {detail}", mkt, ACCOUNT)
         if err:
             logger.info(f"매수 skip {code}: {err}")
             continue
@@ -157,29 +153,26 @@ def _run_buys(market, dry_run, round_id) -> list:
                         (strat, stop, pos_id))
         capital -= amount
         open_count += 1
-        bought.append(f"{code} 매수 · {tag} · 진입 {price:,.2f}"
-                      + (f" · 손절 {stop:,.2f}" if stop else ""))
-    if bought:
-        _log(round_id, "🟢 트레이딩 진입\n" + "\n".join(f"• {b}" for b in bought))
-    return bought
+        out.append((bot, f"{code} 매수 — {detail}"))
+    return out
 
 
 def run_trading_cycle(market, dry_run: bool = False):
-    """서브 사이클 진입점: 청산 먼저, 그 다음 진입 스캔."""
+    """서브 사이클: 청산 먼저 → 진입 스캔. 표현 = 봇별 한 줄 템플릿.
+    신호(매매) 없으면 무발화(피드에 아무것도 안 남김)."""
     mkt = _norm(market)
     label = "미국" if mkt == "US" else "한국"
-    prefix = "[DRY] " if dry_run else ""
-    round_id = create_round(f"{prefix}{label} 트레이딩 규칙엔진 스캔")
-    _log(round_id, f"⚙️ {label} 트레이딩 계좌 규칙엔진 실행 "
-                   f"(차트천재=모멘텀 / 역추세봇=볼린저, 유니버스 {len(load_universe(market))}종목)")
-    try:
-        sold = _run_exits(market, dry_run, round_id)
-        bought = _run_buys(market, dry_run, round_id)
-        if not sold and not bought:
-            _log(round_id, "신호 없음 — 청산·진입 모두 해당 없음")
-    finally:
-        complete_round(round_id)
-    if not dry_run and (sold or bought):
-        notify(f"⚙️ {label} 트레이딩 규칙엔진",
-               f"진입 {len(bought)} · 청산 {len(sold)}", priority="default", cooldown=0)
+    lines = _run_exits(market, dry_run) + _run_buys(market, dry_run)
+    if not lines:
+        logger.info(f"{label} 트레이딩 규칙엔진: 신호 없음 — 무발화")
+        return {"sold": [], "bought": []}
+    round_id = create_round(f"{label} 트레이딩 규칙엔진")
+    for bot, content in lines:
+        save_message(round_id, bot, "", content)   # "차트천재: NVDA 매수 — …" 한 줄
+    complete_round(round_id)
+    sold = [c for b, c in lines if "매도" in c]
+    bought = [c for b, c in lines if "매수" in c]
+    if not dry_run:
+        notify(f"⚙️ {label} 트레이딩", f"진입 {len(bought)}·청산 {len(sold)}",
+               priority="default", cooldown=0)
     return {"sold": sold, "bought": bought}
