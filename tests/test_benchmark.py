@@ -1,0 +1,46 @@
+"""지수 벤치마크 정규화 검증 — 명세 §5 (같은 baseline 누적%, 절대레벨 안 섞음)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import benchmark as bm
+
+
+def test_cum_is_relative_percent():
+    assert bm._cum({"qqq": 100}, {"qqq": 110}, "qqq") == 10.0     # 절대레벨 110 아님, +10%
+    assert bm._cum({"qqq": 200}, {"qqq": 180}, "qqq") == -10.0
+
+def test_cum_none_when_missing_or_zero_base():
+    assert bm._cum({"qqq": None}, {"qqq": 110}, "qqq") is None
+    assert bm._cum({"qqq": 0}, {"qqq": 110}, "qqq") is None
+    assert bm._cum({"qqq": 100}, {"qqq": None}, "qqq") is None
+
+def test_compute_normalizes_each_series_from_baseline(monkeypatch):
+    snaps = [
+        {"date": "2026-07-01", "bot_nav": 100_000_000, "qqq": 500, "schd": 27, "kospi": 2600, "kosdaq": 900},
+        {"date": "2026-07-09", "bot_nav": 102_000_000, "qqq": 525, "schd": 27.5, "kospi": 2626, "kosdaq": 882},
+    ]
+    monkeypatch.setattr(bm.db, "get_benchmark_snapshots", lambda: snaps)
+    r = bm.compute_benchmark()
+    assert r["available"] and r["baseline_date"] == "2026-07-01" and r["days"] == 2
+    assert r["bot"] == 2.0        # 1억→1.02억
+    assert r["qqq"] == 5.0        # 500→525
+    assert r["kospi"] == 1.0
+    assert r["kosdaq"] == -2.0
+    # 절대레벨 안 섞음: bot은 %(2.0)이지 NAV(1.02억)가 아니다 — 지수와 같은 축(%)으로 비교
+    assert r["bot"] < 100 and r["qqq"] < 100
+
+def test_compute_empty_when_no_snapshot(monkeypatch):
+    monkeypatch.setattr(bm.db, "get_benchmark_snapshots", lambda: [])
+    assert bm.compute_benchmark() == {"available": False}
+
+def test_compute_marks_missing_index_none(monkeypatch):
+    snaps = [
+        {"date": "a", "bot_nav": 100, "qqq": None, "schd": 10, "kospi": 100, "kosdaq": 100},
+        {"date": "b", "bot_nav": 110, "qqq": 50, "schd": 11, "kospi": 100, "kosdaq": 100},
+    ]
+    monkeypatch.setattr(bm.db, "get_benchmark_snapshots", lambda: snaps)
+    r = bm.compute_benchmark()
+    assert r["qqq"] is None          # baseline 결측 → 데이터 없음(가짜 금지)
+    assert r["bot"] == 10.0 and r["schd"] == 10.0 and r["kospi"] == 0.0

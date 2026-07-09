@@ -615,6 +615,13 @@ def api_positions():
     return get_all_positions(50)
 
 
+@app.get("/api/benchmark")
+def api_benchmark():
+    """봇 합산 누적수익 vs 지수(QQQ·SCHD·코스피·코스닥) — 같은 baseline 정규화. 실데이터만."""
+    import benchmark
+    return benchmark.compute_benchmark()
+
+
 @app.get("/api/buy-debate")
 def api_buy_debate(pos_id: int):
     """포지션 매수 직전 봇 토론 전체 (라운드 메시지). 옛 봇 이름은 새 이름으로 치환."""
