@@ -20,14 +20,14 @@ def start_scheduler():
     scheduler.add_job(reset_us_cycle,
                       CronTrigger(hour=18, minute=0, day_of_week='mon-fri'),
                       id="main_cycle_us", misfire_grace_time=300)
-    # ── 서브 사이클 (워치리스트) — KST 기준 ──────────────
-    # 12시: 국장 워치리스트 (국장 메인 cycle_rest 이후)
+    # ── 서브 사이클 (트레이딩 규칙엔진) — '개장 직후' (§6-B: 전일 완성 일봉 신호·당일 시가 체결) ──
+    # 국장 개장 직후: 09:05 KST (개장 09:00)
     scheduler.add_job(run_watchlist_kr,
-                      CronTrigger(hour=12, minute=0, day_of_week='mon-fri'),
+                      CronTrigger(hour=9, minute=5, day_of_week='mon-fri'),
                       id="sub_cycle_kr", misfire_grace_time=600)
-    # 0시: 미장 워치리스트 (화·수·목·금만 — 월요일 0시는 6시 메인 직전이라 제외)
+    # 미장 개장 직후: 09:35 America/New_York (개장 09:30 ET) — 서머타임 자동(=22:35~23:35 KST)
     scheduler.add_job(run_watchlist_us,
-                      CronTrigger(hour=0, minute=0, day_of_week='tue,wed,thu,fri'),
+                      CronTrigger(hour=9, minute=35, day_of_week='mon-fri', timezone='America/New_York'),
                       id="sub_cycle_us", misfire_grace_time=600)
     # 18시 워치리스트는 폐지 (18시는 미장 메인 사이클이 차지).
     # 손절 체크(-20% 자동 매도)·보유 종목 점검은 각 메인 사이클 완료 직후 해당 시장만 자동 트리거
