@@ -165,3 +165,10 @@ def test_display_name_label():
     assert te.display_name("NVDA", "US") == "NVDA"     # US=티커 그대로
     te._name_cache["005930"] = "삼성전자"
     assert te.display_name("005930", "KRX") == "삼성전자"  # KR=한글명(캐시)
+
+def test_signal_exec_prev_bar_today_open():
+    # §6-B: 마지막 봉이 오늘(미완성)이면 신호=어제까지, 체결=오늘 시가
+    import trading_engine as te
+    e = {"c": [1, 2, 3, 4], "l": [1, 1, 1, 1], "o": [9, 9, 9, 99], "d": "2026-07-09"}
+    assert te._signal_exec(e, "2026-07-09") == ([1, 2, 3], [1, 1, 1], 99)  # 전일 신호·당일 시가
+    assert te._signal_exec(e, "2026-07-10") == ([1, 2, 3, 4], [1, 1, 1, 1], 4)  # 완성봉

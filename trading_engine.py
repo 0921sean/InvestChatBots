@@ -42,7 +42,7 @@ def _kr_map() -> dict:
 
 
 def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
-    """yfinance 배치 다운로드 → {yfsym: (closes, lows, price)}. 지표에 충분한 봉만."""
+    """yfinance 배치 → {yfsym: {'c':종가,'l':저가,'o':시가,'d':마지막봉 날짜}}. 지표에 충분한 봉만."""
     import yfinance as yf
     out = {}
     for i in range(0, len(symbols), chunk):
@@ -56,24 +56,46 @@ def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
         for s in batch:
             try:
                 sub = df[s] if len(batch) > 1 else df
-                closes = [float(x) for x in sub["Close"].dropna().tolist()]
-                lows = [float(x) for x in sub["Low"].dropna().tolist()]
-                if len(closes) >= ts._MIN_BARS:
-                    out[s] = (closes, lows, closes[-1])
+                sub = sub.dropna(subset=["Close", "Low", "Open"])
+                if len(sub) >= ts._MIN_BARS:
+                    out[s] = {"c": [float(x) for x in sub["Close"]],
+                              "l": [float(x) for x in sub["Low"]],
+                              "o": [float(x) for x in sub["Open"]],
+                              "d": str(sub.index[-1].date())}
             except Exception:
                 continue
     return out
 
 
+def _market_today(market) -> str:
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Seoul" if _norm(market) == "KRX" else "America/New_York")
+        return datetime.now(tz).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def _signal_exec(e: dict, today: str):
+    """§6-B: 전일 완성 일봉 신호 + 당일 시가 체결.
+    마지막 봉이 오늘(미완성)이면 신호=그 앞까지·체결=오늘 시가. 아니면 최신봉 신호·현재가."""
+    c, l, o = e["c"], e["l"], e["o"]
+    if e["d"] == today and len(c) > 1:
+        return c[:-1], l[:-1], o[-1]          # 신호=어제 완성봉까지, 체결=오늘 시가
+    return c, l, c[-1]                         # 오늘 봉 미반영: 최신 완성봉 신호·현재가 근사
+
+
 def fetch_one(code: str, market):
-    """단일 종목 일봉 (closes, lows, price) 또는 None. KR은 .KS→.KQ 폴백."""
+    """단일 종목 (closes, lows, price) 또는 None. KR은 .KS→.KQ 폴백. (위원회 봇용 — 최신봇 기준)"""
     if not code:
         return None
     cands = [code] if _norm(market) == "US" else [f"{code}.KS", f"{code}.KQ"]
     for sym in cands:
         d = _fetch_ohlc([sym])
         if sym in d:
-            return d[sym]
+            e = d[sym]
+            return e["c"], e["l"], e["c"][-1]
     return None
 
 
@@ -111,6 +133,7 @@ def _run_exits(market, dry_run) -> list:
     if not positions:
         return []
     kr_map = _kr_map() if mkt == "KRX" else {}
+    today = _market_today(mkt)
     out = []
     for p in positions:
         code = p["code"] or ""
@@ -118,7 +141,7 @@ def _run_exits(market, dry_run) -> list:
         data = _fetch_ohlc([yfsym])
         if yfsym not in data:
             continue
-        closes, _lows, price = data[yfsym]
+        closes, _lows, price = _signal_exec(data[yfsym], today)   # 전일 완성 신호·당일 시가
         entry = p["entry_price"] or 0
         pnl_pct = _pct(price, entry)
         do_exit, reason = ts.should_exit(p["strategy"] or "", closes, pnl_pct,
@@ -148,8 +171,10 @@ def _run_buys(market, dry_run) -> list:
     capital = get_shared_portfolio(ACCOUNT).get("balance", 0)
     amount = ts.position_amount(TRADING_BALANCE)
     ohlc = _fetch_ohlc(universe)
+    today = _market_today(mkt)
     out = []
-    for yfsym, (closes, lows, price) in ohlc.items():
+    for yfsym, e in ohlc.items():
+        closes, lows, price = _signal_exec(e, today)   # 전일 완성 신호·당일 시가 체결
         if not ts.can_open(open_count):
             break
         fired = ts.scan_entries(closes)
