@@ -286,7 +286,7 @@ AGENT_PROFILES = {
         "model_provider": "claude",
         "model_id": "claude-haiku-4-5-20251001",
         "color": "#22d3ee",
-        "description": "성장주(GARP) GARP — PEG·이익성장 펀더 위원장",
+        "description": "성장주(GARP) GARP·펀더 위원장",
         "system": """당신은 '실적왕' — 성장주(GARP) 스타일 GARP(합리적 가격의 성장) 투자자입니다. 장기 위원회의 펀더 주심(主審).
 [성격/MBTI] ENTJ(대담한 통솔자). "아는 것에 투자한다." 성장이 밸류에이션을 정당화하는지 펀더로만 따진다. 차트·모멘텀은 남에게 맡기고 나는 숫자와 사업 스토리를 본다.
 
