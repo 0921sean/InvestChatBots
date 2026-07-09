@@ -81,6 +81,29 @@ def _pct(a, b):
     return ((a - b) / b * 100) if b else 0.0
 
 
+_name_cache = {}
+
+
+def display_name(code: str, market) -> str:
+    """표시용 종목명 — US=티커 그대로, KR=한글명(네이버, 캐시). 실패 시 코드."""
+    if _norm(market) == "US":
+        return code
+    if code in _name_cache:
+        return _name_cache[code]
+    nm = code
+    try:
+        import json
+        import urllib.request
+        req = urllib.request.Request(f"https://m.stock.naver.com/api/stock/{code}/basic",
+                                     headers={"User-Agent": "Mozilla/5.0"})
+        d = json.loads(urllib.request.urlopen(req, timeout=6).read().decode("utf-8", "ignore"))
+        nm = d.get("stockName") or code
+    except Exception:
+        pass
+    _name_cache[code] = nm
+    return nm
+
+
 # ── 매도(청산) — 연 전략 규칙 + 하드스톱. (봇, 한줄) 리스트 반환 ──
 def _run_exits(market, dry_run) -> list:
     mkt = _norm(market)
@@ -134,6 +157,7 @@ def _run_buys(market, dry_run) -> list:
             continue
         strat = ts.MOMENTUM if ts.MOMENTUM in fired else ts.MEANREV   # 겹치면 모멘텀 우선
         code = yfsym.split(".")[0] if mkt == "KRX" else yfsym
+        name = display_name(code, mkt)   # 표시용 종목명(KR 한글 / US 티커)
         bot = _BOT[strat]
         if strat == ts.MOMENTUM:
             stop = ts.momentum_stop(lows)
@@ -141,10 +165,10 @@ def _run_buys(market, dry_run) -> list:
         else:
             stop, detail = None, "볼린저 하단복귀"
         if dry_run:
-            out.append((bot, f"{code} 매수(DRY) — {detail}")); open_count += 1; continue
+            out.append((bot, f"{name} 매수(DRY) — {detail}")); open_count += 1; continue
         if capital < amount:
             break
-        pos_id, err = buy_shared_position(code, code, price, amount, f"{bot}: {detail}", mkt, ACCOUNT)
+        pos_id, err = buy_shared_position(name, code, price, amount, f"{bot}: {detail}", mkt, ACCOUNT)
         if err:
             logger.info(f"매수 skip {code}: {err}")
             continue
@@ -153,7 +177,7 @@ def _run_buys(market, dry_run) -> list:
                         (strat, stop, pos_id))
         capital -= amount
         open_count += 1
-        out.append((bot, f"{code} 매수 — {detail}"))
+        out.append((bot, f"{name} 매수 — {detail}"))
     return out
 
 
