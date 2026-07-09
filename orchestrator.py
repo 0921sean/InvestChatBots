@@ -1689,12 +1689,12 @@ def run_telegram_watchlist(force: bool = False, market: str = None):
 
 
 def run_watchlist_kr():
-    """스케줄러: 평일 12:00 — 국장 트레이딩 계좌 규칙엔진 스캔."""
+    """스케줄러: 평일 09:05 KST(개장 직후) — 국장 트레이딩 규칙엔진."""
     run_telegram_watchlist(market="KRX")
 
 
 def run_watchlist_us():
-    """스케줄러: 평일 00:00 — 미장 트레이딩 계좌 규칙엔진 스캔."""
+    """스케줄러: 평일 09:35 ET(개장 직후·서머타임) — 미장 트레이딩 규칙엔진."""
     run_telegram_watchlist(market="US")
 
 

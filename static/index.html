@@ -1335,8 +1335,8 @@ async function loadPortfolio() {
 
 // 포트폴리오·Members 공유 데스크 상태 — 하나 전환하면 둘 다 전환
 // 시간 기반 기본 탭 — 트레이딩 사이클 동안에만 트레이딩 우선, 그 외 전부 장기. '로드 시점'에만 결정.
-// 트레이딩 사이클(서브) 시각은 일정표(_nextKstWeekdayAt)와 동일: 국장 12:00 · 미장 00:00 (KST).
-const TRADING_CYCLE_HOURS = [12, 0];
+// 트레이딩 사이클(서브) 시각 = 개장 직후: 국장 09:05 · 미장 ~22:30 (KST, 서머타임 근사).
+const TRADING_CYCLE_HOURS = [9, 22.5];
 const TRADING_WINDOW_HOURS = 2;   // 정각 ~ +2h 동안만 트레이딩 우선
 function _defaultDeskForNow(now) {
   now = now || _kstNow();
@@ -1912,9 +1912,9 @@ function openSchedule() {
       next: _nextKstWeekdayAt(6, 0),
     },
     {
-      key: 'sub_kr', title: '🇰🇷 국장 트레이딩 (워치리스트)', time: '평일 12:00',
-      desc: '네이버 급등·거래량 + 뉴스로 한국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(2,500만)',
-      next: _nextKstWeekdayAt(12, 0),
+      key: 'sub_kr', title: '🇰🇷 국장 트레이딩 (규칙엔진)', time: '평일 09:05 (개장 직후)',
+      desc: '규칙엔진(차트천재 MACD+RSI 모멘텀 · 역추세봇 볼린저)이 유니버스 스캔 → 신호 종목 매수 · 별도 계좌(2,500만) · 전일 완성 일봉 신호·당일 시가 체결',
+      next: _nextKstWeekdayAt(9, 5),
     },
     {
       key: 'main_us', title: '🇺🇸 미장 메인 사이클', time: '평일 18:00',
@@ -1922,9 +1922,9 @@ function openSchedule() {
       next: _nextKstWeekdayAt(18, 0),
     },
     {
-      key: 'sub_us', title: '🇺🇸 미장 트레이딩 (워치리스트)', time: '평일 24:00 (00:00)',
-      desc: '야후 급등·거래량 + 뉴스·어닝(누적)으로 미국 발굴 종목 → 트레이딩 데스크 5봇이 3표(과반) 시 매수 · 별도 계좌(2,500만)',
-      next: _nextKstWeekdayAt(0, 0),
+      key: 'sub_us', title: '🇺🇸 미장 트레이딩 (규칙엔진)', time: '평일 22:30~23:30 (개장 직후·서머타임)',
+      desc: '규칙엔진(차트천재 MACD+RSI 모멘텀 · 역추세봇 볼린저)이 유니버스 스캔 → 신호 종목 매수 · 별도 계좌(2,500만) · 전일 완성 일봉 신호·당일 시가 체결',
+      next: _nextKstWeekdayAt(22, 30),
     },
     {
       key: 'holdings', title: '보유 종목 점검', time: '각 메인 완료 직후 (해당 시장)',
@@ -2413,9 +2413,9 @@ function _nextMainStartMs() {
   return best * 60000;
 }
 function _nextSubStartMs() {
-  // 다음 평일 서브(워치리스트): 12:00(국장) · 24:00=00:00(미장) KST
+  // 다음 평일 서브(규칙엔진): 09:05(국장 개장직후) · 22:30(미장 개장직후, KST 근사)
   const k = _kstNowParts();
-  const slots = [0, 12 * 60];
+  const slots = [9 * 60 + 5, 22 * 60 + 30];
   let best = null;
   for (const sm of slots) {
     let diff = sm - k.minOfDay;
