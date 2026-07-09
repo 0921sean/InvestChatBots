@@ -12,7 +12,8 @@ import logging
 import os
 
 import trading_strategies as ts
-from db import (TRADING_BALANCE, buy_shared_position, sell_shared_position, get_open_positions,
+from db import (TRADING_BALANCE, buy_shared_position, sell_shared_position, sell_partial,
+                get_open_positions,
                 get_shared_portfolio, create_round, complete_round, save_message, _conn)
 from notifier import notify
 
@@ -144,19 +145,29 @@ def _run_exits(market, dry_run) -> list:
         closes, _lows, price = _signal_exec(data[yfsym], today)   # 전일 완성 신호·당일 시가
         entry = p["entry_price"] or 0
         pnl_pct = _pct(price, entry)
-        do_exit, reason = ts.should_exit(p["strategy"] or "", closes, pnl_pct,
-                                         price=price, stop=p["stop_price"], entry=entry)
-        if not do_exit:
-            continue
         bot = _BOT.get(p["strategy"], "규칙")
-        if dry_run:
-            out.append((bot, f"{p['symbol']} 매도(DRY) — {reason}·{pnl_pct:+.1f}%"))
+        # 모멘텀 = v2 관리(절반익절/전량), 그 외 = 전략 규칙 전량 청산
+        if p["strategy"] == ts.MOMENTUM:
+            action, reason = ts.momentum_manage(closes, price, entry, p["stop_price"],
+                                                bool(p["half_exited"]), pnl_pct)
+        else:
+            do_exit, reason = ts.should_exit(p["strategy"] or "", closes, pnl_pct,
+                                             price=price, stop=p["stop_price"], entry=entry)
+            action = "full" if do_exit else "hold"
+        if action == "hold":
             continue
-        pnl, err = sell_shared_position(p["id"], price, f"{bot}: {reason}")
+        verb = "절반익절" if action == "half" else "매도"
+        if dry_run:
+            out.append((bot, f"{p['symbol']} {verb}(DRY) — {reason}·{pnl_pct:+.1f}%"))
+            continue
+        if action == "half":
+            pnl, err = sell_partial(p["id"], 0.5, price, f"{bot}: {reason}")
+        else:
+            pnl, err = sell_shared_position(p["id"], price, f"{bot}: {reason}")
         if err:
             logger.warning(f"청산 실패 {p['symbol']}: {err}")
             continue
-        out.append((bot, f"{p['symbol']} 매도 — {reason}·손익 {pnl:+,.0f}원"))
+        out.append((bot, f"{p['symbol']} {verb} — {reason}·손익 {pnl:+,.0f}원"))
     return out
 
 

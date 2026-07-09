@@ -60,6 +60,7 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN account TEXT DEFAULT 'main'",
             "ALTER TABLE virtual_positions ADD COLUMN strategy TEXT",       # 트레이딩 규칙엔진: momentum/meanrev
             "ALTER TABLE virtual_positions ADD COLUMN stop_price REAL",     # 모멘텀 손절가(진입 시점 최근 저점)
+            "ALTER TABLE virtual_positions ADD COLUMN half_exited INTEGER DEFAULT 0",  # 모멘텀 v2 절반익절 여부
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
         ]:
@@ -661,6 +662,46 @@ def sell_shared_position(pos_id: int, exit_price: float, exit_reasoning: str = "
             WHERE id = ?
         """, (return_amount, amount, pnl, 1 if pnl >= 0 else 0, 1 if pnl < 0 else 0, aid))
 
+        return pnl, None
+
+
+def sell_partial(pos_id: int, fraction: float, exit_price: float, exit_reasoning: str = ""):
+    """포지션의 fraction(0~1)만 부분 청산. 잔량은 유지(half_exited=1). (실현손익, error) 반환.
+    fraction>=1이면 전량 청산으로 위임."""
+    if fraction >= 0.999:
+        return sell_shared_position(pos_id, exit_price, exit_reasoning)
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM virtual_positions WHERE id=?", (pos_id,)).fetchone()
+        if not row:
+            return None, "포지션 없음"
+        row = dict(row)
+        if row["status"] != "open":
+            return None, "이미 청산된 포지션"
+        aid = _acct_id(row.get("account") or "main")
+        entry = row["entry_price"] or 0
+        qty = row["quantity"] or 0
+        amount = row["amount"] or 0
+
+        sold_qty = qty * fraction
+        sold_amount = amount * fraction               # 매도분 원금(원가)
+        pnl = (exit_price - entry) * sold_qty if entry else 0.0
+        return_amount = sold_amount + pnl             # 원금 + 실현손익
+
+        # 포지션 축소(잔량 유지) + 절반익절 플래그
+        con.execute("""
+            UPDATE virtual_positions SET
+                quantity = quantity - ?, amount = amount - ?, half_exited = 1,
+                exit_reasoning = COALESCE(exit_reasoning,'') || ?
+            WHERE id=?
+        """, (round(sold_qty, 4), round(sold_amount, 0), f"[부분청산 {int(fraction*100)}%: {exit_reasoning}] ", pos_id))
+        # 계좌 반영(부분매도는 win/loss 카운트 안 함 — 전량 청산 시 1회 집계)
+        con.execute("""
+            UPDATE shared_portfolio SET
+                balance = balance + ?, invested = MAX(0, invested - ?),
+                total_pnl = total_pnl + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (return_amount, sold_amount, pnl, aid))
         return pnl, None
 
 

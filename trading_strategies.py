@@ -197,6 +197,24 @@ def meanrev_exit_reason(closes: list[float]):
     return None
 
 
+def momentum_manage(closes, price, entry, stop, half_exited, pnl_pct):
+    """§2.3 모멘텀 v2 관리 → (action, 사유). action ∈ 'hold'|'half'|'full'.
+    손절=전량 / 목표(1:2) 도달=절반익절 / 추세이탈(DC·RSI50)=전량 / 절반후 본전=잔량 전량.
+    백테스트 검증본과 동일 규칙. -20% 하드스톱은 전량 최우선."""
+    if pnl_pct is not None and pnl_pct <= HARD_STOP_PCT:
+        return "full", f"-20% 하드스톱 ({pnl_pct:.1f}%)"
+    if stop is not None and price is not None and price <= stop:
+        return "full", "손절(최근 저점)"
+    if (not half_exited and stop is not None and entry is not None and price is not None
+            and price >= momentum_target(entry, stop)):
+        return "half", "목표 1:2 절반 익절"
+    if len(closes) >= _MIN_BARS and momentum_exit(closes):
+        return "full", "추세 이탈(DC·RSI50)"
+    if half_exited and entry is not None and price is not None and price <= entry:
+        return "full", "본전 회귀(잔량 청산)"
+    return "hold", ""
+
+
 def should_exit(strategy: str, closes: list[float], pnl_pct: float,
                 price: float = None, stop: float = None, entry: float = None):
     """(청산여부, 사유). 전량 청산 v1(부분매도 없음). 하드스톱은 전략 무관 최우선.
