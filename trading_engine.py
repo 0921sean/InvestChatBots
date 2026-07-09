@@ -56,7 +56,8 @@ def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
             continue
         for s in batch:
             try:
-                sub = df[s] if len(batch) > 1 else df
+                # group_by='ticker'는 단일 종목도 MultiIndex 컬럼(ticker, field)을 반환 → 레벨로 판정
+                sub = df[s] if getattr(df.columns, "nlevels", 1) > 1 else df
                 sub = sub.dropna(subset=["Close", "Low", "Open"])
                 if len(sub) >= ts._MIN_BARS:
                     out[s] = {"c": [float(x) for x in sub["Close"]],
