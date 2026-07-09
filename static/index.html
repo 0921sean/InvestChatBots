@@ -306,6 +306,13 @@
   .pf-pos { color: #f85149; }  /* 상승·이익 = 빨강 (한국 증권계좌식) */
   .pf-neg { color: #58a6ff; }  /* 하락·손실 = 파랑 */
   .pf-neu { color: #8b949e; }
+  #pf-benchmark { margin-top: 14px; padding-top: 12px; border-top: 1px solid #21262d; }
+  .pf-bm-title { font-size: 11.5px; font-weight: 700; color: #c9d1d9; margin-bottom: 8px; }
+  .pf-bm-sub { font-size: 9.5px; font-weight: 400; color: #6e7681; margin-left: 4px; }
+  .pf-bm-row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; color: #9aa6b2; }
+  .pf-bm-row.strong { font-weight: 700; color: #e6edf3; }
+  .pf-bm-row .pf-pos { color: #f85149; } .pf-bm-row .pf-neg { color: #58a6ff; }
+  .pf-bm-na, .pf-bm-empty { color: #6e7681; font-size: 10px; }
   #pf-positions { flex: 1; overflow-y: auto; }
   .pos-section-label { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #6e7681; text-transform: uppercase; }
   .pos-item { padding: 6px 10px; border-bottom: 1px solid #0d1117; font-size: 11px; }
@@ -747,6 +754,7 @@
     <div class="pf-row"><span class="pf-label">승/패</span><span class="pf-value pf-neu" id="pf-record">—</span></div>
   </div>
   <div id="pf-positions"></div>
+  <div id="pf-benchmark"></div>
 </div>
 
 <div id="donation-modal" onclick="if(event.target===this)closeDonationModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;align-items:center;justify-content:center;padding:20px">
@@ -1341,6 +1349,28 @@ function _defaultDeskForNow(now) {
   return 'main';   // 트레이딩 창 밖은 전부 장기 우선
 }
 window._activeDesk = window._activeDesk || _defaultDeskForNow();  // 'main'(장기) | 'trading'(트레이딩)
+async function loadBenchmark() {
+  const el = document.getElementById('pf-benchmark');
+  if (!el) return;
+  try {
+    const b = await (await fetch('/api/benchmark')).json();
+    if (!b.available) {
+      el.innerHTML = '<div class="pf-bm-title">봇 vs 지수</div><div class="pf-bm-empty">데이터 없음 — 스냅샷 누적 중(첫 가동)</div>';
+      return;
+    }
+    const fmt = v => v == null
+      ? '<span class="pf-bm-na">데이터 없음</span>'
+      : `<span class="${v >= 0 ? 'pf-pos' : 'pf-neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+    const row = (label, v, strong) => `<div class="pf-bm-row${strong ? ' strong' : ''}"><span>${label}</span>${fmt(v)}</div>`;
+    el.innerHTML = `<div class="pf-bm-title">봇 vs 지수 <span class="pf-bm-sub">${b.baseline_date}~ 누적 (${b.days}일)</span></div>`
+      + row('🤖 봇(합산)', b.bot, true)
+      + row('QQQ (나스닥100)', b.qqq)
+      + row('코스피', b.kospi)
+      + row('SCHD (배당·방어)', b.schd)
+      + row('코스닥', b.kosdaq);
+  } catch (e) { console.error('benchmark', e); }
+}
+
 function _acctForDesk(desk) { return desk === 'trading' ? 'sub' : desk === 'all' ? 'combined' : 'main'; }
 function setDesk(desk) {
   window._activeDesk = desk;
@@ -2479,7 +2509,7 @@ function _sendVisitBeacon() {
 
 // 첫 호출은 무조건 whoami 먼저 (다른 콜들이 fetch 가드를 통과하기 위해)
 loadWhoami().then(() => {
-  loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); syncPlayStatus(); loadTokenUsage(); loadChatQueue();
+  loadAgents(); loadMarket(); loadState(); loadConsensus(); loadPortfolio(); loadBenchmark(); syncPlayStatus(); loadTokenUsage(); loadChatQueue();
   initialLoad();
   _sendVisitBeacon();   // owner 여부 확인 후 비콘 (owner면 서버가 제외)
 });
@@ -2490,6 +2520,7 @@ setInterval(loadMarket, 60000);
 setInterval(syncPlayStatus, 5000);
 setInterval(loadConsensus, 20000);
 setInterval(loadPortfolio, 15000);
+setInterval(loadBenchmark, 120000);
 setInterval(loadChatQueue, 7000);
 setInterval(loadTokenUsage, 10000);
 setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인

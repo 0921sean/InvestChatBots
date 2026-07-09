@@ -1590,7 +1590,14 @@ def reset_market_cycle(market: str = "KRX"):
 
 
 def reset_kr_cycle():
-    """스케줄러: 평일 06:00 — 국장 메인 사이클."""
+    """스케줄러: 평일 06:00 — 국장 메인 사이클. 지수 벤치마크 일일 스냅샷도 여기서 점검."""
+    try:
+        from datetime import datetime, timezone, timedelta
+        import benchmark
+        today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+        benchmark.capture_snapshot(today)
+    except Exception as e:
+        logger.warning(f"벤치마크 스냅샷 실패: {e}")
     reset_market_cycle("KRX")
 
 

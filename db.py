@@ -74,6 +74,27 @@ def _migrate():
             pass
 
 
+def save_benchmark_snapshot(date: str, bot_nav, qqq, schd, kospi, kosdaq):
+    """하루 1개 벤치마크 스냅샷(봇 NAV + 지수). 같은 날 재호출은 값 갱신(UPSERT)."""
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO benchmark_daily (date, bot_nav, qqq, schd, kospi, kosdaq)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(date) DO UPDATE SET
+                bot_nav=COALESCE(excluded.bot_nav, bot_nav),
+                qqq=COALESCE(excluded.qqq, qqq), schd=COALESCE(excluded.schd, schd),
+                kospi=COALESCE(excluded.kospi, kospi), kosdaq=COALESCE(excluded.kosdaq, kosdaq)
+        """, (date, bot_nav, qqq, schd, kospi, kosdaq))
+
+
+def get_benchmark_snapshots() -> list:
+    """날짜 오름차순 전체 스냅샷 (baseline=첫, latest=끝)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM benchmark_daily ORDER BY date").fetchall()]
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -123,6 +144,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS benchmark_daily (
+            date TEXT PRIMARY KEY,
+            bot_nav REAL, qqq REAL, schd REAL, kospi REAL, kosdaq REAL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS agent_state (
