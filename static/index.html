@@ -1365,8 +1365,8 @@ async function loadBenchmark() {
     el.innerHTML = `<div class="pf-bm-title">봇 vs 지수 <span class="pf-bm-sub">${b.baseline_date}~ 누적 (${b.days}일)</span></div>`
       + row('🤖 봇(합산)', b.bot, true)
       + row('QQQ (나스닥100)', b.qqq)
-      + row('코스피', b.kospi)
       + row('SCHD (배당·방어)', b.schd)
+      + row('코스피', b.kospi)
       + row('코스닥', b.kosdaq);
   } catch (e) { console.error('benchmark', e); }
 }
