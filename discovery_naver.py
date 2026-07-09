@@ -24,7 +24,8 @@ _EXCLUDE_RE = re.compile(
 
 def _fetch(path: str) -> str:
     req = urllib.request.Request(_BASE + path, headers={"User-Agent": "Mozilla/5.0"})
-    return urllib.request.urlopen(req, timeout=10).read().decode("euc-kr", "ignore")
+    with urllib.request.urlopen(req, timeout=10) as resp:   # 명시적 close(FD 누수 방지)
+        return resp.read().decode("euc-kr", "ignore")
 
 
 def _parse(html: str) -> list[dict]:

@@ -24,7 +24,8 @@ def _scan(market: str, symbolset: str, rng: int = 600) -> list[str]:
         f"https://scanner.tradingview.com/{market}/scan",
         data=json.dumps(body).encode(),
         headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"})
-    r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        r = json.loads(resp.read().decode())
     return [row["d"][0] for row in (r.get("data") or [])]
 
 

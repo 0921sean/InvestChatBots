@@ -62,7 +62,8 @@ def _ntfy(title: str, body: str, priority: str):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=10)
+        with urllib.request.urlopen(req, timeout=10):  # 응답 소켓 즉시 close(FD 누수 방지)
+            pass
     except Exception as e:
         import logging
         logging.getLogger("investchat").warning(f"ntfy 전송 실패: {e}")

@@ -42,12 +42,26 @@ def _kr_map() -> dict:
     return {s.split(".")[0]: s for s in load_universe("KRX")}
 
 
+_ohlc_cache = {}          # yfsym -> (data, ts) — 다운로드 중복 제거(#2)
+_OHLC_TTL = 600           # 10분: 같은 run 내 재사용(당일 시가 불변), run 간엔 재조회
+
+
 def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
-    """yfinance 배치 → {yfsym: {'c':종가,'l':저가,'o':시가,'d':마지막봉 날짜}}. 지표에 충분한 봉만."""
+    """yfinance 배치 → {yfsym: {'c':종가,'l':저가,'o':시가,'d':마지막봉 날짜}}. TTL 캐시로 중복 다운로드 제거."""
+    import time as _t
     import yfinance as yf
-    out = {}
-    for i in range(0, len(symbols), chunk):
-        batch = symbols[i:i + chunk]
+    now = _t.time()
+    if len(_ohlc_cache) > 3000:           # 무한 증가 방지
+        _ohlc_cache.clear()
+    out, need = {}, []
+    for s in symbols:
+        c = _ohlc_cache.get(s)
+        if c and now - c[1] < _OHLC_TTL:
+            out[s] = c[0]                 # 캐시 재사용(다운로드·FD 절약)
+        else:
+            need.append(s)
+    for i in range(0, len(need), chunk):
+        batch = need[i:i + chunk]
         try:
             df = yf.download(batch, period="4mo", interval="1d", group_by="ticker",
                              auto_adjust=True, progress=False, threads=True)
@@ -60,10 +74,12 @@ def _fetch_ohlc(symbols: list[str], chunk: int = 50) -> dict:
                 sub = df[s] if getattr(df.columns, "nlevels", 1) > 1 else df
                 sub = sub.dropna(subset=["Close", "Low", "Open"])
                 if len(sub) >= ts._MIN_BARS:
-                    out[s] = {"c": [float(x) for x in sub["Close"]],
-                              "l": [float(x) for x in sub["Low"]],
-                              "o": [float(x) for x in sub["Open"]],
-                              "d": str(sub.index[-1].date())}
+                    data = {"c": [float(x) for x in sub["Close"]],
+                            "l": [float(x) for x in sub["Low"]],
+                            "o": [float(x) for x in sub["Open"]],
+                            "d": str(sub.index[-1].date())}
+                    out[s] = data
+                    _ohlc_cache[s] = (data, now)
             except Exception:
                 continue
     return out
@@ -120,7 +136,8 @@ def display_name(code: str, market) -> str:
         import urllib.request
         req = urllib.request.Request(f"https://m.stock.naver.com/api/stock/{code}/basic",
                                      headers={"User-Agent": "Mozilla/5.0"})
-        d = json.loads(urllib.request.urlopen(req, timeout=6).read().decode("utf-8", "ignore"))
+        with urllib.request.urlopen(req, timeout=6) as resp:   # 명시적 close(FD 누수 방지)
+            d = json.loads(resp.read().decode("utf-8", "ignore"))
         nm = d.get("stockName") or code
     except Exception:
         pass
