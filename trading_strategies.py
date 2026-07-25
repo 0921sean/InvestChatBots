@@ -15,15 +15,15 @@
 from __future__ import annotations
 
 # ── 파라미터 (명세 오면 여기만 교체) ─────────────────────────
-MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
-RSI_PERIOD = 14
-RSI_MOMENTUM_MIN = 50.0        # 모멘텀 진입 RSI 하한
-BB_PERIOD, BB_STD = 20, 2.0
-MOM_GC_LOOKBACK = 5            # B/C 진입: 최근 골든크로스 인정 봉수
-MOM_STOP_LOOKBACK = 5         # 모멘텀 손절가 = 최근 N봉 저점
-WEIGHT_PCT = 0.12              # 종목당 비중 (§4: 10~20% 범위 내)
-MAX_POSITIONS = 8             # 동시 보유 상한 (§4: 5~10 범위 내)
-HARD_STOP_PCT = -20.0        # 무조건 청산 백스톱 (%)
+# 지표·튜닝 파라미터는 비공개(strategy_private.py). 없으면 example 더미.
+try:
+    from strategy_private import (MACD_FAST, MACD_SLOW, MACD_SIGNAL, RSI_PERIOD,
+        RSI_MOMENTUM_MIN, BB_PERIOD, BB_STD, MOM_GC_LOOKBACK, MOM_STOP_LOOKBACK,
+        WEIGHT_PCT, MAX_POSITIONS, HARD_STOP_PCT)
+except ImportError:
+    from strategy_private_example import (MACD_FAST, MACD_SLOW, MACD_SIGNAL, RSI_PERIOD,
+        RSI_MOMENTUM_MIN, BB_PERIOD, BB_STD, MOM_GC_LOOKBACK, MOM_STOP_LOOKBACK,
+        WEIGHT_PCT, MAX_POSITIONS, HARD_STOP_PCT)
 
 MOMENTUM, MEANREV = "momentum", "meanrev"
 _MIN_BARS = MACD_SLOW + MACD_SIGNAL + 2   # 필요한 최소 종가 개수
