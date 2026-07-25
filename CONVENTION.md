@@ -54,6 +54,14 @@ gh label create "Chore 🧹"    --color CFD3D7 --description "잡일" --force
 - 마일스톤 = 스프린트/릴리스(예: `출시`, `v1.1`) — 이슈 묶기용. 선택.
 - ⚠️ 솔로는 여기까지만. 라벨 체계 과하게 늘리지 말 것.
 
-## CI
+## CI · 자동화
 
-`.github/workflows/ci.yml` — PR·main push마다 `compileall`(문법) + `pytest`(`tests/`) 실행.
+`.github/workflows/`:
+- **ci.yml** — PR·main push마다 `compileall`(문법) + 오프라인 안전 테스트 4종. (통합 테스트는 추후 secrets 워크플로우로 분리)
+- **pr-label.yml** — PR 제목 `[Type]` → 타입 라벨 자동 부여.
+- **issue-label.yml** — 이슈 제목 `[Type]` → 타입 라벨 자동 부여(템플릿 안 거친 이슈까지).
+- **pr-title-lint.yml** — PR 제목이 `[Type] #번호 - 내용` 형식이 아니면 실패(머지 게이트).
+
+repo 설정:
+- **머지 후 작업 브랜치 자동 삭제** ON (`delete_branch_on_merge`). 브랜치 목록이 안 쌓인다.
+- PR 본문 `Resolved: #번호` → 머지 시 이슈 자동 종료.
