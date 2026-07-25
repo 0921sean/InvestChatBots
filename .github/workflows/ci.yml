@@ -24,9 +24,18 @@ jobs:
       - name: Syntax check (compileall)
         run: python -m compileall -q .
 
+      - name: Init throwaway DB
+        # 라이브 investchat.db는 gitignore라 CI에 없음. orchestrator import 시
+        # cycle_state를 읽으므로 빈 스키마 DB를 만들어 DB_PATH로 물린다.
+        env:
+          DB_PATH: ci.db
+        run: python -c "from db import init_db; init_db()"
+
       - name: Run offline-safe tests
-        # 네트워크/API키/DB 없이 도는 유닛 테스트만. 통합 테스트(test_fetchers,
+        # 네트워크/API키 없이 도는 유닛 테스트만. 통합 테스트(test_fetchers,
         # test_orchestrator 등)는 나중에 secrets 붙인 별도 워크플로우로 분리.
+        env:
+          DB_PATH: ci.db
         run: >
           pytest -q
           tests/test_db.py
