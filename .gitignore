@@ -9,3 +9,8 @@ venv/
 .gstack/
 *.session
 static/debates/
+
+# 비공개 전략 (앞으로 GitHub 미노출)
+strategy_private.py
+prompts_5bots_backup.py
+prompts_8bots_backup.py
