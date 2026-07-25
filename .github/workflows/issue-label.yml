@@ -1,0 +1,38 @@
+name: Issue Label
+
+# 이슈 제목의 [Type] 접두사를 읽어 매칭 타입 라벨을 자동 부여.
+# (템플릿 frontmatter가 안 걸리는 CLI·빈 이슈까지 커버 — pr-label.yml의 이슈 버전)
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply type label from title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.issue.title }}
+          NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          type=$(echo "$TITLE" | sed -n 's/^\[\([A-Za-z]*\)\].*/\1/p')
+          case "$type" in
+            Feat)     label="Feat 💻";;
+            Fix)      label="Fix 🐛";;
+            Hotfix)   label="Hotfix 🚨";;
+            Refactor) label="Refactor ♻️";;
+            Design)   label="Design 🎨";;
+            Setting)  label="Setting ⚙️";;
+            Docs)     label="Docs 📝";;
+            Test)     label="Test 🧪";;
+            Chore)    label="Chore 🧹";;
+            *) echo "제목에서 Type을 못 찾음: '$type' — 라벨 미부여"; exit 0;;
+          esac
+          gh issue edit "$NUM" --repo "$REPO" --add-label "$label"

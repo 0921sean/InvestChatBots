@@ -1,0 +1,38 @@
+name: PR Label
+
+# PR 제목의 [Type] 접두사를 읽어 매칭 타입 라벨을 자동으로 단다.
+# 컨벤션: 제목 = "[Type] #번호 - 내용" (Type = Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore)
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply type label from title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.pull_request.title }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          type=$(echo "$TITLE" | sed -n 's/^\[\([A-Za-z]*\)\].*/\1/p')
+          case "$type" in
+            Feat)     label="Feat 💻";;
+            Fix)      label="Fix 🐛";;
+            Hotfix)   label="Hotfix 🚨";;
+            Refactor) label="Refactor ♻️";;
+            Design)   label="Design 🎨";;
+            Setting)  label="Setting ⚙️";;
+            Docs)     label="Docs 📝";;
+            Test)     label="Test 🧪";;
+            Chore)    label="Chore 🧹";;
+            *) echo "제목에서 Type을 못 찾음: '$type' — 라벨 미부여"; exit 0;;
+          esac
+          gh pr edit "$PR" --repo "$REPO" --add-label "$label"
