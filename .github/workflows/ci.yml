@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check (compileall)
+        run: python -m compileall -q .
+
+      - name: Init throwaway DB
+        # 라이브 investchat.db는 gitignore라 CI에 없음. orchestrator import 시
+        # cycle_state를 읽으므로 빈 스키마 DB를 만들어 DB_PATH로 물린다.
+        env:
+          DB_PATH: ci.db
+        run: python -c "from db import init_db; init_db()"
+
+      - name: Run offline-safe tests
+        # 네트워크/API키 없이 도는 유닛 테스트만. 통합 테스트(test_fetchers,
+        # test_orchestrator 등)는 나중에 secrets 붙인 별도 워크플로우로 분리.
+        env:
+          DB_PATH: ci.db
+        run: >
+          pytest -q
+          tests/test_db.py
+          tests/test_chat_queue.py
+          tests/test_output_schema.py
+          tests/test_chat_guardrail.py
