@@ -173,10 +173,10 @@ def test_position_amount_is_weight_of_capital():
     assert ts.position_amount(25_000_000) == 25_000_000 * ts.WEIGHT_PCT
 
 def test_weight_within_spec_range():
-    assert 0.10 <= ts.WEIGHT_PCT <= 0.20            # §4: 종목당 10~20%
+    assert 0.02 <= ts.WEIGHT_PCT <= 0.20            # 2026-07-27 하한 2%로 확장(포텐셜 테스트, 300만/1억=3%)
 
 def test_max_positions_within_spec_range():
-    assert 5 <= ts.MAX_POSITIONS <= 10             # §4: 동시 5~10
+    assert 5 <= ts.MAX_POSITIONS <= 40             # 2026-07-27 상한 40으로 확장(1억÷300만≈33)
 
 def test_can_open_respects_cap():
     assert ts.can_open(ts.MAX_POSITIONS - 1) is True
@@ -185,8 +185,9 @@ def test_can_open_respects_cap():
 def test_engine_buy_amount_resolves():
     # 회귀: 엔진이 ts.TRADING_BALANCE(존재X)를 참조하던 크래시 버그 방지
     import trading_engine as te
-    assert te.TRADING_BALANCE == 25_000_000
-    assert ts.position_amount(te.TRADING_BALANCE) == 3_000_000   # 25M × 12%
+    assert te.TRADING_BALANCE == 100_000_000   # 2026-07-27 증액
+    # position_amount는 WEIGHT_PCT 출처(private/example)에 따라 달라지므로 상대식으로 검증
+    assert ts.position_amount(te.TRADING_BALANCE) == te.TRADING_BALANCE * ts.WEIGHT_PCT
 
 def test_display_name_label():
     import trading_engine as te
