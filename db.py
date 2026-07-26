@@ -4,7 +4,7 @@ import os
 TOTAL_BALANCE = 100_000_000    # (레거시) 초기 총액 기준값 — 2026-07-27 두 계좌 독립 운용으로 '총액 통일' 폐기
 LONG_RATIO = 0.75              # 장기 시드 비율 (INITIAL_BALANCE 산출용)
 INITIAL_BALANCE = int(TOTAL_BALANCE * LONG_RATIO)     # 장기(메인) 시드 = 7,500만 (불변)
-TRADING_BALANCE = 100_000_000  # 트레이딩(서브) 시드 = 1억 (2026-07-27 증액: 전략 포텐셜 테스트, MAX_POSITIONS 33과 세트) → 총 시스템 1.75억
+TRADING_BALANCE = 100_000_000  # 트레이딩(서브) 시드 = 1억 (2026-07-27 증액: 전략 포텐셜 테스트용) → 총 시스템 1.75억. 비중·보유상한 등 튜닝값은 strategy_private.py
 
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
 _ACCT_ID = {"main": 1, "sub": 2}
