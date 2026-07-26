@@ -27,14 +27,31 @@ def _norm(market) -> str:
     return "US" if (market or "").upper() in ("US", "USD") else "KRX"
 
 
+# 공급망 병목 시드(비공개) — 미장 유니버스에 병합. 실제 종목은 strategy_private.py(gitignore).
+try:
+    from strategy_private import US_BOTTLENECK_SEED
+except ImportError:
+    try:
+        from strategy_private_example import US_BOTTLENECK_SEED
+    except ImportError:
+        US_BOTTLENECK_SEED = []
+
+
 def load_universe(market) -> list[str]:
     fn = "universe_us.txt" if _norm(market) == "US" else "universe_kr.txt"
     try:
         with open(os.path.join(_DIR, fn)) as f:
-            return [ln.strip() for ln in f if ln.strip()]
+            syms = [ln.strip() for ln in f if ln.strip()]
     except Exception as e:
         logger.warning(f"유니버스 로드 실패({fn}): {e}")
-        return []
+        syms = []
+    # 미장만: 비공개 병목 시드 병합(중복 제거·순서 보존). 규칙엔진이 병목주도 스캔.
+    if _norm(market) == "US" and US_BOTTLENECK_SEED:
+        have = set(syms)
+        for s in US_BOTTLENECK_SEED:
+            if s and s not in have:
+                syms.append(s); have.add(s)
+    return syms
 
 
 def _kr_map() -> dict:
