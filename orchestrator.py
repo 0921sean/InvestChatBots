@@ -1592,6 +1592,11 @@ def is_main_disabled() -> bool:
 
 
 # ── 시장별 리셋 (스케줄러가 06시=국장 / 18시=미장 호출) ────────────
+# 국장(KR) 사이클 임시 off 토글 (2026-07-27, US-only 집중 실험). 재개: True로 바꾸고 서버 재시작.
+# ⚠️ run_round의 'hour<6 & KRX' §4 가드와는 별개 — 그건 그대로 둔다.
+KR_CYCLE_ENABLED = False
+
+
 def reset_market_cycle(market: str = "KRX"):
     """평일 06:00(KRX) / 18:00(US) 스케줄러가 호출 — 해당 시장 사이클 리셋 + 시작 안내."""
     market = _norm_market(market)
@@ -1660,6 +1665,9 @@ def reset_kr_cycle():
         benchmark.capture_snapshot(today)
     except Exception as e:
         logger.warning(f"벤치마크 스냅샷 실패: {e}")
+    if not KR_CYCLE_ENABLED:
+        logger.info("국장 사이클 비활성(KR_CYCLE_ENABLED=False) — 벤치마크만, 사이클 스킵")
+        return
     reset_market_cycle("KRX")
 
 
@@ -1720,6 +1728,9 @@ def run_telegram_watchlist(force: bool = False, market: str = None):
 
 def run_watchlist_kr():
     """스케줄러: 평일 09:05 KST(개장 직후) — 국장 트레이딩 규칙엔진."""
+    if not KR_CYCLE_ENABLED:
+        logger.info("국장 서브 사이클 비활성(KR_CYCLE_ENABLED=False) — 스킵")
+        return
     run_telegram_watchlist(market="KRX")
 
 
