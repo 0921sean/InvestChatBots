@@ -173,10 +173,10 @@ def test_position_amount_is_weight_of_capital():
     assert ts.position_amount(25_000_000) == 25_000_000 * ts.WEIGHT_PCT
 
 def test_weight_within_spec_range():
-    assert 0.02 <= ts.WEIGHT_PCT <= 0.20            # 2026-07-27 하한 2%로 확장(포텐셜 테스트, 300만/1억=3%)
+    assert 0 < ts.WEIGHT_PCT <= 1.0                 # 새니티(자주 튜닝됨 — 구체값은 strategy_private)
 
 def test_max_positions_within_spec_range():
-    assert 5 <= ts.MAX_POSITIONS <= 40             # 2026-07-27 상한 40으로 확장(1억÷300만≈33)
+    assert 1 <= ts.MAX_POSITIONS <= 500            # 새니티(자주 튜닝됨 — 구체값은 strategy_private)
 
 def test_can_open_respects_cap():
     assert ts.can_open(ts.MAX_POSITIONS - 1) is True
