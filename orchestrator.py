@@ -240,6 +240,79 @@ SECTORS = [
             {"name": "컴캐스트",  "code": "CMCSA", "yf": "CMCSA", "market": "US", "exchange": "NASDAQ"},
         ],
     },
+    # ── US 섹터 확장 (2026-07-27, US-only 집중 + 공급망 병목 테마) ──
+    {
+        "name": "미국 광통신·옵티컬",
+        "description": "옵티컬 트랜시버·광부품 (AI 인프라 병목)",
+        "stocks": [
+            {"name": "코히런트",  "code": "COHR", "yf": "COHR", "market": "US", "exchange": "NYSE"},
+            {"name": "루멘텀",    "code": "LITE", "yf": "LITE", "market": "US", "exchange": "NASDAQ"},
+            {"name": "AOI",       "code": "AAOI", "yf": "AAOI", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 전력·데이터센터 인프라",
+        "description": "데이터센터 전력·냉각·전력설비 (AI 인프라 병목)",
+        "stocks": [
+            {"name": "버티브",    "code": "VRT", "yf": "VRT", "market": "US", "exchange": "NYSE"},
+            {"name": "이튼",      "code": "ETN", "yf": "ETN", "market": "US", "exchange": "NYSE"},
+            {"name": "콴타서비스", "code": "PWR", "yf": "PWR", "market": "US", "exchange": "NYSE"},
+        ],
+    },
+    {
+        "name": "미국 스토리지·메모리",
+        "description": "HBM·메모리·스토리지 (AI 인프라 병목)",
+        "stocks": [
+            {"name": "마이크론",     "code": "MU",  "yf": "MU",  "market": "US", "exchange": "NASDAQ"},
+            {"name": "웨스턴디지털", "code": "WDC", "yf": "WDC", "market": "US", "exchange": "NASDAQ"},
+            {"name": "씨게이트",     "code": "STX", "yf": "STX", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 클라우드·SaaS",
+        "description": "엔터프라이즈 SaaS·데이터 플랫폼",
+        "stocks": [
+            {"name": "서비스나우",     "code": "NOW",  "yf": "NOW",  "market": "US", "exchange": "NYSE"},
+            {"name": "스노우플레이크", "code": "SNOW", "yf": "SNOW", "market": "US", "exchange": "NYSE"},
+            {"name": "데이터독",       "code": "DDOG", "yf": "DDOG", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 사이버보안",
+        "description": "차세대 보안·엔드포인트·클라우드 보안",
+        "stocks": [
+            {"name": "팔로알토",         "code": "PANW", "yf": "PANW", "market": "US", "exchange": "NASDAQ"},
+            {"name": "크라우드스트라이크", "code": "CRWD", "yf": "CRWD", "market": "US", "exchange": "NASDAQ"},
+            {"name": "지스케일러",       "code": "ZS",   "yf": "ZS",   "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 핀테크·결제",
+        "description": "결제 네트워크·핀테크·크립토",
+        "stocks": [
+            {"name": "마스터카드", "code": "MA",   "yf": "MA",   "market": "US", "exchange": "NYSE"},
+            {"name": "페이팔",    "code": "PYPL", "yf": "PYPL", "market": "US", "exchange": "NASDAQ"},
+            {"name": "코인베이스", "code": "COIN", "yf": "COIN", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 바이오테크·유전자",
+        "description": "바이오테크·유전자치료·mRNA",
+        "stocks": [
+            {"name": "버텍스",   "code": "VRTX", "yf": "VRTX", "market": "US", "exchange": "NASDAQ"},
+            {"name": "크리스퍼", "code": "CRSP", "yf": "CRSP", "market": "US", "exchange": "NASDAQ"},
+            {"name": "모더나",   "code": "MRNA", "yf": "MRNA", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
+    {
+        "name": "미국 우주·양자·로보틱스",
+        "description": "우주·위성·양자컴퓨팅·로보틱스 (꿈주)",
+        "stocks": [
+            {"name": "로켓랩",         "code": "RKLB", "yf": "RKLB", "market": "US", "exchange": "NASDAQ"},
+            {"name": "아이온큐",       "code": "IONQ", "yf": "IONQ", "market": "US", "exchange": "NYSE"},
+            {"name": "인튜이티브서지컬", "code": "ISRG", "yf": "ISRG", "market": "US", "exchange": "NASDAQ"},
+        ],
+    },
 ]
 
 # ── 라운드 설정 ──────────────────────────────────────────
