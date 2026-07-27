@@ -330,11 +330,11 @@ BUY_MAJORITY = 3               # 장기 위원회 5봇 중 과반(조절 가능 
 SELL_MAJORITY = 3              # 매도 과반 (5봇 중 3). 실적왕 thesis 훼손은 단독 트리거(별도)
 INITIAL_CAPITAL = 75_000_000  # 장기 매수금액 기준 (계좌 시드 INITIAL_BALANCE=1억과 분리 — 시드 올려도 매수금액 불변)
 
-# 확신도 티어: 매수 투표 수(5봇) → 자본 대비 비중. 장기는 현행 5~15% 유지(§4 10~20%는 트레이딩용)
+# 확신도 티어: 매수 투표 수(5봇) → 플랫 금액(2026-07-27, 1억 계좌). 값 ≥1 = 절대금액.
 BUY_CONVICTION_TIERS = {
-    5: 0.15,   # 만장일치 → 15%
-    4: 0.10,   # 4/5 → 10%
-    3: 0.05,   # 턱걸이(과반) → 5%
+    5: 15_000_000,   # 만장일치 → 1,500만
+    4: 10_000_000,   # 4/5 → 1,000만
+    3: 5_000_000,    # 턱걸이(과반) → 500만
 }
 MARKET_REFRESH_HOURS = 2
 CYCLE_REST_HOURS = 20          # 전 섹터 완료 후 다음 사이클까지 대기
@@ -750,8 +750,8 @@ def _tally_votes(decisions: list[tuple[str, int]],
     buy_votes  = [d for d, _ in decisions if d == "매수"]
     sell_votes = [d for d in (d for d, _ in decisions) if d == "매도"]
     if len(buy_votes) >= buy_majority:
-        pct = tiers.get(len(buy_votes), min(tiers.values()) if tiers else 0.05)
-        amount = capital * pct
+        tval = tiers.get(len(buy_votes), min(tiers.values()) if tiers else 0.05)
+        amount = tval if tval >= 1 else capital * tval   # ≥1=절대금액(장기 플랫 티어) / <1=자본대비 비율(트레이딩)
         return "매수", amount
     if len(sell_votes) >= sell_majority:
         return "매도", 0.0
