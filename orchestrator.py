@@ -246,7 +246,7 @@ SECTORS = [
 SECTOR_DISCUSSION_ROUNDS = 1   # 섹터 토론 라운드 수 (간단하게 1라운드)
 BUY_MAJORITY = 3               # 장기 위원회 5봇 중 과반(조절 가능 상수)
 SELL_MAJORITY = 3              # 매도 과반 (5봇 중 3). 실적왕 thesis 훼손은 단독 트리거(별도)
-INITIAL_CAPITAL = INITIAL_BALANCE  # 초기 자본 (매수 금액 기준) — db 시드와 단일 출처
+INITIAL_CAPITAL = 75_000_000  # 장기 매수금액 기준 (계좌 시드 INITIAL_BALANCE=1억과 분리 — 시드 올려도 매수금액 불변)
 
 # 확신도 티어: 매수 투표 수(5봇) → 자본 대비 비중. 장기는 현행 5~15% 유지(§4 10~20%는 트레이딩용)
 BUY_CONVICTION_TIERS = {
