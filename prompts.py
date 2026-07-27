@@ -158,6 +158,15 @@ def build_user_response_prompt(user_message, history_text, agent_name, stock_con
     return f"""대화 맥락:\n{history_text}{stock_section}\n\n사용자: "{user_message}"\n\n{discussion_etiquette(spoken_names)}\n\n{CHAT_GUARDRAIL}\n\n{agent_name}로서 답변. {format_instruction} 앞 봇과 다른 측면에서. 한국어."""
 
 
+def build_bottleneck_comment_prompt(stock_name: str, market_summary: str) -> str:
+    """공급망 병목 관점 비투표 자문 코멘트용 프롬프트(공개 스캐폴딩 — 전략 관점은 페르소나 system에).
+    [결정] 포맷 없이 관전용 코멘트 2-3문장. 투표 아님."""
+    return (f"방금 위원회가 '{stock_name}'을(를) 논의했다. 시황: {market_summary}\n\n"
+            f"공급망 병목 관점에서 이 종목이 AI 인프라 병목(수혜/무관/피해) 중 어디에 가까운지 "
+            f"2-3문장으로 코멘트해라. [결정] 포맷 쓰지 마라(너는 투표 안 함, 관전 코멘트).\n\n"
+            f"{CHAT_GUARDRAIL}\n\n반드시 한국어. '내 가상계좌 관점' 톤 유지.")
+
+
 # 요약 전용 시스템 프롬프트 — 봇 페르소나 대신 '중립 진행자'로 라우팅(캐릭터 이탈·조언 거부 방지)
 CHAT_SUMMARY_SYSTEM = (
     "너는 가상 투자 토론방의 중립 진행자다. 아래에 이미 나온 봇들의 발언을 사용자에게 "
