@@ -34,7 +34,16 @@ from prompts import (
     build_feedback_prompt,
     build_summarize_prompt,
     build_holdings_review_prompt,
+    build_bottleneck_comment_prompt,
 )
+# 공급망 병목 비투표 자문 봇 이름(비공개). 없으면 example(빈값=비활성)로 폴백.
+try:
+    from strategy_private import BOTTLENECK_ADVISOR_NAME
+except ImportError:
+    try:
+        from strategy_private_example import BOTTLENECK_ADVISOR_NAME
+    except ImportError:
+        BOTTLENECK_ADVISOR_NAME = ""
 from fetchers import (
     fetch_market_data, fetch_news, fetch_technical_analysis,
     build_market_summary, fetch_stock_data, format_stock_data,
@@ -1483,6 +1492,9 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
     _save_msg(round_id, "System",
               f"🗳 투표 결과: {vote_text}\n→ 최종: {final_decision}")
 
+    # 공급망 병목 비투표 자문 코멘트 (미장 종목분석 한정, Phase 2 B1)
+    _maybe_bottleneck_comment(round_id, stock, market_summary)
+
     # 실행
     if final_decision == "매수" and current_price > 0:
         buy_votes = [
@@ -1497,6 +1509,24 @@ def _run_stock_analysis_round(round_id: int, market_summary: str):
         _execute_sell(stock, current_price, sell_reasoning, round_id)
 
     _advance_stock(round_id, sector)
+
+
+# ── 공급망 병목 비투표 자문 코멘트 (Phase 2 B1) ──
+def _maybe_bottleneck_comment(round_id: int, stock: dict, market_summary: str):
+    """미장 종목분석 라운드 뒤 병목 관점 코멘트 1건(비투표). 투표 집계와 무관(명시 호출).
+    가드레일·비용: 미장 한정, 토큰 소진 시 스킵, 페르소나 비활성(빈 이름)이면 스킵."""
+    if _market != "US" or not BOTTLENECK_ADVISOR_NAME:
+        return
+    if BOTTLENECK_ADVISOR_NAME not in AGENT_PROFILES or is_claude_token_exhausted():
+        return
+    try:
+        system = _build_system(BOTTLENECK_ADVISOR_NAME)
+        prompt = build_bottleneck_comment_prompt(stock.get("name", ""), market_summary)
+        resp = call_agent(BOTTLENECK_ADVISOR_NAME, system, prompt)
+        if resp:
+            _save_msg(round_id, BOTTLENECK_ADVISOR_NAME, resp)
+    except Exception as e:
+        logger.debug(f"병목 자문 코멘트 스킵: {e}")
 
 
 # ── 오류 처리 ─────────────────────────────────────────────
