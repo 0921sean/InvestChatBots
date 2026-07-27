@@ -31,7 +31,8 @@ def test_majority_constants():
     import orchestrator as o
     assert o.BUY_MAJORITY == 3 and o.SELL_MAJORITY == 3
     assert set(o.BUY_CONVICTION_TIERS) == {3, 4, 5}
-    assert all(0.05 <= v <= 0.15 for v in o.BUY_CONVICTION_TIERS.values())  # §4: 장기 현행 5~15%
+    # 2026-07-27 플랫 티어(절대금액): 3표=500만 / 4표=1000만 / 5표=1500만
+    assert o.BUY_CONVICTION_TIERS == {3: 5_000_000, 4: 10_000_000, 5: 15_000_000}
 
 def test_tally_buy_needs_majority():
     import orchestrator as o
