@@ -127,3 +127,6 @@ HARD_STOP_PCT = -15.0    # 예시
 
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []
+
+# 병목 자문 봇 — 실제 페르소나는 strategy_private.py. 공개/폴백은 빈 이름(비활성).
+BOTTLENECK_ADVISOR_NAME = ""
