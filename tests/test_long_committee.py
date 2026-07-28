@@ -73,7 +73,7 @@ def test_rule_bot_meanrev_sell(monkeypatch):
 def test_rule_bot_no_data_holds():
     import orchestrator as o
     msg, dec = o._rule_bot_message("차트천재", None, "buy")
-    assert dec == "관망" and "판단 보류" in msg
+    assert dec == "관망" and "[결정] 관망" in msg   # 대화체 전환 후 안정 문구
 
 
 # ── PEG 데이터 주입 (fetchers) ───────────────────────────────
