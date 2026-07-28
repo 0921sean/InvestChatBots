@@ -37,17 +37,43 @@ def select_candidates(universe, cached_codes, catalyst_codes, quota, rng=random)
     return new, catalyst
 
 
-def build_briefing(new, catalyst):
-    """A의 모닝 브리핑 — 봐야 할 것(신규+카탈리스트)만, 이유와 함께. 없으면 조용히 쉼."""
+def _label(code, names):
+    """티커에 회사명 병기 — 'MSTR (MicroStrategy)'. 이름 없으면 티커만."""
+    nm = (names or {}).get(code)
+    return f"{code} ({nm})" if nm and nm != code else code
+
+
+def build_briefing(new, catalyst, names=None):
+    """A의 모닝 브리핑 — 봐야 할 것(신규+카탈리스트)만, 이름·이유와 함께. 없으면 조용히 쉼.
+    names: {code: 회사명} (티커만으론 뭔 회사인지 모르니 병기)."""
     if not new and not catalyst:
         return "오늘은 새로 볼 종목이 없네요. 재료 뜬 것도 없고 — 다들 편히 쉬어요~ 🫡"
     lines = [f"오늘 볼 종목 {len(new) + len(catalyst)}개예요:"]
     for c in catalyst:
-        lines.append(f"· {c} — 어닝/재료 떴어요 🔄 실적 반영 업데이트 필요")
+        lines.append(f"· {_label(c, names)} — 어닝/재료 떴어요 🔄 실적 반영 업데이트 필요")
     for c in new:
-        lines.append(f"· {c} — 신규, 첫 분석")
+        lines.append(f"· {_label(c, names)} — 신규, 첫 분석")
     lines.append("잘 부탁드려요~")
     return "\n".join(lines)
+
+
+# ── 네트워크: 회사명 조회 (이름 캐시) ─────────────────────
+_name_cache = {}
+
+
+def stock_name(code) -> str:
+    """티커 → 회사명(yfinance shortName). 실패 시 티커. 이름은 안 변하니 캐시."""
+    if code in _name_cache:
+        return _name_cache[code]
+    nm = code
+    try:
+        import yfinance as yf
+        info = yf.Ticker(code).info or {}
+        nm = (info.get("shortName") or info.get("displayName") or info.get("longName") or code).strip()
+    except Exception as e:
+        logger.debug(f"이름 조회 실패 {code}: {e}")
+    _name_cache[code] = nm
+    return nm
 
 
 # ── 네트워크: 어닝 카탈리스트 감지 (격리) ──────────────────
@@ -93,4 +119,6 @@ def source_today(market="US", quota=None, rng=random):
         invalidate_thesis(c)
     cached_after = cached - set(catalyst)
     new, cat = select_candidates(universe, cached_after, catalyst, quota, rng)
-    return {"new": new, "catalyst": cat, "briefing": build_briefing(new, cat)}
+    names = {c: stock_name(c) for c in new + cat}   # 티커에 회사명 병기
+    return {"new": new, "catalyst": cat, "names": names,
+            "briefing": build_briefing(new, cat, names)}

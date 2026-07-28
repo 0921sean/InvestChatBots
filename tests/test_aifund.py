@@ -44,6 +44,18 @@ def test_briefing_lists_only_actionable():
     assert "2개" in msg
 
 
+def test_briefing_includes_names():
+    msg = aifund.build_briefing(new=["MSTR"], catalyst=["CRDO"],
+                                names={"MSTR": "MicroStrategy", "CRDO": "Credo Technology"})
+    assert "MSTR (MicroStrategy)" in msg          # 티커+회사명 병기
+    assert "CRDO (Credo Technology)" in msg
+
+
+def test_label_falls_back_to_ticker():
+    assert aifund._label("XYZ", {}) == "XYZ"
+    assert aifund._label("XYZ", {"XYZ": "XYZ"}) == "XYZ"   # 이름==티커면 병기 안 함
+
+
 def test_briefing_empty_day():
     msg = aifund.build_briefing(new=[], catalyst=[])
     assert "없" in msg and "쉬" in msg           # 조용히 쉼
