@@ -231,10 +231,12 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
             ("market_cap", "marketCap"), ("52w_high", "fiftyTwoWeekHigh"),
             ("52w_low", "fiftyTwoWeekLow"), ("revenue", "totalRevenue"),
             ("debt_ratio", "debtToEquity"),
+            ("business_summary", "longBusinessSummary"),  # AI펀드: '꿈꾸는 것' — 새 데스크 프롬프트용(현 committee 미사용)
         ]:
             val = info.get(attr)
             if val is not None and not (isinstance(val, float) and math.isnan(val)):
-                result[key] = val
+                # 사업요약은 길어서 프롬프트 토큰 관리 위해 컷
+                result[key] = val[:600] if key == "business_summary" and isinstance(val, str) else val
                 yf_ok = True
     except Exception as e:
         logger.debug(f"yfinance {yf_ticker}: {e}")
