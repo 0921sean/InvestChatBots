@@ -124,6 +124,7 @@ MOM_STOP_LOOKBACK = 5
 WEIGHT_PCT = 0.10        # 예시
 MAX_POSITIONS = 5        # 예시
 HARD_STOP_PCT = -15.0    # 예시
+ROUND_TRIP_BPS = 10.0    # 백테스트 왕복 거래비용(bp) 예시 — 실제는 strategy_private.py
 
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []

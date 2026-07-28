@@ -14,7 +14,11 @@
 
 지표: 승률·손익비·거래당 기댓값·누적수익·MDD·거래횟수.
 """
+import logging
+
 import trading_strategies as ts
+
+logger = logging.getLogger("investchat.backtest")
 
 # 왕복 비용 (진입, 청산) — 청산에 KR 거래세(~0.18%) 포함
 COST = {"US": (0.0005, 0.0005), "KRX": (0.0005, 0.0023)}
@@ -73,7 +77,7 @@ def backtest_stock(o, strategy, variant, market):
         lb, mb = _bollinger_series(closes)
 
     in_pos = False
-    entry = stop = target = None
+    entry = stop = target = entry_idx = None
     half_done = False
 
     def _gc(t):
@@ -86,7 +90,8 @@ def backtest_stock(o, strategy, variant, market):
         gross = (x_price - e_price) / e_price
         net = gross - ce - cx           # 진입·청산 비용
         trades.append({"ret": net * size, "size": size,
-                       "date": dates[exit_idx] if dates else exit_idx})
+                       "date": dates[exit_idx] if dates else exit_idx,
+                       "entry_date": dates[entry_idx] if dates else entry_idx})  # regime 분해용
 
     for t in range(_WARMUP, n - 1):     # t+1 시가 체결 위해 마지막 봉 제외
         nxt = opens[t + 1]
@@ -102,6 +107,7 @@ def backtest_stock(o, strategy, variant, market):
             if fire:
                 in_pos = True
                 entry = nxt
+                entry_idx = t + 1        # 체결 봉(= 진입일, regime 분해 기준)
                 half_done = False
                 if strategy == "momentum":
                     stop = min(lows[max(0, t - ts.MOM_STOP_LOOKBACK + 1):t + 1])
@@ -155,6 +161,30 @@ def aggregate(trades):
     }
 
 
+# ── 시장 상황(regime) 분류·분해 ──────────────────────────────
+def classify_regime(bench_closes, lookback=63, up=0.05, down=-0.05):
+    """벤치마크 종가 → 각 인덱스 장세 라벨. 최근 lookback봉(≈3개월) 수익률로
+    ≥up '상승' / ≤down '하락' / 그 외 '횡보'. 초기(<lookback)는 '미정'."""
+    out = []
+    for i in range(len(bench_closes)):
+        if i < lookback or bench_closes[i - lookback] == 0:
+            out.append("미정")
+        else:
+            r = bench_closes[i] / bench_closes[i - lookback] - 1
+            out.append("상승" if r >= up else "하락" if r <= down else "횡보")
+    return out
+
+
+def segment_by_regime(trades, regime_by_date):
+    """거래를 '진입일의 장세'로 분류 → 장세별 aggregate. regime_by_date: {date: 라벨}.
+    이게 이 하네스의 핵심 — '어느 장세에서 강한가'를 본다."""
+    buckets = {}
+    for t in trades:
+        lab = regime_by_date.get(str(t.get("entry_date", "")), "미정")
+        buckets.setdefault(lab, []).append(t)
+    return {lab: aggregate(ts) for lab, ts in buckets.items()}
+
+
 # ── 유니버스 실행 + 리포트 ───────────────────────────────────
 import os
 
@@ -199,6 +229,14 @@ def _fetch(symbols, period="6y", chunk=40):
     return out
 
 
+def _fetch_bench(sym, period="6y"):
+    """벤치마크(단일 티커) 일봉 — regime용. _fetch는 다종목 배치라 단일에 취약해서 별도."""
+    import yfinance as yf
+    df = yf.Ticker(sym).history(period=period, interval="1d", auto_adjust=True)
+    return {"close": [float(x) for x in df["Close"]],
+            "dates": [str(d.date()) for d in df.index]}
+
+
 def _slice(o, a, b):
     return {k: v[a:b] for k, v in o.items()}
 
@@ -215,7 +253,15 @@ def run(period="6y"):
         for sym, o in fetched.items():
             data[sym] = (o, market)
 
-    result = {}   # (group,variant) -> {full, is, oos}
+    # 시장 상황(regime) — US 벤치마크 SPY 기준(진입일 장세로 거래 분해)
+    try:
+        b = _fetch_bench("SPY", period)
+        regime_by_date = dict(zip(b["dates"], classify_regime(b["close"])))
+    except Exception as e:
+        logger.warning(f"SPY regime fetch 실패: {e}")
+        regime_by_date = {}
+
+    result = {}   # (group,variant) -> {full, is, oos, regime}
     for group, strat, var, _label in _VARIANTS:
         acc = {"full": [], "is": [], "oos": []}
         for sym, (o, market) in data.items():
@@ -223,7 +269,9 @@ def run(period="6y"):
             half = len(o["close"]) // 2
             acc["is"] += backtest_stock(_slice(o, 0, half), strat, var, market)
             acc["oos"] += backtest_stock(_slice(o, half, len(o["close"])), strat, var, market)
-        result[(strat, var)] = {p: aggregate(t) for p, t in acc.items()}
+        rd = {p: aggregate(t) for p, t in acc.items()}
+        rd["regime"] = segment_by_regime(acc["full"], regime_by_date)   # 장세별 분해
+        result[(strat, var)] = rd
     return counts, result, len(data)
 
 
@@ -242,6 +290,8 @@ def write_report(date_str, path=None):
              f"KR {counts['KRX'][1]}/{counts['KRX'][0]} 종목 (최소 {MIN_BARS}봉 이상, 총 {n_stocks})")
     L.append(f"- 체결: 신호 다음 봉 시가 · 비용 왕복 US {sum(COST['US'])*100:.2f}% / "
              f"KR {sum(COST['KRX'])*100:.2f}%(거래세 포함)")
+    L.append("- 장세(regime): **SPY 최근 63거래일(~3개월) 수익률** ≥+5% 상승 / ≤−5% 하락 / 그 외 횡보. "
+             "거래는 **진입일 장세**로 분류.")
     L.append("- ⚠️ 한계: 유니버스=**현재 지수 구성종목**이라 상폐·편출 미포함 → **생존편향**(무료 소스 한계). "
              "일봉 granularity(장중 미모델). 파라미터 피팅 없음(규칙 고정).")
     L.append("")
@@ -257,6 +307,16 @@ def write_report(date_str, path=None):
         for p, plabel in (("full", "전체"), ("is", "IS(전반)"), ("oos", "OOS(후반)")):
             L.append(f"| {plabel} " + _row(r[p]))
         L.append("")
+        # 장세별 분해 (진입일 SPY 기준) — "어느 장세에서 강한가"
+        reg = r.get("regime", {})
+        if reg:
+            L.append("_장세별 (진입일 SPY 기준)_")
+            L.append("| 장세 | 거래 | 승률 | 손익비 | 거래당기댓값 | 총순P&L(합·1단위) | MDD |")
+            L.append("|---|---|---|---|---|---|---|")
+            for lab in ("상승", "횡보", "하락", "미정"):
+                if lab in reg:
+                    L.append(f"| {lab} " + _row(reg[lab]))
+            L.append("")
     # 검증 판정: 전체+OOS 기댓값>0
     L.append("## 검증 판정 (라이브 반영 권고)")
     for group, strat, var, label in _VARIANTS:
