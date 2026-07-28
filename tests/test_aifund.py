@@ -29,6 +29,23 @@ def test_catalyst_prioritized_and_counts_toward_quota():
     assert not (set(new) & cached)
 
 
+def test_catalyst_hard_capped_at_quota():
+    # 어닝 몰린 날: 카탈리스트 15개여도 하루 상한(10) 초과 안 함, 신규는 0
+    universe = [f"S{i}" for i in range(100)]
+    cached = {f"S{i}" for i in range(20)}
+    cats = [f"S{i}" for i in range(15)]
+    new, cat = aifund.select_candidates(universe, cached, cats, quota=10, rng=random.Random(1))
+    assert len(cat) == 10 and new == []
+
+
+def test_no_dup_between_new_and_catalyst():
+    universe = [f"S{i}" for i in range(30)]
+    cached = {"S0", "S1", "S2"}
+    new, cat = aifund.select_candidates(universe, cached, ["S0", "S1"], quota=10, rng=random.Random(3))
+    assert not (set(new) & set(cat))          # 카탈리스트가 신규로 새지 않음
+    assert set(cat) == {"S0", "S1"} and not (set(new) & cached)
+
+
 def test_catalyst_only_if_cached():
     # 캐시에 없는 코드는 카탈리스트로 안 침(의미 없음)
     new, cat = aifund.select_candidates(["A", "B", "C"], cached_codes=set(),
