@@ -12,6 +12,11 @@ from datetime import datetime, timezone, timedelta
 
 from db import get_cached_codes, get_thesis, invalidate_thesis
 
+try:                                                   # 손절 임계값은 튜닝값(비공개)
+    from strategy_private import FUND_STOP_PCT
+except ImportError:
+    from strategy_private_example import FUND_STOP_PCT
+
 logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
@@ -193,3 +198,47 @@ def analyze_candidate(code, name, yf_ticker, market="US"):
         verdicts[bot] = v
     approved = any(v == "매수" for v in verdicts.values())
     return {"code": code, "name": name, "verdicts": verdicts, "approved": approved}
+
+
+# ── T 하드 스탑로스 (룰엔진 — LLM 없음, 급락 안전망) ──────────
+def stops_to_execute(positions, prices, stop_pct=None):
+    """손절 대상 판정 (순수 함수 — 네트워크 X).
+    positions: [{'id','symbol','code','entry_price',...}] (get_open_positions 형식)
+    prices: {code: 현재가}. stop_pct: 손절 비율(음수, 예 -0.22). None이면 FUND_STOP_PCT.
+    반환: [{'pos','current','pnl_pct'}] — pnl이 stop_pct 이하로 떨어진 것만."""
+    thr = FUND_STOP_PCT if stop_pct is None else stop_pct
+    hits = []
+    for pos in positions:
+        entry = pos.get("entry_price") or 0
+        current = prices.get(pos.get("code"))
+        if not entry or not current:
+            continue                                   # 데이터 없으면 건너뜀(오판 방지)
+        pnl_pct = (current - entry) / entry
+        if pnl_pct <= thr:
+            hits.append({"pos": pos, "current": current, "pnl_pct": pnl_pct})
+    return hits
+
+
+def run_fund_stops(market="US", account="fund"):
+    """AI펀드 보유 종목 하드 스탑 체크 → 도달분 강제 청산. 논지 주인 재분석과 별개인 안전망.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 매수 실행이 배선된 뒤 스케줄러가 호출."""
+    if not NEW_DESK_ENABLED:
+        return []
+    from db import get_open_positions, sell_shared_position
+    from fetchers import fetch_stock_price
+
+    positions = get_open_positions(market=market, account=account)
+    prices = {}
+    for pos in positions:
+        code = pos.get("code")
+        prices[code] = fetch_stock_price(code if market == "US" else f"{code}.KS")
+    stopped = []
+    for hit in stops_to_execute(positions, prices):
+        pos, current, pnl_pct = hit["pos"], hit["current"], hit["pnl_pct"]
+        reason = (f"T 하드 스탑로스 ({FUND_STOP_PCT * 100:.0f}% 도달) — 안전망 청산\n"
+                  f"진입가 {pos['entry_price']:,.2f} → 현재가 {current:,.2f} ({pnl_pct * 100:.1f}%)")
+        _, err = sell_shared_position(pos["id"], current, exit_reasoning=reason)
+        if not err:
+            stopped.append(pos["symbol"])
+            logger.info(f"[AI펀드] 손절 {pos['symbol']} {pnl_pct * 100:.1f}%")
+    return stopped
