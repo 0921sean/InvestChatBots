@@ -30,9 +30,9 @@ def select_candidates(universe, cached_codes, catalyst_codes, quota, rng=random)
     - new: 아직 안 본 종목에서 남는 분량만큼 랜덤. (필터 없음 = 사각지대 없음)
     반환: (new_list, catalyst_list)"""
     cached = set(cached_codes)
-    catalyst = [c for c in catalyst_codes if c in cached]     # 캐시된 것만 재분석 의미
+    catalyst = [c for c in catalyst_codes if c in cached][:quota]  # 재분석 우선, 하루 상한(quota) 초과분은 다음날
     n_new = max(0, quota - len(catalyst))
-    pool = [c for c in universe if c not in cached]
+    pool = [c for c in universe if c not in cached]                # 이미 본(캐시) 종목 제외 = 신규만
     new = rng.sample(pool, min(n_new, len(pool))) if pool and n_new else []
     return new, catalyst
 
@@ -115,10 +115,9 @@ def source_today(market="US", quota=None, rng=random):
     universe = [s.split(".")[0] for s in load_universe(market)]
     cached = get_cached_codes()
     catalyst = catalyst_codes(cached)
-    for c in catalyst:                     # 재료 뜬 것 캐시 무효화 → 신규 취급되어 재분석
+    new, cat = select_candidates(universe, cached, catalyst, quota, rng)
+    for c in cat:                          # 오늘 선택된 카탈리스트만 무효화(재분석 예정) — 초과분은 캐시 유지→다음날 재출현
         invalidate_thesis(c)
-    cached_after = cached - set(catalyst)
-    new, cat = select_candidates(universe, cached_after, catalyst, quota, rng)
     names = {c: stock_name(c) for c in new + cat}   # 티커에 회사명 병기
     return {"new": new, "catalyst": cat, "names": names,
             "briefing": build_briefing(new, cat, names)}
