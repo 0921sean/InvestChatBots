@@ -44,3 +44,4 @@ jobs:
           tests/test_chat_guardrail.py
           tests/test_thesis_cache.py
           tests/test_aifund.py
+          tests/test_backtest.py

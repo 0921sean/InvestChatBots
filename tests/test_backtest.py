@@ -36,6 +36,41 @@ def test_no_lookahead_fill_next_open():
     # 비용 적용: 순수익 = gross - 왕복비용(0.001). 지어낸 값이 아니라 유한·비용반영
     assert all(isinstance(t["ret"], float) for t in trades)
 
+def test_classify_regime_labels():
+    # 최근 63봉 수익률로 상승/하락/횡보, 초기는 미정
+    up = [100.0] * 63 + [100 * 1.10]      # +10% → 상승
+    assert bt.classify_regime(up)[-1] == "상승"
+    assert bt.classify_regime(up)[0] == "미정"      # lookback 미만
+    down = [100.0] * 63 + [100 * 0.90]    # -10% → 하락
+    assert bt.classify_regime(down)[-1] == "하락"
+    flat = [100.0] * 63 + [100 * 1.01]    # +1% → 횡보
+    assert bt.classify_regime(flat)[-1] == "횡보"
+
+
+def test_segment_by_regime_buckets_by_entry_date():
+    trades = [{"ret": 0.10, "entry_date": "2024-01-02"},
+              {"ret": -0.04, "entry_date": "2024-01-02"},
+              {"ret": 0.06, "entry_date": "2024-06-03"}]
+    regime = {"2024-01-02": "상승", "2024-06-03": "횡보"}
+    seg = bt.segment_by_regime(trades, regime)
+    assert seg["상승"]["n"] == 2 and seg["횡보"]["n"] == 1
+    assert seg["상승"]["win_rate"] == 50.0
+
+
+def test_segment_missing_date_is_미정():
+    seg = bt.segment_by_regime([{"ret": 0.02, "entry_date": "1999-01-01"}], {})
+    assert seg["미정"]["n"] == 1
+
+
+def test_trade_carries_entry_date():
+    # 백테스트 트레이드가 regime 분해용 진입일을 담는지
+    c = [100.0] * 310 + [100, 100, 84, 90, 95, 106, 106, 106, 106, 106]
+    d = {"open": list(c), "close": c, "low": list(c),
+         "dates": [f"d{i}" for i in range(len(c))]}
+    trades = bt.backtest_stock(d, "meanrev", "a", "US")
+    assert trades and all("entry_date" in t for t in trades)
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
