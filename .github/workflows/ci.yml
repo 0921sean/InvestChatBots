@@ -42,3 +42,4 @@ jobs:
           tests/test_chat_queue.py
           tests/test_output_schema.py
           tests/test_chat_guardrail.py
+          tests/test_thesis_cache.py
