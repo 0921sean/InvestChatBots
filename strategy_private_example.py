@@ -114,6 +114,13 @@ TRADING_PROFILES = {'추세질주': {'model_provider': 'claude',
          'description': '[비공개]',
          'system': '[비공개 전략 — 실제 프롬프트는 strategy_private.py. 이건 example 더미.]'}}
 
+# ── AI펀드 발굴 3인(P/W/S) — 실제 방법론 프레임워크는 strategy_private.py(비공개) ──
+for _k, _c in (("P", "#5aa9e6"), ("W", "#c9a227"), ("S", "#e08a3c")):
+    AGENT_PROFILES[_k] = {
+        'model_provider': 'claude', 'model_id': 'claude-sonnet-5', 'color': _c,
+        'description': '발굴',
+        'system': '[비공개 전략 — 실제 프롬프트는 strategy_private.py. 이건 example 더미.]'}
+
 # ── 지표·튜닝 파라미터 (예시값 — 실제 튜닝값은 strategy_private.py) ──
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9   # 표준값
 RSI_PERIOD = 14

@@ -121,3 +121,75 @@ def source_today(market="US", quota=None, rng=random):
     names = {c: stock_name(c) for c in new + cat}   # 티커에 회사명 병기
     return {"new": new, "catalyst": cat, "names": names,
             "briefing": build_briefing(new, cat, names)}
+
+
+# ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
+import re                                          # noqa: E402
+
+NEW_DESK_ORDER = ["P", "W", "S"]                   # 발굴 순서(성장주(GARP)·가치·병목)
+_VERDICT_RE = re.compile(r"\[결정\]\s*(매수|관망|매도)")
+
+
+def _extra_fundamentals(data) -> str:
+    """심화 재무(마진·매출성장·FCF) — 새 데스크 패킷 보강. 있는 값만.
+    현 committee의 format_stock_data는 안 건드리고 여기서만 덧붙인다."""
+    def pct(x):
+        return f"{x * 100:.1f}%"
+    rows = []
+    for key, label in (("gross_margin", "총마진"), ("op_margin", "영업마진"),
+                       ("profit_margin", "순마진"), ("rev_growth", "매출성장(YoY)")):
+        if isinstance(data.get(key), (int, float)):
+            rows.append(f"{label} {pct(data[key])}")
+    if isinstance(data.get("fcf"), (int, float)):
+        rows.append(f"잉여현금흐름 {data['fcf'] / 1e9:.1f}B")
+    return ("\n심화재무: " + " · ".join(rows)) if rows else ""
+
+
+def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
+    """발굴봇 1인에게 줄 종목 분석 프롬프트. 데이터 패킷 + '꿈꾸는 것'(사업요약)."""
+    parts = [f"[분석 종목] {name} ({code})", "", packet_text]
+    if business_summary:
+        parts += ["", f"[사업 개요] {business_summary}"]
+    parts += [
+        "",
+        "위 종목을 네 투자 원칙으로 판단해줘. 네 프레임워크에 비춰 왜 그런지 근거를 대고,",
+        "마지막 줄은 반드시 `[결정] 매수` / `[결정] 관망` / `[결정] 매도` 중 하나로 끝내.",
+    ]
+    return "\n".join(parts)
+
+
+def _parse_verdict(text) -> str:
+    """응답에서 [결정] 추출. 없으면 '관망'(보수적 기본값)."""
+    m = _VERDICT_RE.search(text or "")
+    return m.group(1) if m else "관망"
+
+
+def analyze_stock(code, name, yf_ticker, bot, market="US"):
+    """발굴봇 1인이 한 종목 분석 → thesis 캐시에 저장. 반환: (verdict, reasoning)."""
+    from fetchers import fetch_stock_data, format_stock_data
+    from agents import call_agent
+    from prompts import AGENT_PROFILES
+    from db import save_thesis
+
+    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    packet = format_stock_data(data) + _extra_fundamentals(data)
+    prompt = build_analysis_prompt(name, code, packet, data.get("business_summary", ""))
+    reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
+    verdict = _parse_verdict(reasoning)
+    save_thesis(code, bot, verdict, reasoning)
+    return verdict, reasoning
+
+
+def analyze_candidate(code, name, yf_ticker, market="US"):
+    """P/W/S 3인이 한 종목을 각자 분석. 관대 게이트: 한 명이라도 매수면 통과.
+    반환: {'code','name','verdicts','approved'}."""
+    verdicts = {}
+    for bot in NEW_DESK_ORDER:
+        try:
+            v, _ = analyze_stock(code, name, yf_ticker, bot, market)
+        except Exception as e:
+            logger.warning(f"발굴 분석 실패 {code}@{bot}: {e}")
+            v = "관망"
+        verdicts[bot] = v
+    approved = any(v == "매수" for v in verdicts.values())
+    return {"code": code, "name": name, "verdicts": verdicts, "approved": approved}
