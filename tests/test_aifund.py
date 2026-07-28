@@ -136,3 +136,43 @@ def test_analyze_candidate_survives_bot_error(monkeypatch):
     r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
     assert r["verdicts"]["W"] == "관망"           # 예외 → 관망
     assert r["approved"] is True                   # P 매수라 통과
+
+
+# ── T 하드 스탑로스(손절) 순수 로직 ──────────────────────
+_STOP_POS = [
+    {"id": 1, "symbol": "NVDA", "code": "NVDA", "entry_price": 100.0},
+    {"id": 2, "symbol": "CRDO", "code": "CRDO", "entry_price": 50.0},
+    {"id": 3, "symbol": "COHR", "code": "COHR", "entry_price": 80.0},
+]
+
+
+def test_stops_only_breached_liquidated():
+    prices = {"NVDA": 120.0, "CRDO": 38.0, "COHR": 78.0}   # +20% / -24% / -2.5%
+    hits = aifund.stops_to_execute(_STOP_POS, prices, stop_pct=-0.22)
+    assert [h["pos"]["symbol"] for h in hits] == ["CRDO"]  # -24%만 손절
+    assert round(hits[0]["pnl_pct"], 3) == -0.24
+
+
+def test_stops_boundary_inclusive():
+    prices = {"NVDA": 78.0}                                # 정확히 -22%
+    hits = aifund.stops_to_execute([_STOP_POS[0]], prices, stop_pct=-0.22)
+    assert len(hits) == 1                                  # 임계 도달은 포함(<=)
+
+
+def test_stops_skip_missing_price_or_entry():
+    prices = {"CRDO": 38.0}                                # NVDA·COHR 가격 없음
+    hits = aifund.stops_to_execute(_STOP_POS, prices, stop_pct=-0.22)
+    assert [h["pos"]["symbol"] for h in hits] == ["CRDO"]  # 가격 없으면 오판 안 함
+    no_entry = [{"id": 9, "symbol": "X", "code": "X", "entry_price": 0}]
+    assert aifund.stops_to_execute(no_entry, {"X": 1.0}, stop_pct=-0.22) == []
+
+
+def test_stops_default_uses_fund_stop_pct():
+    prices = {"NVDA": 100.0 * (1 + aifund.FUND_STOP_PCT)}  # 딱 FUND_STOP_PCT
+    hits = aifund.stops_to_execute([_STOP_POS[0]], prices)  # stop_pct 생략
+    assert len(hits) == 1
+
+
+def test_run_fund_stops_noop_when_disabled():
+    assert aifund.NEW_DESK_ENABLED is False
+    assert aifund.run_fund_stops() == []                   # 토글 off → no-op(라이브 무변경)

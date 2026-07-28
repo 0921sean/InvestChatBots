@@ -131,6 +131,7 @@ MOM_STOP_LOOKBACK = 5
 WEIGHT_PCT = 0.10        # 예시
 MAX_POSITIONS = 5        # 예시
 HARD_STOP_PCT = -15.0    # 예시
+FUND_STOP_PCT = -0.20    # AI펀드 T 하드 스탑로스 안전망 (예시값, 실제는 strategy_private.py)
 
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []
