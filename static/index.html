@@ -742,9 +742,9 @@
     <p id="market-status-label">시작 잔액 ₩100,000,000</p>
   </div>
   <div class="pf-acct-toggle">
-    <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">7,500만</span></button>
-    <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">2,500만</span></button>
-    <button id="pf-tab-all" class="pf-acct-btn" onclick="setDesk('all')">Σ 합산 <span class="pf-acct-cap">1억</span></button>
+    <button id="pf-tab-main" class="pf-acct-btn active" onclick="setDesk('main')">📈 장기 <span class="pf-acct-cap">1억</span></button>
+    <button id="pf-tab-sub" class="pf-acct-btn" onclick="setDesk('trading')">⚡ 트레이딩 <span class="pf-acct-cap">1억</span></button>
+    <button id="pf-tab-all" class="pf-acct-btn" onclick="setDesk('all')">Σ 합산 <span class="pf-acct-cap">2억</span></button>
   </div>
   <div class="pf-summary">
     <div class="pf-row"><span class="pf-label">현금 잔액</span><span class="pf-value pf-neu" id="pf-balance">—</span></div>
@@ -1365,9 +1365,7 @@ async function loadBenchmark() {
     el.innerHTML = `<div class="pf-bm-title">봇 vs 지수 <span class="pf-bm-sub">${b.baseline_date}~ 누적 (${b.days}일)</span></div>`
       + row('🤖 봇(합산)', b.bot, true)
       + row('QQQ (나스닥100)', b.qqq)
-      + row('SCHD (배당·방어)', b.schd)
-      + row('코스피', b.kospi)
-      + row('코스닥', b.kosdaq);
+      + row('SCHD (배당·방어)', b.schd);   // US-only: 코스피·코스닥 제거(2026-07-28)
   } catch (e) { console.error('benchmark', e); }
 }
 
