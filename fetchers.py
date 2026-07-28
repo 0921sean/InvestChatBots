@@ -231,7 +231,11 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
             ("market_cap", "marketCap"), ("52w_high", "fiftyTwoWeekHigh"),
             ("52w_low", "fiftyTwoWeekLow"), ("revenue", "totalRevenue"),
             ("debt_ratio", "debtToEquity"),
-            ("business_summary", "longBusinessSummary"),  # AI펀드: '꿈꾸는 것' — 새 데스크 프롬프트용(현 committee 미사용)
+            # AI펀드 심화 — 마진·성장·현금흐름(새 데스크 프롬프트용, 현 committee 미사용)
+            ("gross_margin", "grossMargins"), ("op_margin", "operatingMargins"),
+            ("profit_margin", "profitMargins"), ("rev_growth", "revenueGrowth"),
+            ("fcf", "freeCashflow"),
+            ("business_summary", "longBusinessSummary"),  # '꿈꾸는 것'
         ]:
             val = info.get(attr)
             if val is not None and not (isinstance(val, float) and math.isnan(val)):
