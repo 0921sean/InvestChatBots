@@ -130,3 +130,8 @@ US_BOTTLENECK_SEED = []
 
 # 병목 자문 봇 — 실제 페르소나는 strategy_private.py. 공개/폴백은 빈 이름(비활성).
 BOTTLENECK_ADVISOR_NAME = ""
+
+# AI펀드 발굴 3인 — 실제 페르소나는 strategy_private.py(비공개). 공개는 마스킹.
+AGENT_PROFILES["P"] = {"model_provider":"claude","model_id":"claude-sonnet-5","color":"#888","description":"발굴","system":"[비공개 전략 — strategy_private.py]"}
+AGENT_PROFILES["W"] = {"model_provider":"claude","model_id":"claude-sonnet-5","color":"#888","description":"발굴","system":"[비공개 전략 — strategy_private.py]"}
+AGENT_PROFILES["S"] = {"model_provider":"claude","model_id":"claude-sonnet-5","color":"#888","description":"발굴","system":"[비공개 전략 — strategy_private.py]"}

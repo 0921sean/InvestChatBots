@@ -121,3 +121,50 @@ def source_today(market="US", quota=None, rng=random):
     names = {c: stock_name(c) for c in new + cat}   # 티커에 회사명 병기
     return {"new": new, "catalyst": cat, "names": names,
             "briefing": build_briefing(new, cat, names)}
+
+
+# ── 3단계: P/W/S 렌즈 분석 ────────────────────────────────
+NEW_DESK_ORDER = ["P", "W", "S"]   # 발굴 3인(이름만 공개, 스타일은 strategy_private)
+
+
+def build_analysis_prompt(name, code, packet_text, business_summary=""):
+    """발굴 봇 렌즈 분석 프롬프트(공개 스캐폴딩). 결론은 [결정] 매수/관망/매도."""
+    bs = f"\n[사업 요약]\n{business_summary}\n" if business_summary else ""
+    return (f"[종목 분석 — {name} ({code})]\n\n{packet_text}\n{bs}\n"
+            f"위 데이터를 네 투자 관점(렌즈)으로만 판단해라. 다른 봇 흉내 내지 말고 네 색으로.\n"
+            f"2-3문장으로 핵심 근거. 마지막 줄은 정확히 `[결정] 매수|관망|매도 | 이유: <한 줄>`.\n"
+            f"미래 수익 보장·권유 금지. 반드시 한국어.")
+
+
+def _parse_verdict(text) -> str:
+    """응답에서 매수/관망/매도 추출 ([결정] 줄 우선)."""
+    import re
+    m = re.search(r"\[결정\]\s*(매수|관망|매도)", text or "")
+    if m:
+        return m.group(1)
+    for v in ("매수", "매도", "관망"):
+        if v in (text or ""):
+            return v
+    return "관망"
+
+
+def analyze_stock(code, name, yf_ticker, bot, market="US"):
+    """봇(P/W/S) 한 명이 종목 하나를 렌즈로 분석 → (verdict, reasoning). thesis_cache 저장."""
+    from prompts import AGENT_PROFILES, CHAT_GUARDRAIL
+    from agents import call_agent
+    from fetchers import fetch_stock_data, format_stock_data
+    from db import save_thesis
+    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    prompt = build_analysis_prompt(name, code, format_stock_data(data), data.get("business_summary", ""))
+    system = AGENT_PROFILES[bot]["system"] + "\n\n" + CHAT_GUARDRAIL
+    resp = call_agent(bot, system, prompt, model="sonnet")
+    verdict = _parse_verdict(resp)
+    save_thesis(code, bot, verdict, resp, catalyst_key=_recent_earnings_date(code))
+    return verdict, resp
+
+
+def analyze_candidate(code, name, yf_ticker, market="US"):
+    """P/W/S 셋이 한 종목을 각자 판단. 1명이라도 매수 = 승인(→ T 대기목록, 4단계에서 배선)."""
+    results = {bot: analyze_stock(code, name, yf_ticker, bot, market) for bot in NEW_DESK_ORDER}
+    approved = any(v == "매수" for v, _ in results.values())
+    return {"code": code, "name": name, "results": results, "approved": approved}
