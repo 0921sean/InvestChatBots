@@ -80,3 +80,19 @@ def test_briefing_empty_day():
 
 def test_toggle_off_by_default():
     assert aifund.NEW_DESK_ENABLED is False      # 컷오버 전까지 off (라이브 무변경)
+
+
+def test_build_analysis_prompt_has_essentials():
+    p = aifund.build_analysis_prompt("엔비디아", "NVDA", "PER: 30x\nROE: 100%", "AI infra company")
+    assert "NVDA" in p and "[결정]" in p and "AI infra company" in p and "렌즈" in p
+
+
+def test_parse_verdict():
+    assert aifund._parse_verdict("어쩌고.\n[결정] 매수 | 이유: 성장") == "매수"
+    assert aifund._parse_verdict("[결정] 관망 | 이유: 밸류") == "관망"
+    assert aifund._parse_verdict("나는 매도가 맞다고 본다") == "매도"
+    assert aifund._parse_verdict("판단 애매") == "관망"
+
+
+def test_new_desk_order():
+    assert aifund.NEW_DESK_ORDER == ["P", "W", "S"]
