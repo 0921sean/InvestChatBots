@@ -218,6 +218,16 @@ def init_db():
             analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(date, sector_name, stock_name)
         );
+        -- AI펀드 피봇: 종목별 논지 캐시 (봇당 1행). 카탈리스트(어닝 등)로 무효화까지 재분석 안 함.
+        CREATE TABLE IF NOT EXISTS thesis_cache (
+            stock_code TEXT NOT NULL,
+            bot TEXT NOT NULL,               -- P / W / S
+            verdict TEXT,                    -- 매수 / 관망 / 매도
+            reasoning TEXT,                  -- 봇 논지(캐시)
+            catalyst_key TEXT,               -- 무효화 기준(예: 다음 어닝일 as-of)
+            analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(stock_code, bot)
+        );
         CREATE TABLE IF NOT EXISTS cycle_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             sector_idx INTEGER DEFAULT 0,
@@ -563,6 +573,44 @@ def get_agent_state(agent_name):
             "SELECT * FROM agent_state WHERE agent_name=?", (agent_name,)
         ).fetchone()
         return dict(row) if row else {"agent_name": agent_name, "evolution_notes": "", "round_count": 0}
+
+
+# ── AI펀드 피봇: 종목별 논지 캐시 (설계 docs/AIFUND_PIVOT.md) ──
+def save_thesis(stock_code, bot, verdict, reasoning, catalyst_key=None):
+    """봇(P/W/S)의 종목 결론을 캐시(UPSERT). 카탈리스트로 무효화 전까진 재분석 안 함."""
+    with _conn() as con:
+        con.execute("""
+            INSERT INTO thesis_cache (stock_code, bot, verdict, reasoning, catalyst_key, analyzed_at)
+            VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+            ON CONFLICT(stock_code, bot) DO UPDATE SET
+                verdict=excluded.verdict, reasoning=excluded.reasoning,
+                catalyst_key=excluded.catalyst_key, analyzed_at=excluded.analyzed_at
+        """, (stock_code, bot, verdict, reasoning, catalyst_key))
+
+
+def get_thesis(stock_code, bot=None):
+    """캐시된 논지 조회. bot 지정 시 dict 1건(없으면 None), 미지정 시 봇→dict 맵."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if bot is not None:
+            row = con.execute(
+                "SELECT * FROM thesis_cache WHERE stock_code=? AND bot=?", (stock_code, bot)
+            ).fetchone()
+            return dict(row) if row else None
+        rows = con.execute("SELECT * FROM thesis_cache WHERE stock_code=?", (stock_code,)).fetchall()
+        return {r["bot"]: dict(r) for r in rows}
+
+
+def get_cached_codes() -> set:
+    """논지 캐시가 하나라도 있는 종목코드 집합 (= '이미 본' 종목 — 신규 발굴에서 제외용)."""
+    with _conn() as con:
+        return {r[0] for r in con.execute("SELECT DISTINCT stock_code FROM thesis_cache").fetchall()}
+
+
+def invalidate_thesis(stock_code):
+    """카탈리스트(어닝 등) 발생 시 해당 종목 캐시 삭제 → A가 재발굴하면 재분석."""
+    with _conn() as con:
+        con.execute("DELETE FROM thesis_cache WHERE stock_code=?", (stock_code,))
 
 
 def save_consensus(round_id, content):
