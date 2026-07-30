@@ -127,10 +127,11 @@ ICB가 결국 내 계좌를 굴려 경제적 자유로. 그 험난한 여정 자
 
 ## 6. GitHub 업데이트 (컨벤션 — 상세는 [CONVENTION.md](CONVENTION.md))
 
-- **작업 단위 = 이슈1 → 브랜치1 → 커밋 여러 개 → PR1 → 머지 → 이슈 종료.** 모든 작업은 이슈에서 시작해 같은 `#번호`로 끝까지(브랜치·커밋·PR) 끌고 간다.
-- **4곳 `#번호` 포맷** (Type = Feat/Fix/Refactor/Chore/Setting/Design/Docs/Test):
-  - 이슈 제목 `[Type] #번호 - 내용` / 브랜치 `type/#번호` / 커밋 `[Type/#번호] 내용` / PR 제목 `[Type] #번호 - 내용`(본문 `Resolved: #번호`)
-  - 한 브랜치의 전 커밋은 같은 `#번호`, Type만 바뀔 수 있다. 한국어 설명 OK.
+- **작업 단위 = Epic+Task 하이브리드** (상세 [CONVENTION.md](CONVENTION.md)):
+  - **큰 테마(피봇·실험·리팩터 묶음) = Epic 이슈** `[Epic] #N - 주제` + **투두 체크리스트 본문**(언제든 편집). 그 아래 각 투두 = **Task PR**.
+  - **Task PR**: `[Type] #M - 내용`(**PR 자기 번호 M**), 브랜치 `type/#M`, 커밋 `[Type/#M]`, 본문 `Part of #N`(에픽 참조 — 안 닫음). 머지 시 에픽 투두 `- [x]` 체크. 에픽은 마지막 Task가 `Closes #N` 하거나 수동 종료.
+  - **단발(버그 하나 등) = 1이슈=1PR** 기존 방식. 본문 `Closes #자기번호`.
+  - 한 Task/단발의 브랜치·커밋·PR은 **자기 번호 공유**, Type만 바뀔 수 있다. 한국어 설명 OK. (Type = Epic/Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore)
 - **main 직접 커밋·푸시 금지.** main은 안정 브랜치, 작업은 `type/#번호` 브랜치 → PR → diff 셀프 리뷰 → CI 통과 → 머지. (라이브 긴급 상황의 Hotfix만 예외, 사후 이슈화.)
 - **의미 있는 단위마다** 커밋한다(기능1/버그1/리팩터1 = 커밋1). 세션 전체를 한 커밋으로 뭉치지 않는다. ❌ `update`·`wip`·`작업함` 같은 무의미 메시지·빈 커밋 금지.
 - 세션 시작 시 `git fetch`로 origin 관계 먼저 확인 → 새 커밋 있을 때만 pull. 세션 끝엔 남은 변경 전부 커밋·push.
