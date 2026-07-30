@@ -80,7 +80,9 @@ def _bollinger_series(closes, period=ts.BB_PERIOD, std=ts.BB_STD):
 
 
 # ── 종목 1개 백테스트 → 체결 시각(exit_idx)·순수익률 트레이드 목록 ──
-def backtest_stock(o, strategy, variant, market):
+def backtest_stock(o, strategy, variant, market, market_ok=None):
+    """market_ok: 시장 환경 필터(진입 허용 날짜 set). M에만 적용 — 약세장(SPY<200MA) 진입 차단.
+    None이면 필터 없음(기존 동작)."""
     closes, opens, lows = o["close"], o["open"], o["low"]
     dates = o.get("dates")
     n = len(closes)
@@ -136,7 +138,8 @@ def backtest_stock(o, strategy, variant, market):
             if strategy == "momentum":
                 fire = _gc(t) and rs[t] is not None and rs[t] >= ts.RSI_MOMENTUM_MIN
             elif strategy == "minervini":
-                fire = _mini_fire(t)
+                fire = _mini_fire(t) and (market_ok is None or dates is None
+                                          or dates[t + 1] in market_ok)   # 시장 환경 필터
             elif variant == "a":        # 볼린저 단순터치
                 fire = lb[t] is not None and closes[t] < lb[t]
             else:                        # 볼린저 복귀확인
@@ -217,6 +220,14 @@ def classify_regime(bench_closes, lookback=63, up=0.05, down=-0.05):
             r = bench_closes[i] / bench_closes[i - lookback] - 1
             out.append("상승" if r >= up else "하락" if r <= down else "횡보")
     return out
+
+
+def market_uptrend_dates(bench, ma=200):
+    """벤치마크가 상승국면(종가 > ma일선)인 날짜 set — M 시장 환경 필터용.
+    bench: {'close','dates'} (_fetch_bench 형식). 미너비니 '약세장 매수 금지' 원칙."""
+    closes, dates = bench["close"], bench["dates"]
+    sma = _sma_series(closes, ma)
+    return {dates[i] for i in range(len(closes)) if sma[i] is not None and closes[i] > sma[i]}
 
 
 def segment_by_regime(trades, regime_by_date):

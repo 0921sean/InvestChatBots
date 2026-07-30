@@ -96,6 +96,25 @@ def test_minervini_no_entry_in_downtrend():
     assert bt.backtest_stock(o, "minervini", "std", "US") == []
 
 
+def test_market_uptrend_dates():
+    # 종가가 200일선 위인 날만 set에 담김
+    up = [100.0 + i for i in range(250)]                 # 꾸준한 상승 → 후반부 200선 위
+    bench = {"close": up, "dates": [f"d{i}" for i in range(250)]}
+    ok = bt.market_uptrend_dates(bench, ma=200)
+    assert "d249" in ok and "d0" not in ok               # 초기(200선 미형성)는 제외
+
+
+def test_minervini_market_filter_blocks_entry():
+    # 시장필터에 진입일이 없으면 M 진입 안 함 = 거래 0
+    rise = [100.0 + i * 0.3 for i in range(300)]
+    drop = [rise[-1] - 4 * i for i in range(1, 31)]
+    c = rise + drop
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
+         "dates": [f"d{i}" for i in range(len(c))]}
+    assert bt.backtest_stock(o, "minervini", "std", "US") != []            # 필터 없으면 거래 있음
+    assert bt.backtest_stock(o, "minervini", "std", "US", market_ok=set()) == []  # 전부 차단
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
