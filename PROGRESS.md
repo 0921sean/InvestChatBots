@@ -4,7 +4,7 @@
 > (CLAUDE.md = *고정 지침·가드레일* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
 > ⚠️ **ICB는 라이브 사이트다.** 코드 변경 전 Think Before Coding + Surgical Changes 준수(CLAUDE.md §A).
-> updated: 2026-07-27 (US-only 집중 실험 피벗 + Git 컨벤션·자동화 도입)
+> updated: 2026-07-31 (AI펀드 피봇 설계·백테스트·Q 빌드 + Epic+Task 컨벤션)
 
 ## 🧪 지금 방향 (2026-07-27~ US-only 실험)
 - **국장(KR) 사이클 임시 off** (`orchestrator.KR_CYCLE_ENABLED=False`) — US-only로 전략 포텐셜 관찰. 재개는 True+재시작.
@@ -19,6 +19,7 @@
 - 상세 OKR·오케 코멘트: 워크스페이스 `okr/investchatbots.md`(권위본) 참조.
 
 ## 진행 중 / 다음 할 일 (우선순위)
+- [ ] **AI펀드 Q 빌드** — Epic [#53](../../issues/53). 다음: ①#50 머지 ②Q에 트레이딩 스킬(거래량·VCP)로 시장 이기기 ③포폴 리포트 정식화 ④forward 페이퍼 ⑤라이브 배선(서브계좌·스케줄러). 설계 `docs/AIFUND_PIVOT.md`. **NEW_DESK_ENABLED=False로 라이브 무영향.**
 - [ ] **채팅 안전장치 3종** (채팅 오픈 전 필수 — CLAUDE.md §A '지금 할 일'):
   - [ ] ①서버단 하드 캡 + FIFO 큐 (일 총량 N, 백엔드 카운트, 대기 순번 공개, Redis/DB 영속)
   - [ ] ②면책 고지 (가상 포폴 / 자문·권유 아님 / 푸터 상시 + 진입 1회 동의)
@@ -33,6 +34,13 @@
 - 릴스 자동 파이프라인 삭제 → 당분간 수동 업로드(파급력 우선).
 
 ## 최근 세션 로그 (최신이 위)
+- **2026-07-31** — AI펀드 피봇 대규모 설계·백테스트 세션. **Epic [#53](../../issues/53)** 로 묶음.
+  - **AI펀드 정체 전환**: "협업 단일펀드"→**"전략별 계좌 겨루기"**. 로스터 P/W/S(장기·LLM)+R/M/B(트레이딩·룰봇). 설계 권위본 `docs/AIFUND_PIVOT.md` 갈아엎음. 드가자 삭제.
+  - **committee v1 통째 백업**: git 태그 `committee-v1` + tarball(`~/Desktop/CSB/MyApps/InvestChatBots_committee-v1_2026-07-30.tar.gz`, strategy_private·DB·env 포함). 컷오버 전 복원점.
+  - **코어(PR #48)**: P/W/S 발굴 분석(관대 게이트)·데이터 패킷 심화(마진·성장·FCF·사업요약)·T 하드 스탑. 페르소나는 실제 방법론 프레임워크로 심화(private).
+  - **백테스트(PR #50)**: `backtest.py`에 regime(장세)별 분해 + M(추세돌파 트렌드템플릿+돌파) + M 시장필터(SPY 200MA) + 하드스탑 옵션 + **Q(B+M 블렌드) 정식화**(자본인지 `portfolio_sim`).
+  - **핵심 발견**(US 514종목 6년): B(횡보/하락 강세)+M(상승 강세) **상호보완** → **Q 블렌드 +164%/MDD-11.7%**가 각 단독 압도. **단 Q≈QQQ(+166%)** — 생존편향 감안 시 아직 시장 못 이김, 낮은 낙폭이 잠정 강점. 하드스탑은 역효과(2%사이징이 이미 방어). R(로스)는 룰봇 최약→보류.
+  - **Git 컨벤션**: Epic+Task 하이브리드 채택(PR #52) — 큰 테마=Epic이슈+투두, Task PR은 `Part of #N`.
 - **2026-07-27** — 대규모 세션.
   - **Git 컨벤션·자동화 도입**: 이슈→`type/#N`브랜치→`[Type/#N]`커밋→PR→승인머지. 자동화(pr/issue-label·pr-title-lint·CI·delete_branch_on_merge). 커밋 쪼개기 가이드. allow리스트+`gh pr merge`는 ask. **머지는 항상 사용자 승인**·PR코멘트는 PR에서 응답.
   - **전략 비공개화**: 봇 페르소나 프롬프트·지표/튜닝 파라미터 → `strategy_private.py`(gitignore) + `*_example`(플레이스홀더 폴백). 앞으로 튜닝은 GitHub 미노출.
