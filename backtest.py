@@ -336,6 +336,66 @@ def run(period="6y"):
     return counts, result, len(data)
 
 
+# ── Q = B+M 블렌드 (자본 인지 포트폴리오) ────────────────────
+# Q의 정체: M(미너비니, 시장필터) + B(볼린저 복귀확인)를 한 계좌에 넣고 M 우선 배정.
+# M이 선별적이라 비는 자본을 B가 채움 → 상승장 고엣지(M) + 전천후(B) 결합.
+# (strategy, variant, use_market_filter, priority) — priority 낮을수록 슬롯 우선
+Q_SPEC = [("minervini", "std", True, 0),
+          ("meanrev", "b", False, 1)]
+
+
+def collect_blend_trades(data, spec, market_ok, hard_stop_pct=None, market="US"):
+    """spec의 각 구성 전략을 전 종목에 돌려 (진입일·청산일·순수익·우선순위) 거래 목록으로 모음."""
+    trades = []
+    for strategy, variant, use_filter, prio in spec:
+        mo = market_ok if use_filter else None
+        for o in data.values():
+            try:
+                for t in backtest_stock(o, strategy, variant, market,
+                                        market_ok=mo, hard_stop_pct=hard_stop_pct):
+                    if t.get("entry_date") and t.get("date") and t["date"] > t["entry_date"]:
+                        trades.append({"e": t["entry_date"], "x": t["date"],
+                                       "ret": t["ret"], "prio": prio})
+            except Exception as e:
+                logger.debug(f"블렌드 거래수집 실패: {e}")
+    return trades
+
+
+def portfolio_sim(trades, calendar, init=1.0, weight=0.02, max_pos=50):
+    """자본 인지 계좌 시뮬(순수 — 네트워크 X). 자리·현금 제약 하 진입, 매도 시 자본 회수.
+    trades: [{e(진입일),x(청산일),ret(순수익),prio}]. calendar: 거래일 리스트.
+    보유는 원가평가(실현 기준 곡선 — 최종수익 정확, 중간 보수적).
+    반환: (curve[(date,equity)], {final_return, mdd, avg_positions})."""
+    from collections import defaultdict
+    ent = defaultdict(list)
+    for t in trades:
+        ent[t["e"]].append(t)
+    dates = sorted(set(calendar) | {t["e"] for t in trades} | {t["x"] for t in trades})
+    cash, opens, closing = init, [], defaultdict(list)
+    curve, pos_counts, peak, mdd = [], [], init, 0.0
+    for d in dates:
+        for p in closing.get(d, []):
+            cash += p["amt"] * (1 + p["ret"])
+            opens.remove(p)
+        for t in sorted(ent.get(d, []), key=lambda x: x.get("prio", 0)):
+            if len(opens) >= max_pos:
+                break
+            amt = (cash + sum(p["amt"] for p in opens)) * weight
+            if amt > 0 and cash >= amt:
+                cash -= amt
+                p = {"amt": amt, "ret": t["ret"]}
+                opens.append(p)
+                closing[t["x"]].append(p)
+        eq = cash + sum(p["amt"] for p in opens)
+        peak = max(peak, eq)
+        mdd = min(mdd, eq / peak - 1)
+        curve.append((d, eq))
+        pos_counts.append(len(opens))
+    stats = {"final_return": (curve[-1][1] / init - 1) if curve else 0.0, "mdd": mdd,
+             "avg_positions": sum(pos_counts) / len(pos_counts) if pos_counts else 0.0}
+    return curve, stats
+
+
 def _row(m):
     if not m or m.get("n", 0) == 0:
         return "| 0 | — | — | — | — | — |"
