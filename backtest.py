@@ -80,9 +80,10 @@ def _bollinger_series(closes, period=ts.BB_PERIOD, std=ts.BB_STD):
 
 
 # ── 종목 1개 백테스트 → 체결 시각(exit_idx)·순수익률 트레이드 목록 ──
-def backtest_stock(o, strategy, variant, market, market_ok=None):
+def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=None):
     """market_ok: 시장 환경 필터(진입 허용 날짜 set). M에만 적용 — 약세장(SPY<200MA) 진입 차단.
-    None이면 필터 없음(기존 동작)."""
+    hard_stop_pct: 전 전략 공통 하드스탑(예 -0.15). 진입가 대비 이 이하로 떨어지면 다음 봉 시가 청산.
+    None이면 필터·하드스탑 없음(기존 동작)."""
     closes, opens, lows = o["close"], o["open"], o["low"]
     dates = o.get("dates")
     n = len(closes)
@@ -156,6 +157,10 @@ def backtest_stock(o, strategy, variant, market, market_ok=None):
                 elif strategy == "minervini":
                     stop = entry * (1 + MINERVINI_STOP_PCT)   # 타이트 스탑
         else:
+            if hard_stop_pct is not None and closes[t] <= entry * (1 + hard_stop_pct):
+                _record(entry, nxt, t + 1, size=(0.5 if half_done else 1.0))   # 공통 하드스탑
+                in_pos = False
+                continue
             if strategy == "momentum":
                 hit_stop = closes[t] <= stop
                 hit_tgt = closes[t] >= target

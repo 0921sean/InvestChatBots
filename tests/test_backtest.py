@@ -115,6 +115,20 @@ def test_minervini_market_filter_blocks_entry():
     assert bt.backtest_stock(o, "minervini", "std", "US", market_ok=set()) == []  # 전부 차단
 
 
+def test_hard_stop_caps_worst_loss():
+    # 랜덤워크로 meanrev 거래 확보 → 하드스탑 버전 최악 손실이 무스탑보다 작거나 같음(꼬리 절단)
+    import random
+    rng = random.Random(7)
+    c = [100.0]
+    for _ in range(360):
+        c.append(round(max(1.0, c[-1] * (1 + rng.uniform(-0.05, 0.05))), 2))
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c]}
+    no = bt.backtest_stock(o, "meanrev", "b", "US")
+    hs = bt.backtest_stock(o, "meanrev", "b", "US", hard_stop_pct=-0.10)
+    assert no and hs
+    assert min(t["ret"] for t in hs) >= min(t["ret"] for t in no) - 1e-9   # 하드스탑이 꼬리 캡
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
