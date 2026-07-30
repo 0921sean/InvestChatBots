@@ -80,3 +80,99 @@ def test_briefing_empty_day():
 
 def test_toggle_off_by_default():
     assert aifund.NEW_DESK_ENABLED is False      # 컷오버 전까지 off (라이브 무변경)
+
+
+# ── 발굴 분석(P/W/S) 순수 로직 ──────────────────────────
+def test_parse_verdict():
+    assert aifund._parse_verdict("근거들\n[결정] 매수") == "매수"
+    assert aifund._parse_verdict("[결정]  관망") == "관망"
+    assert aifund._parse_verdict("음... [결정] 매도야") == "매도"
+    assert aifund._parse_verdict("결정 표기 없음") == "관망"   # 없으면 보수적 기본값
+    assert aifund._parse_verdict("") == "관망"
+
+
+def test_extra_fundamentals_renders_present_only():
+    txt = aifund._extra_fundamentals(
+        {"gross_margin": 0.62, "op_margin": 0.31, "rev_growth": 0.42, "fcf": 2.7e9})
+    assert "총마진 62.0%" in txt and "영업마진 31.0%" in txt
+    assert "매출성장(YoY) 42.0%" in txt and "잉여현금흐름 2.7B" in txt
+    assert "순마진" not in txt                    # 없는 값은 생략
+    assert aifund._extra_fundamentals({}) == ""   # 아무것도 없으면 빈 문자열
+
+
+def test_build_analysis_prompt():
+    p = aifund.build_analysis_prompt("Credo", "CRDO", "패킷", "광통신 병목 회사")
+    assert "Credo (CRDO)" in p and "패킷" in p
+    assert "사업 개요" in p and "광통신 병목 회사" in p
+    assert "[결정] 매수" in p                      # 출력 포맷 강제
+    p2 = aifund.build_analysis_prompt("X", "X", "패킷")   # 사업요약 없어도 동작
+    assert "사업 개요" not in p2
+
+
+def test_analyze_candidate_gate(monkeypatch):
+    # 관대 게이트: 한 명이라도 매수면 통과
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, market="US":
+                        ({"P": "매수", "W": "관망", "S": "매도"}[bot], "r"))
+    r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
+    assert r["approved"] is True
+    assert r["verdicts"] == {"P": "매수", "W": "관망", "S": "매도"}
+
+
+def test_analyze_candidate_all_wait_rejected(monkeypatch):
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, market="US": ("관망", "r"))
+    r = aifund.analyze_candidate("XYZ", "Xyz", "XYZ")
+    assert r["approved"] is False                 # 아무도 매수 안 하면 탈락
+
+
+def test_analyze_candidate_survives_bot_error(monkeypatch):
+    # 봇 하나 터져도 관망 처리하고 계속(전체 실패 방지)
+    def flaky(code, name, tk, bot, market="US"):
+        if bot == "W":
+            raise RuntimeError("LLM 타임아웃")
+        return ("매수" if bot == "P" else "관망"), "r"
+    monkeypatch.setattr(aifund, "analyze_stock", flaky)
+    r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
+    assert r["verdicts"]["W"] == "관망"           # 예외 → 관망
+    assert r["approved"] is True                   # P 매수라 통과
+
+
+# ── T 하드 스탑로스(손절) 순수 로직 ──────────────────────
+_STOP_POS = [
+    {"id": 1, "symbol": "NVDA", "code": "NVDA", "entry_price": 100.0},
+    {"id": 2, "symbol": "CRDO", "code": "CRDO", "entry_price": 50.0},
+    {"id": 3, "symbol": "COHR", "code": "COHR", "entry_price": 80.0},
+]
+
+
+def test_stops_only_breached_liquidated():
+    prices = {"NVDA": 120.0, "CRDO": 38.0, "COHR": 78.0}   # +20% / -24% / -2.5%
+    hits = aifund.stops_to_execute(_STOP_POS, prices, stop_pct=-0.22)
+    assert [h["pos"]["symbol"] for h in hits] == ["CRDO"]  # -24%만 손절
+    assert round(hits[0]["pnl_pct"], 3) == -0.24
+
+
+def test_stops_boundary_inclusive():
+    prices = {"NVDA": 78.0}                                # 정확히 -22%
+    hits = aifund.stops_to_execute([_STOP_POS[0]], prices, stop_pct=-0.22)
+    assert len(hits) == 1                                  # 임계 도달은 포함(<=)
+
+
+def test_stops_skip_missing_price_or_entry():
+    prices = {"CRDO": 38.0}                                # NVDA·COHR 가격 없음
+    hits = aifund.stops_to_execute(_STOP_POS, prices, stop_pct=-0.22)
+    assert [h["pos"]["symbol"] for h in hits] == ["CRDO"]  # 가격 없으면 오판 안 함
+    no_entry = [{"id": 9, "symbol": "X", "code": "X", "entry_price": 0}]
+    assert aifund.stops_to_execute(no_entry, {"X": 1.0}, stop_pct=-0.22) == []
+
+
+def test_stops_default_uses_fund_stop_pct():
+    prices = {"NVDA": 100.0 * (1 + aifund.FUND_STOP_PCT)}  # 딱 FUND_STOP_PCT
+    hits = aifund.stops_to_execute([_STOP_POS[0]], prices)  # stop_pct 생략
+    assert len(hits) == 1
+
+
+def test_run_fund_stops_noop_when_disabled():
+    assert aifund.NEW_DESK_ENABLED is False
+    assert aifund.run_fund_stops() == []                   # 토글 off → no-op(라이브 무변경)
