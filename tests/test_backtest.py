@@ -71,6 +71,31 @@ def test_trade_carries_entry_date():
     assert trades and all("entry_date" in t for t in trades)
 
 
+def test_sma_series():
+    s = bt._sma_series([1.0, 2, 3, 4, 5], 3)
+    assert s[:2] == [None, None]
+    assert s[2] == 2.0 and s[3] == 3.0 and s[4] == 4.0   # 롤링 평균
+
+
+def test_minervini_enters_uptrend_exits_on_breakdown():
+    # 상승추세(정배열·신고가 돌파 → 진입) 후 급락(50일선 하회 → 청산) = 완료거래 발생
+    rise = [100.0 + i * 0.3 for i in range(300)]         # 100 → ~190 상승추세
+    drop = [rise[-1] - 4 * i for i in range(1, 31)]      # 급락 → 50일선 하회
+    c = rise + drop
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
+         "dates": [f"d{i}" for i in range(len(c))]}
+    trades = bt.backtest_stock(o, "minervini", "std", "US")
+    assert trades                                        # 진입+청산 완료거래 ≥1
+    assert all("entry_date" in t for t in trades)
+
+
+def test_minervini_no_entry_in_downtrend():
+    # 하락추세 → 트렌드템플릿 불충족 → 진입 없음
+    c = [200.0 - i * 0.3 for i in range(320)]
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c]}
+    assert bt.backtest_stock(o, "minervini", "std", "US") == []
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
