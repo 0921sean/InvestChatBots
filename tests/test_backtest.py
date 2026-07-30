@@ -129,6 +129,27 @@ def test_hard_stop_caps_worst_loss():
     assert min(t["ret"] for t in hs) >= min(t["ret"] for t in no) - 1e-9   # 하드스탑이 꼬리 캡
 
 
+def test_portfolio_sim_compounds_one_trade():
+    # 거래 1건 +50%, 2% 사이징 → 최종 = 0.98 + 0.02×1.5 = 1.01 → +1%
+    curve, st = bt.portfolio_sim([{"e": "d1", "x": "d2", "ret": 0.5, "prio": 0}],
+                                 ["d1", "d2"], init=1.0, weight=0.02, max_pos=50)
+    assert abs(st["final_return"] - 0.01) < 1e-9
+
+
+def test_portfolio_sim_respects_max_positions():
+    # 동시 2건, max_pos=1 → prio 낮은 것만 진입, 다른 하나 스킵
+    trades = [{"e": "d1", "x": "d3", "ret": 0.2, "prio": 0},
+              {"e": "d1", "x": "d3", "ret": -0.9, "prio": 1}]
+    curve, st = bt.portfolio_sim(trades, ["d1", "d2", "d3"], weight=0.5, max_pos=1)
+    assert st["avg_positions"] <= 1.0                  # 한 번에 1종목 초과 없음
+    assert st["final_return"] > 0                       # 손실거래(prio1)는 스킵돼 +
+
+
+def test_q_spec_is_b_plus_m():
+    keys = {(s, v) for s, v, _, _ in bt.Q_SPEC}
+    assert ("minervini", "std") in keys and ("meanrev", "b") in keys   # Q = M + B
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
