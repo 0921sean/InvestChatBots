@@ -52,6 +52,16 @@ def test_narrate_writes_fund_desk_only():
     assert len(fund) == 1 and fund[0]["agent_name"] == "P"
 
 
+def test_fund_nav_snapshot_roundtrip_and_upsert():
+    from db import record_fund_nav, get_fund_nav_history
+    record_fund_nav("P", "2026-07-30", 100_000_000)
+    record_fund_nav("P", "2026-07-31", 101_000_000)
+    record_fund_nav("P", "2026-07-31", 102_000_000)   # 같은 날 재기록 → 갱신(중복 X)
+    hist = get_fund_nav_history("P")
+    assert [h["equity"] for h in hist] == [100_000_000, 102_000_000]   # 날짜 오름차순, upsert
+    assert get_fund_nav_history("W") == []            # 봇별 분리
+
+
 def test_agent_state_roundtrip():
     save_agent_state("Compounder", "Still bullish on semis after round 5.", 5)
     state = get_agent_state("Compounder")

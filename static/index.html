@@ -604,8 +604,19 @@
   .coh-v { flex: 1; text-align: right; }
 
   /* ── AI펀드 fund 모드 (window.__FUND_MODE__ 일 때만 활성) ── */
-  .member-ret { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .member-ret .mr-n { color: #6e7681; font-weight: 400; font-size: 9.5px; margin-left: 5px; }
+  .member-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* fund 모드 Members: 세로로 넓게 + 수익률 스파크라인 + 출근 글로우 */
+  body.fundmode #member-list .member { flex-direction: column; align-items: stretch; gap: 6px;
+    padding: 10px 12px; cursor: default; border-radius: 8px; margin: 3px 8px;
+    background: #12161c; border: 1px solid #21262d; }
+  .fm-top { display: flex; align-items: center; gap: 8px; }
+  .fm-top .member-name { font-size: 14px; }
+  .fm-spark { height: 30px; }
+  .spark { width: 100%; height: 30px; display: block; }
+  .spark-zero { stroke: #30363d; stroke-width: 1; stroke-dasharray: 3 3; }
+  #member-list .member .dot, .fq-top .dot { transition: box-shadow .3s; }
+  #member-list .member.working .dot,
+  .fq-top.working .dot { box-shadow: 0 0 6px 2px rgba(63,185,80,.9), 0 0 12px 3px rgba(63,185,80,.5); }
   body.fundmode #memo-panel { display: none; }
   body.fundmode #portfolio-panel { width: 440px; }
   @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 380px; } }
@@ -924,7 +935,9 @@ const BOT_COLORS = {
   추세질주:'#fb7185', 테마사냥꾼:'#f472b6', 세력추적:'#c084fc', 바닥픽:'#38bdf8', 칼손절:'#94a3b8',
   // 구 이름·비활성 (과거 메시지 호환)
   경력직:'#06b6d4', 원칙주의자:'#f97316', 감독:'#a855f7', 류:'#f43f5e', 알렉스:'#0ea5e9',
-  User:'#fbbf24', System:'#6e7681'
+  User:'#fbbf24', System:'#6e7681',
+  // AI펀드 4봇(전략 노출 방지 글자) — 채팅 피드에서도 색 유지
+  A:'#8b949e', P:'#5aa9e6', W:'#c9a227', S:'#e08a3c', Q:'#4bbf8a'
 };
 let lastId = 0, agents = {};
 
@@ -2562,25 +2575,37 @@ loadWhoami().then(() => setTimeout(updateFeedbackBadge, 1500));  // 첫 로드 �
 const _fKRW = n => "₩" + Math.round(n||0).toLocaleString();
 const _fPct = r => (r>=0?"+":"") + (r||0).toFixed(2) + "%";
 const _fCls = r => r>0.05 ? "up" : r<-0.05 ? "down" : "flat";   // 이익 빨강/손실 파랑(KR)
-const _fDot = s => s === "working" ? "#3fb950" : "#f85149";     // 출근 초록 / 퇴근 빨강
+function _spark(hist, color) {                                  // 수익률 스파크라인(인라인 SVG)
+  const pts = (hist && hist.length) ? hist.slice() : [0];
+  const arr = pts.length === 1 ? [pts[0], pts[0]] : pts;        // 단일점이면 평평하게
+  const w = 120, h = 30, min = Math.min(...arr, 0), max = Math.max(...arr, 0);
+  const rng = (max - min) || 1;
+  const y = v => (h - 3 - ((v - min) / rng) * (h - 6)).toFixed(1);
+  const line = arr.map((v, i) => `${((i / (arr.length - 1)) * w).toFixed(1)},${y(v)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+    + `<line class="spark-zero" x1="0" y1="${y(0)}" x2="${w}" y2="${y(0)}"/>`
+    + `<polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.6"/></svg>`;
+}
 function renderFundMembers(d) {
   const el = document.getElementById('member-list');
   if (!el) return;
-  const dot = _fDot(d.session);
+  const working = d.session === 'working';                      // 출근이면 동그라미에 초록 글로우
   el.innerHTML = '';
   (d.bots||[]).forEach(b => {                                   // 전략 노출 방지 — 글자만
     const row = document.createElement('div');
-    row.className = 'member';
-    row.innerHTML = `<span class="dot" style="background:${dot}"></span>`
+    row.className = 'member' + (working ? ' working' : '');
+    row.innerHTML = `<div class="fm-top">`
+      + `<span class="dot" style="background:${b.color}"></span>`
       + `<span class="member-name" style="color:${b.color}">${b.bot}</span>`
-      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span>`;
+      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>`
+      + `<div class="fm-spark">${_spark(b.history, b.color)}</div>`;
     el.appendChild(row);
   });
 }
 function renderFundQuad(d) {
   const panel = document.getElementById('portfolio-panel');
   if (!panel) return;
-  const dot = _fDot(d.session);
+  const working = d.session === 'working';
   const cells = (d.bots||[]).map(b => {
     const opens = b.positions || [];
     const posRows = opens.length ? opens.map(p =>
@@ -2595,7 +2620,7 @@ function renderFundQuad(d) {
         + `<span class="val ${sold?_fCls(t.pnl_pct||0):'flat'}">${label}</span></div>`;
     }).join('') || `<div class="fq-empty">거래 없음</div>`;
     return `<div class="fq-cell">
-      <div class="fq-top"><span class="dot" style="background:${dot}"></span>`
+      <div class="fq-top${working ? ' working' : ''}"><span class="dot" style="background:${b.color}"></span>`
       + `<span class="fq-id" style="color:${b.color}">${b.bot}</span>`
       + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
       <div class="fq-meta">현금 ${_fKRW(b.cash)}</div>

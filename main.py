@@ -636,7 +636,8 @@ def api_positions():
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
-    from db import FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio, get_recent_messages
+    from db import (FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio,
+                    get_recent_messages, get_fund_nav_history)
     colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
     # 출근/퇴근 세션: 마지막 fund 내레이션이 '퇴근' 줄이면 off, 진행 중이면 working
     last = get_recent_messages(1, desk="fund")
@@ -651,9 +652,14 @@ def api_fund():
         closed = [p for p in rows if p.get("status") != "open"]
         invested = sum((p.get("amount") or 0) for p in open_pos)
         equity = cash + invested                         # 원가 기준(실시간 평가는 추후)
+        # 수익률 스파크라인 — 과거 NAV 스냅샷(return%). 이력 없으면 현재값 1점 폴백
+        hist = [round((r["equity"] / FUND_SEED - 1) * 100, 2)
+                for r in get_fund_nav_history(acct, days=30) if r.get("equity")]
+        if not hist:
+            hist = [round((equity / FUND_SEED - 1) * 100, 2)]
         bots.append({
             "bot": acct, "color": colors.get(acct, "#8b949e"),
-            "cash": cash, "invested": invested, "equity": equity,
+            "cash": cash, "invested": invested, "equity": equity, "history": hist,
             "return_pct": round((equity / FUND_SEED - 1) * 100, 2) if FUND_SEED else 0,
             "n_positions": len(open_pos),
             "positions": [{"symbol": p["symbol"], "amount": p.get("amount"),

@@ -398,5 +398,20 @@ def run_new_desk_cycle(market="US"):
 
     q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
     _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
+    _snapshot_fund_nav()                                      # 수익률 스파크라인용 일일 NAV
     _narrate("A", "오늘 일과 끝. 계좌별 성적은 우측 패널에서 볼 수 있어요. 다들 수고했습니다 🫡")
     return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
+
+
+def _snapshot_fund_nav():
+    """각 봇 계좌의 오늘 NAV(현금+투자원가)를 기록 — 수익률 그래프용. 실패해도 무시."""
+    from db import (FUND_ACCOUNTS, get_shared_portfolio, get_open_positions,
+                    record_fund_nav)
+    today = _today_kst()
+    for acct in FUND_ACCOUNTS:
+        try:
+            cash = (get_shared_portfolio(acct) or {}).get("balance") or 0
+            inv = sum((p.get("amount") or 0) for p in get_open_positions(account=acct))
+            record_fund_nav(acct, today, cash + inv)
+        except Exception as e:
+            logger.warning(f"NAV 스냅샷 실패 {acct}: {e}")

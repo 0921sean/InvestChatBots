@@ -110,6 +110,25 @@ def get_benchmark_snapshots() -> list:
             "SELECT * FROM benchmark_daily ORDER BY date").fetchall()]
 
 
+def record_fund_nav(bot: str, date: str, equity: float):
+    """AI펀드 봇별 일일 NAV 스냅샷(수익률 스파크라인용). 같은 날 재호출은 갱신."""
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO fund_nav (date, bot, equity) VALUES (?,?,?) "
+            "ON CONFLICT(date, bot) DO UPDATE SET equity=excluded.equity",
+            (date, bot, equity))
+
+
+def get_fund_nav_history(bot: str, days: int = 30) -> list:
+    """봇 NAV 최근 days개 (날짜 오름차순)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT date, equity FROM fund_nav WHERE bot=? ORDER BY date DESC LIMIT ?",
+            (bot, days)).fetchall()
+        return list(reversed([dict(r) for r in rows]))
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -207,6 +226,12 @@ def init_db():
         );
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (1, {INITIAL_BALANCE});
         INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (2, {TRADING_BALANCE});
+        CREATE TABLE IF NOT EXISTS fund_nav (
+            date TEXT NOT NULL,
+            bot TEXT NOT NULL,
+            equity REAL,
+            PRIMARY KEY (date, bot)
+        );
         CREATE TABLE IF NOT EXISTS agent_state (
             agent_name TEXT PRIMARY KEY,
             evolution_notes TEXT DEFAULT '',
