@@ -4,7 +4,7 @@
 > (CLAUDE.md = *고정 지침·가드레일* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
 > ⚠️ **ICB는 라이브 사이트다.** 코드 변경 전 Think Before Coding + Surgical Changes 준수(CLAUDE.md §A).
-> updated: 2026-07-31 (AI펀드 4봇 경쟁 확정 + Phase 1 실행배관 완성)
+> updated: 2026-08-01 (AI펀드 v2 UI·소싱·내레이션 완성 + v1·v2 둘 다 유지로 방향 전환)
 
 ## 🧪 지금 방향 (2026-07-27~ US-only 실험)
 - **국장(KR) 사이클 임시 off** (`orchestrator.KR_CYCLE_ENABLED=False`) — US-only로 전략 포텐셜 관찰. 재개는 True+재시작.
@@ -19,7 +19,7 @@
 - 상세 OKR·오케 코멘트: 워크스페이스 `okr/investchatbots.md`(권위본) 참조.
 
 ## 진행 중 / 다음 할 일 (우선순위)
-- [ ] **AI펀드 4봇 경쟁 빌드** — Epic [#53](../../issues/53). **Phase 1(계좌·실행배관) 완료.** 다음: **Phase 2(A→P/W/S→Q 하루 파이프라인 + 스케줄러 off/수동)** → 3(관전 UI·내레이션) → 4(forward 페이퍼) → 5(컷오버). 설계 `docs/AIFUND_PIVOT.md`. **NEW_DESK_ENABLED=False로 라이브 무영향.**
+- [ ] **AI펀드 v2 빌드** — Epic [#53](../../issues/53). **Phase 1~3 완료**(계좌·실행배관·A→P/W/S→Q 파이프라인·관전 UI·내레이션). **방향 전환: 컷오버 폐기 → v1(committee)·v2(펀드) 둘 다 유지, 좌상단 토글.** 다음: **Phase 2 스케줄러**(봇별 시간 분산 + 라이브 오케스트레이터 배선 = 체크포인트) → forward 페이퍼. 설계 `docs/AIFUND_PIVOT.md`. **NEW_DESK_ENABLED=False로 라이브(v1) 무영향.** PR [#71](../../pull/71) 미머지(v2 통째).
 - [ ] 채팅 = **관전 피드로 재개념화**(안전장치 ①큐 폐기, ②면책·③권유금지만). 유저 질문 라이트 유지.
 - [ ] 리텐션 계측 정확화 (재방문율 신호가 아직 부정확 — 실방문/재방문 정의 재확인)
 - [ ] (수익화 뒤 레이어) 구독 → EverydayNews 발송목록 + 채팅 입력권한 제한
@@ -31,6 +31,13 @@
 - 릴스 자동 파이프라인 삭제 → 당분간 수동 업로드(파급력 우선).
 
 ## 최근 세션 로그 (최신이 위)
+- **2026-08-01** — AI펀드 **v2 UI·소싱·내레이션 완성 + 방향 전환**(브랜치 `feat/fund-mode-chrome`, PR [#71](../../pull/71) 미머지).
+  - **방향 전환**: 컷오버(committee 은퇴) 폐기 → **v1(committee)·v2(펀드) 둘 다 유지**, 좌상단 `v1↔v2` 토글(owner 전용). `/fund` = index.html 셸 재사용(`window.__FUND_MODE__`), v1 `/`는 무영향.
+  - **v2 관전 UI**: Members(글자만·수익률 스파크라인·출근 초록테두리) · 관전 피드(봇색·봇별 출근/퇴근·A 분석완료·매번 다른 varied 멘트, `messages.desk='fund'`로 v1 피드 분리) · 2×2 사분면 가상계좌(티커·진입·현재·투자금) · **📋 A 리서치 패널**(섹터합의 자리, 사업요약 한글화[haiku]+핵심재무, 일반/병목 태그).
+  - **소싱 철학 분리**: A=일반풀 발굴+전 후보 리포트 / P·W=A리스트 분석 / **S=`US_BOTTLENECK_SEED` 자체소싱**(발굴이 엣지) / Q=전 유니버스. `run_new_desk_cycle`을 `_process_pool`로 분리.
+  - **DB 추가**: `messages.desk`(v1/v2 분리) · `fund_nav`(수익률 스파크라인) · `fund_report`(A 리포트). 오프라인 테스트 다수 추가, 회귀 0(기존 실패 10건은 옛-로스터 baseline 드리프트).
+  - **보류(v1용, 사용자가 나중에)**: v1 실적왕→P+W+S OR게이트 재구현 · 장기/트레이딩 7000/3000 복원.
+  - ⚠️ **다음**: PR #71 머지 → 라이브 배포(committee cycle_rest 후 §1 재시작) · Phase 2 스케줄러(봇별 시간 분산=라이브 배선 체크포인트).
 - **2026-07-31** — AI펀드 피봇 대규모 설계·백테스트 세션. **Epic [#53](../../issues/53)** 로 묶음.
   - **AI펀드 정체 전환**: "협업 단일펀드"→**"전략별 계좌 겨루기"**. 로스터 P/W/S(장기·LLM)+R/M/B(트레이딩·룰봇). 설계 권위본 `docs/AIFUND_PIVOT.md` 갈아엎음. 드가자 삭제.
   - **committee v1 통째 백업**: git 태그 `committee-v1` + tarball(`~/Desktop/CSB/MyApps/InvestChatBots_committee-v1_2026-07-30.tar.gz`, strategy_private·DB·env 포함). 컷오버 전 복원점.

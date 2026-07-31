@@ -235,13 +235,33 @@ def test_run_new_desk_cycle_buys(monkeypatch):
                         lambda m="US": {"new": ["NVDA"], "catalyst": [],
                                         "names": {"NVDA": "NVIDIA"}, "briefing": "브리핑"})
     monkeypatch.setattr(aifund, "analyze_candidate",
-                        lambda code, name, tk, m="US": {"verdicts": {"P": "매수", "W": "관망", "S": "매도"}})
+                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "매수", "W": "관망", "S": "매도"}})
     monkeypatch.setattr(aifund, "execute_buys", lambda code, name, verdicts, m="US": ["P"])
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(db, "record_fund_report", lambda *a, **k: None)           # 리포트 저장 격리
     monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])   # S 매도지만 미보유
     monkeypatch.setattr(aifund, "run_q_desk", lambda m="US": {"bought": ["AMD"], "sold": []})
     r = aifund.run_new_desk_cycle()
     assert r["buys"] == [("P", "NVDA")] and r["sells"] == []   # S는 미보유라 청산 X
     assert r["q"]["bought"] == ["AMD"] and r["briefing"] == "브리핑"
+
+
+def test_source_bottleneck_self_sources_seed_minus_cached(monkeypatch):
+    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR", "LITE", "AAOI"])
+    monkeypatch.setattr(aifund, "get_cached_codes", lambda: ["LITE"])   # LITE는 이미 분석됨
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    r = aifund.source_bottleneck("US")
+    assert r["codes"] == ["COHR", "AAOI"]                # 시드 - 캐시, S가 직접 고름
+    assert set(r["names"]) == {"COHR", "AAOI"}
+
+
+def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
+    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR"])
+    monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    assert aifund.source_bottleneck("KRX")["codes"] == []   # 병목 시드는 미장 전용
+    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: [])
+    assert aifund.source_bottleneck("US")["codes"] == []    # 시드 없으면 비활성
 
 
 def test_run_new_desk_cycle_thesis_sell(monkeypatch):
@@ -254,6 +274,8 @@ def test_run_new_desk_cycle_thesis_sell(monkeypatch):
                                         "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "analyze_candidate", lambda *a, **k: {"verdicts": {"W": "매도"}})
     monkeypatch.setattr(aifund, "execute_buys", lambda *a, **k: [])
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(db, "record_fund_report", lambda *a, **k: None)
     monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [{"id": 9}])  # W 보유중
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
     monkeypatch.setattr(aifund, "execute_thesis_sell", lambda bot, pos, v, price: True)
