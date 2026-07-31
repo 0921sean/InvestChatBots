@@ -218,3 +218,43 @@ def test_q_entry_signal_prefers_minervini(monkeypatch):
 
 def test_run_q_desk_noop_when_disabled():
     assert aifund.run_q_desk() == {"bought": [], "sold": []}      # 토글 off
+
+
+# ── 하루 사이클 오케스트레이션 ────────────────────────────
+def test_run_new_desk_cycle_noop_when_disabled():
+    assert aifund.run_new_desk_cycle() == {
+        "briefing": "", "buys": [], "sells": [], "q": {"bought": [], "sold": []}}
+
+
+def test_run_new_desk_cycle_buys(monkeypatch):
+    import db
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": ["NVDA"], "catalyst": [],
+                                        "names": {"NVDA": "NVIDIA"}, "briefing": "브리핑"})
+    monkeypatch.setattr(aifund, "analyze_candidate",
+                        lambda code, name, tk, m="US": {"verdicts": {"P": "매수", "W": "관망", "S": "매도"}})
+    monkeypatch.setattr(aifund, "execute_buys", lambda code, name, verdicts, m="US": ["P"])
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])   # S 매도지만 미보유
+    monkeypatch.setattr(aifund, "run_q_desk", lambda m="US": {"bought": ["AMD"], "sold": []})
+    r = aifund.run_new_desk_cycle()
+    assert r["buys"] == [("P", "NVDA")] and r["sells"] == []   # S는 미보유라 청산 X
+    assert r["q"]["bought"] == ["AMD"] and r["briefing"] == "브리핑"
+
+
+def test_run_new_desk_cycle_thesis_sell(monkeypatch):
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": [], "catalyst": ["NVDA"],
+                                        "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "analyze_candidate", lambda *a, **k: {"verdicts": {"W": "매도"}})
+    monkeypatch.setattr(aifund, "execute_buys", lambda *a, **k: [])
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [{"id": 9}])  # W 보유중
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    monkeypatch.setattr(aifund, "execute_thesis_sell", lambda bot, pos, v, price: True)
+    monkeypatch.setattr(aifund, "run_q_desk", lambda m="US": {"bought": [], "sold": []})
+    r = aifund.run_new_desk_cycle()
+    assert r["sells"] == [("W", "NVDA")]        # 보유 봇 매도 → 논지청산
