@@ -4,7 +4,7 @@
 > (CLAUDE.md = *고정 지침·가드레일* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
 > ⚠️ **ICB는 라이브 사이트다.** 코드 변경 전 Think Before Coding + Surgical Changes 준수(CLAUDE.md §A).
-> updated: 2026-07-31 (AI펀드 피봇 설계·백테스트·Q 빌드 + Epic+Task 컨벤션)
+> updated: 2026-07-31 (AI펀드 4봇 경쟁 확정 + Phase 1 실행배관 완성)
 
 ## 🧪 지금 방향 (2026-07-27~ US-only 실험)
 - **국장(KR) 사이클 임시 off** (`orchestrator.KR_CYCLE_ENABLED=False`) — US-only로 전략 포텐셜 관찰. 재개는 True+재시작.
@@ -19,11 +19,8 @@
 - 상세 OKR·오케 코멘트: 워크스페이스 `okr/investchatbots.md`(권위본) 참조.
 
 ## 진행 중 / 다음 할 일 (우선순위)
-- [ ] **AI펀드 Q 빌드** — Epic [#53](../../issues/53). 다음: ①#50 머지 ②Q에 트레이딩 스킬(거래량·VCP)로 시장 이기기 ③포폴 리포트 정식화 ④forward 페이퍼 ⑤라이브 배선(서브계좌·스케줄러). 설계 `docs/AIFUND_PIVOT.md`. **NEW_DESK_ENABLED=False로 라이브 무영향.**
-- [ ] **채팅 안전장치 3종** (채팅 오픈 전 필수 — CLAUDE.md §A '지금 할 일'):
-  - [ ] ①서버단 하드 캡 + FIFO 큐 (일 총량 N, 백엔드 카운트, 대기 순번 공개, Redis/DB 영속)
-  - [ ] ②면책 고지 (가상 포폴 / 자문·권유 아님 / 푸터 상시 + 진입 1회 동의)
-  - [ ] ③봇 권유금지 프롬프트 가드레일 (콘텐츠 가드레일을 채팅 시스템 프롬프트에 강제)
+- [ ] **AI펀드 4봇 경쟁 빌드** — Epic [#53](../../issues/53). **Phase 1(계좌·실행배관) 완료.** 다음: **Phase 2(A→P/W/S→Q 하루 파이프라인 + 스케줄러 off/수동)** → 3(관전 UI·내레이션) → 4(forward 페이퍼) → 5(컷오버). 설계 `docs/AIFUND_PIVOT.md`. **NEW_DESK_ENABLED=False로 라이브 무영향.**
+- [ ] 채팅 = **관전 피드로 재개념화**(안전장치 ①큐 폐기, ②면책·③권유금지만). 유저 질문 라이트 유지.
 - [ ] 리텐션 계측 정확화 (재방문율 신호가 아직 부정확 — 실방문/재방문 정의 재확인)
 - [ ] (수익화 뒤 레이어) 구독 → EverydayNews 발송목록 + 채팅 입력권한 제한
 
@@ -40,7 +37,15 @@
   - **코어(PR #48)**: P/W/S 발굴 분석(관대 게이트)·데이터 패킷 심화(마진·성장·FCF·사업요약)·T 하드 스탑. 페르소나는 실제 방법론 프레임워크로 심화(private).
   - **백테스트(PR #50)**: `backtest.py`에 regime(장세)별 분해 + M(추세돌파 트렌드템플릿+돌파) + M 시장필터(SPY 200MA) + 하드스탑 옵션 + **Q(B+M 블렌드) 정식화**(자본인지 `portfolio_sim`).
   - **핵심 발견**(US 514종목 6년): B(횡보/하락 강세)+M(상승 강세) **상호보완** → **Q 블렌드 +164%/MDD-11.7%**가 각 단독 압도. **단 Q≈QQQ(+166%)** — 생존편향 감안 시 아직 시장 못 이김, 낮은 낙폭이 잠정 강점. 하드스탑은 역효과(2%사이징이 이미 방어). R(로스)는 룰봇 최약→보류.
-  - **Git 컨벤션**: Epic+Task 하이브리드 채택(PR #52) — 큰 테마=Epic이슈+투두, Task PR은 `Part of #N`.
+  - **Git 컨벤션**: Epic+Task 하이브리드 채택(#52) → 최종 정리(#62): **Task=PR만(이슈 안 만듦, 에픽번호·Part of #N), 단발만 Closes.** committee v1 백업(태그 `committee-v1`+tarball).
+  - **오후: 구조 4봇 경쟁으로 확정 + Phase 1 실행배관 완성.**
+    - **로스터 최종**: A(소싱·리서치브리프 룰) + **P·W·S·Q 4봇 각자 1억 독립 경쟁**(총 4억). P/W/S 위원회 폐지·각자 단독. Q=B+M 룰봇(전 유니버스 자체 스캔). R·D 삭제. **1북 아님 — 봇별 계좌.** 채팅=관전피드 재개념화.
+    - **A 리서치 브리프(#56)**: 재무+**분기추세**(뉴스無·중립) → P/W/S 공용.
+    - **Phase 1a(#60)**: 봇 계좌 4개(P/W/S/Q=id3~6, 각 1억, `ensure_fund_accounts` lazy seed).
+    - **Phase 1b(#64)**: `execute_buys`(봇별 자기 계좌 매수)·`execute_thesis_sell`(논지 청산).
+    - **Phase 1c(#66)**: `run_q_desk`(전 유니버스 B+M 스캔→Q 계좌), `backtest.minervini_entry/exit` 라이브 신호.
+    - **하드스탑 제거(#65)**: 백테스트상 역효과+P/W/S는 논지로 청산 → 2% 사이징이 방어. 각 봇 자기 기준 청산.
+  - ⚠️ **다음 세션 = Phase 2**(파이프라인+스케줄러). 전부 `NEW_DESK_ENABLED=False` 뒤 — 라이브(committee) 무영향.
 - **2026-07-27** — 대규모 세션.
   - **Git 컨벤션·자동화 도입**: 이슈→`type/#N`브랜치→`[Type/#N]`커밋→PR→승인머지. 자동화(pr/issue-label·pr-title-lint·CI·delete_branch_on_merge). 커밋 쪼개기 가이드. allow리스트+`gh pr merge`는 ask. **머지는 항상 사용자 승인**·PR코멘트는 PR에서 응답.
   - **전략 비공개화**: 봇 페르소나 프롬프트·지표/튜닝 파라미터 → `strategy_private.py`(gitignore) + `*_example`(플레이스홀더 폴백). 앞으로 튜닝은 GitHub 미노출.
