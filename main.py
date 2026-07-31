@@ -636,11 +636,14 @@ def api_positions():
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
-    from db import FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio
-    names = {"P": "피터 린치", "W": "워런 버핏", "S": "공급망 병목", "Q": "B+M 블렌드"}
+    from db import FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio, get_recent_messages
     colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
+    # 출근/퇴근 세션: 마지막 fund 내레이션이 '퇴근' 줄이면 off, 진행 중이면 working
+    last = get_recent_messages(1, desk="fund")
+    working = bool(last) and not (last[0].get("content") or "").startswith("오늘 일과 끝")
+    session = "working" if working else "off"
     bots = []
-    for acct in FUND_ACCOUNTS:
+    for acct in FUND_ACCOUNTS:                            # 전략 노출 방지 — 이름 없이 글자만
         pf = get_shared_portfolio(acct)
         cash = pf.get("balance") or 0
         rows = _enrich_positions(get_all_positions(60, account=acct))
@@ -649,20 +652,18 @@ def api_fund():
         invested = sum((p.get("amount") or 0) for p in open_pos)
         equity = cash + invested                         # 원가 기준(실시간 평가는 추후)
         bots.append({
-            "bot": acct, "name": names.get(acct, acct), "color": colors.get(acct, "#8b949e"),
+            "bot": acct, "color": colors.get(acct, "#8b949e"),
             "cash": cash, "invested": invested, "equity": equity,
             "return_pct": round((equity / FUND_SEED - 1) * 100, 2) if FUND_SEED else 0,
             "n_positions": len(open_pos),
             "positions": [{"symbol": p["symbol"], "amount": p.get("amount"),
-                           "reasoning": p.get("reasoning", ""),
                            "pnl_pct": p.get("unrealized_pnl_pct")} for p in open_pos],
             "recent": [{"symbol": p["symbol"], "direction": p.get("direction"),
                         "status": p.get("status"), "pnl_pct": p.get("pnl_pct"),
-                        "reasoning": p.get("reasoning", "") or p.get("exit_reasoning", ""),
                         "at": p.get("closed_at") or p.get("opened_at")}
                        for p in (open_pos + closed)[:8]],
         })
-    return {"seed": FUND_SEED, "bots": bots}
+    return {"seed": FUND_SEED, "session": session, "bots": bots}
 
 
 @app.get("/api/benchmark")

@@ -48,7 +48,8 @@ def test_narrate_writes_fund_desk_only():
     aifund._narrate("P", "관망하겠습니다.", model="sonnet")
     assert get_messages_since(0) == []                          # committee 피드 오염 없음
     fund = get_messages_since(0, desk="fund")
-    assert len(fund) == 1 and fund[0]["agent_name"] == "피터 린치"
+    # 전략 노출 방지 — 발화자는 알파벳 한 글자
+    assert len(fund) == 1 and fund[0]["agent_name"] == "P"
 
 
 def test_agent_state_roundtrip():

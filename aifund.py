@@ -18,17 +18,13 @@ logger = logging.getLogger("investchat.aifund")
 NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
 DAILY_QUOTA = 10           # A가 하루에 올리는 종목 수(=P/W/S 분량). 운영값 — 조정 쉬움.
 
-# 관전 피드 표시용 봇 이름 (Members·내레이션 일관). committee와 이름 겹치지 않음.
-FUND_BOT_NAMES = {"A": "리서처 A", "P": "피터 린치", "W": "워런 버핏",
-                  "S": "공급망 병목", "Q": "B+M 블렌드"}
-
-
 def _narrate(bot, content, model="rule"):
     """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
+    발화자는 전략 노출 방지를 위해 알파벳 한 글자(A/P/W/S/Q)로만 표기.
     실패해도 사이클은 계속(피드는 부가 기능)."""
     from db import save_message
     try:
-        save_message(None, FUND_BOT_NAMES.get(bot, bot), model, content, desk="fund")
+        save_message(None, bot, model, content, desk="fund")
     except Exception as e:
         logger.warning(f"내레이션 실패 {bot}: {e}")
 

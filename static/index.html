@@ -611,6 +611,10 @@
   @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 380px; } }
   body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
   body.fundmode .pf-acct-toggle { display: none; }
+  /* committee 전용 크롬 숨김(fund 모드엔 무의미) */
+  body.fundmode #sector-box, body.fundmode #visitor-timers,
+  body.fundmode #btn-main-run, body.fundmode #btn-sub-run,
+  body.fundmode #btn-summary { display: none; }
   #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: #21262d; }
   .fq-cell { background: #0d1117; display: flex; flex-direction: column; min-height: 0; padding: 9px 10px; }
   .fq-top { display: flex; align-items: baseline; gap: 6px; }
@@ -1130,6 +1134,7 @@ async function loadMarket() {
 
 let _sectors = [];
 async function loadState() {
+  if (window.__FUND_MODE__) return;   // fund 모드는 committee 사이클 상태(섹터·헤더) 미사용
   try {
     if (!_sectors.length) {
       const sr = await fetch('/api/sectors');
@@ -2557,23 +2562,25 @@ loadWhoami().then(() => setTimeout(updateFeedbackBadge, 1500));  // 첫 로드 �
 const _fKRW = n => "₩" + Math.round(n||0).toLocaleString();
 const _fPct = r => (r>=0?"+":"") + (r||0).toFixed(2) + "%";
 const _fCls = r => r>0.05 ? "up" : r<-0.05 ? "down" : "flat";   // 이익 빨강/손실 파랑(KR)
+const _fDot = s => s === "working" ? "#3fb950" : "#f85149";     // 출근 초록 / 퇴근 빨강
 function renderFundMembers(d) {
   const el = document.getElementById('member-list');
   if (!el) return;
+  const dot = _fDot(d.session);
   el.innerHTML = '';
-  (d.bots||[]).forEach(b => {
+  (d.bots||[]).forEach(b => {                                   // 전략 노출 방지 — 글자만
     const row = document.createElement('div');
     row.className = 'member';
-    row.innerHTML = `<span class="dot" style="background:${b.color}"></span>`
-      + `<span class="member-name" style="color:${b.color}">${b.bot} ${esc(b.name)}</span>`
-      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}`
-      + `<span class="mr-n">${b.n_positions}종목</span></span>`;
+    row.innerHTML = `<span class="dot" style="background:${dot}"></span>`
+      + `<span class="member-name" style="color:${b.color}">${b.bot}</span>`
+      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span>`;
     el.appendChild(row);
   });
 }
 function renderFundQuad(d) {
   const panel = document.getElementById('portfolio-panel');
   if (!panel) return;
+  const dot = _fDot(d.session);
   const cells = (d.bots||[]).map(b => {
     const opens = b.positions || [];
     const posRows = opens.length ? opens.map(p =>
@@ -2588,10 +2595,10 @@ function renderFundQuad(d) {
         + `<span class="val ${sold?_fCls(t.pnl_pct||0):'flat'}">${label}</span></div>`;
     }).join('') || `<div class="fq-empty">거래 없음</div>`;
     return `<div class="fq-cell">
-      <div class="fq-top"><span class="fq-id" style="color:${b.color}">${b.bot}</span>`
-      + `<span class="fq-nm">${esc(b.name)}</span>`
+      <div class="fq-top"><span class="dot" style="background:${dot}"></span>`
+      + `<span class="fq-id" style="color:${b.color}">${b.bot}</span>`
       + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
-      <div class="fq-meta">현금 ${_fKRW(b.cash)} · ${b.n_positions}종목</div>
+      <div class="fq-meta">현금 ${_fKRW(b.cash)}</div>
       <div class="fq-scroll"><div class="fq-sec">보유</div>${posRows}`
       + `<div class="fq-sec">최근 매매</div>${trades}</div>
     </div>`;
@@ -2609,6 +2616,10 @@ async function loadFund() {
 }
 if (window.__FUND_MODE__) {
   document.body.classList.add('fundmode');
+  const hashEl = document.getElementById('chat-hash');
+  const subEl = document.getElementById('round-label');
+  if (hashEl) hashEl.textContent = '# AI펀드';
+  if (subEl) subEl.textContent = '4봇이 일하는 관전 피드';
   loadFund();
   setInterval(loadFund, 15000);
 }
