@@ -109,10 +109,16 @@ def test_build_analysis_prompt():
     assert "사업 개요" not in p2
 
 
+def _mock_brief(monkeypatch):
+    # A 브리프 준비를 네트워크 없이 (analyze_candidate가 종목당 1회 호출)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("패킷", "사업"))
+
+
 def test_analyze_candidate_gate(monkeypatch):
     # 관대 게이트: 한 명이라도 매수면 통과
+    _mock_brief(monkeypatch)
     monkeypatch.setattr(aifund, "analyze_stock",
-                        lambda code, name, tk, bot, market="US":
+                        lambda code, name, tk, bot, market="US", brief=None:
                         ({"P": "매수", "W": "관망", "S": "매도"}[bot], "r"))
     r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
     assert r["approved"] is True
@@ -120,15 +126,17 @@ def test_analyze_candidate_gate(monkeypatch):
 
 
 def test_analyze_candidate_all_wait_rejected(monkeypatch):
+    _mock_brief(monkeypatch)
     monkeypatch.setattr(aifund, "analyze_stock",
-                        lambda code, name, tk, bot, market="US": ("관망", "r"))
+                        lambda code, name, tk, bot, market="US", brief=None: ("관망", "r"))
     r = aifund.analyze_candidate("XYZ", "Xyz", "XYZ")
     assert r["approved"] is False                 # 아무도 매수 안 하면 탈락
 
 
 def test_analyze_candidate_survives_bot_error(monkeypatch):
     # 봇 하나 터져도 관망 처리하고 계속(전체 실패 방지)
-    def flaky(code, name, tk, bot, market="US"):
+    _mock_brief(monkeypatch)
+    def flaky(code, name, tk, bot, market="US", brief=None):
         if bot == "W":
             raise RuntimeError("LLM 타임아웃")
         return ("매수" if bot == "P" else "관망"), "r"
@@ -136,6 +144,22 @@ def test_analyze_candidate_survives_bot_error(monkeypatch):
     r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
     assert r["verdicts"]["W"] == "관망"           # 예외 → 관망
     assert r["approved"] is True                   # P 매수라 통과
+
+
+def test_quarterly_trend_computes_direction():
+    # 매출 가속 + 마진 개선 시나리오 (최신→과거 순 입력)
+    e9 = 1e9
+    rev = [100 * e9, 90 * e9, 80 * e9, 70 * e9, 60 * e9]   # 최신 100B, 1년 전 60B → YoY +67%
+    gross = [62 * e9, 54 * e9, 46 * e9, 38 * e9, 30 * e9]  # 총마진 62% → (3분기 전) 57.5% = 개선
+    txt = aifund.quarterly_trend(rev, gross, [], [])
+    assert "매출" in txt and "YoY +67%" in txt
+    assert "총마진 62%(↑개선)" in txt
+    assert "60.0B → " in txt and "100.0B" in txt   # 오래된→최신 흐름
+
+
+def test_quarterly_trend_needs_min_quarters():
+    assert aifund.quarterly_trend([100, 90], [], [], []) == ""   # 3분기 미만이면 빈
+    assert aifund.quarterly_trend([], [], [], []) == ""
 
 
 # ── T 하드 스탑로스(손절) 순수 로직 ──────────────────────

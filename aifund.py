@@ -150,6 +150,50 @@ def _extra_fundamentals(data) -> str:
     return ("\n심화재무: " + " · ".join(rows)) if rows else ""
 
 
+def quarterly_trend(rev, gross, op, net):
+    """분기 손익 리스트(최신→과거)로 매출·마진 추세 요약(순수 — 네트워크 X). 최소 3분기 필요.
+    매출: 오래된→최신 흐름 + YoY / 마진: 최신값 + 3분기 전 대비 개선↑·악화↓·정체→. 없으면 ''."""
+    if not rev or len(rev) < 3:
+        return ""
+    parts = [f"매출 {' → '.join(f'{v / 1e9:.1f}B' for v in reversed(rev[:5]) if v)}"
+             + (f" (YoY {(rev[0] / rev[4] - 1) * 100:+.0f}%)" if len(rev) >= 5 and rev[4] else "")]
+    for label, profit in (("총마진", gross), ("영업마진", op), ("순마진", net)):
+        if profit and len(profit) >= 3 and rev[0] and rev[2]:
+            now, old = profit[0] / rev[0] * 100, profit[2] / rev[2] * 100
+            arrow = "↑개선" if now > old + 0.5 else "↓악화" if now < old - 0.5 else "→정체"
+            parts.append(f"{label} {now:.0f}%({arrow})")
+    return "분기추세(최신순): " + " / ".join(parts)
+
+
+def _fetch_quarterly(code):
+    """yfinance 분기 손익 → (매출, 총이익, 영업이익, 순이익) 리스트(최신→과거). 실패 시 빈."""
+    try:
+        import yfinance as yf
+        q = yf.Ticker(code).quarterly_financials
+        if q is None or q.empty:
+            return [], [], [], []
+        def row(n):
+            return [float(x) for x in q.loc[n].dropna().head(5)] if n in q.index else []
+        return (row("Total Revenue"), row("Gross Profit"),
+                row("Operating Income"), row("Net Income"))
+    except Exception as e:
+        logger.debug(f"분기재무 조회 실패 {code}: {e}")
+        return [], [], [], []
+
+
+def build_research_brief(code, name, yf_ticker, market="US"):
+    """A의 리서치 브리프 — P/W/S에게 넘길 최적화 다이제스트(뉴스 없이·중립 팩트만).
+    현재 재무 + 심화(마진·성장·FCF) + 분기 다기간 추세. A가 종목당 1회 준비 → P/W/S 공용.
+    반환: (packet_text, business_summary)."""
+    from fetchers import fetch_stock_data, format_stock_data
+    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    packet = format_stock_data(data) + _extra_fundamentals(data)
+    trend = quarterly_trend(*_fetch_quarterly(code))
+    if trend:
+        packet += "\n" + trend
+    return packet, data.get("business_summary", "")
+
+
 def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
     """발굴봇 1인에게 줄 종목 분석 프롬프트. 데이터 패킷 + '꿈꾸는 것'(사업요약)."""
     parts = [f"[분석 종목] {name} ({code})", "", packet_text]
@@ -169,16 +213,15 @@ def _parse_verdict(text) -> str:
     return m.group(1) if m else "관망"
 
 
-def analyze_stock(code, name, yf_ticker, bot, market="US"):
-    """발굴봇 1인이 한 종목 분석 → thesis 캐시에 저장. 반환: (verdict, reasoning)."""
-    from fetchers import fetch_stock_data, format_stock_data
+def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
+    """발굴봇 1인이 한 종목 분석 → thesis 캐시에 저장. 반환: (verdict, reasoning).
+    brief: A가 준비한 (packet_text, business_summary). 없으면 직접 준비(단독 호출용)."""
     from agents import call_agent
     from prompts import AGENT_PROFILES
     from db import save_thesis
 
-    data = fetch_stock_data(code, yf_ticker, name, market=market)
-    packet = format_stock_data(data) + _extra_fundamentals(data)
-    prompt = build_analysis_prompt(name, code, packet, data.get("business_summary", ""))
+    packet, business = brief if brief else build_research_brief(code, name, yf_ticker, market)
+    prompt = build_analysis_prompt(name, code, packet, business)
     reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
     verdict = _parse_verdict(reasoning)
     save_thesis(code, bot, verdict, reasoning)
@@ -188,10 +231,11 @@ def analyze_stock(code, name, yf_ticker, bot, market="US"):
 def analyze_candidate(code, name, yf_ticker, market="US"):
     """P/W/S 3인이 한 종목을 각자 분석. 관대 게이트: 한 명이라도 매수면 통과.
     반환: {'code','name','verdicts','approved'}."""
+    brief = build_research_brief(code, name, yf_ticker, market)   # A가 1회 준비 → P/W/S 공용
     verdicts = {}
     for bot in NEW_DESK_ORDER:
         try:
-            v, _ = analyze_stock(code, name, yf_ticker, bot, market)
+            v, _ = analyze_stock(code, name, yf_ticker, bot, market, brief=brief)
         except Exception as e:
             logger.warning(f"발굴 분석 실패 {code}@{bot}: {e}")
             v = "관망"
