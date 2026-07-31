@@ -202,3 +202,19 @@ def test_execute_thesis_sell(monkeypatch):
     assert aifund.execute_thesis_sell("W", {"id": 7}, "매도", 50.0) is True
     assert calls == [7]
     assert aifund.execute_thesis_sell("W", {"id": 7}, "관망", 50.0) is False   # 매도 아니면 no-op
+
+
+# ── Q 라이브 실행 신호 ────────────────────────────────────
+def test_q_entry_signal_prefers_minervini(monkeypatch):
+    import backtest as bt, trading_strategies as ts
+    monkeypatch.setattr(bt, "minervini_entry", lambda c, up: True)
+    assert aifund.q_entry_signal([1, 2, 3], True) == "M"          # M 우선
+    monkeypatch.setattr(bt, "minervini_entry", lambda c, up: False)
+    monkeypatch.setattr(ts, "meanrev_entry", lambda c: True)
+    assert aifund.q_entry_signal([1, 2, 3], True) == "B"          # M 없으면 B
+    monkeypatch.setattr(ts, "meanrev_entry", lambda c: False)
+    assert aifund.q_entry_signal([1, 2, 3], True) is None         # 둘 다 X
+
+
+def test_run_q_desk_noop_when_disabled():
+    assert aifund.run_q_desk() == {"bought": [], "sold": []}      # 토글 off
