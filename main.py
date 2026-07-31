@@ -292,6 +292,12 @@ def admin_login(body: AdminLoginBody):
     return resp
 
 
+@app.get("/fund")
+def read_fund():
+    """AI펀드 4봇 경쟁 관전 페이지 (읽기전용)."""
+    return FileResponse("static/fund.html")
+
+
 @app.get("/")
 def root(request: Request, s: str = ""):
     # 모바일 브라우저(iOS Safari·카카오톡 인앱)는 Cache-Control: no-cache 무시하고
@@ -615,6 +621,31 @@ def api_portfolio():
 @app.get("/api/positions")
 def api_positions():
     return get_all_positions(50)
+
+
+@app.get("/api/fund")
+def api_fund():
+    """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
+    from db import FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio
+    names = {"P": "성장주(GARP)", "W": "가치(오너십)", "S": "공급망 병목", "Q": "B+M 블렌드"}
+    bots = []
+    for acct in FUND_ACCOUNTS:
+        pf = get_shared_portfolio(acct)
+        cash = pf.get("balance") or 0
+        open_pos = [p for p in _enrich_positions(get_all_positions(50, account=acct))
+                    if p.get("status") == "open"]
+        invested = sum((p.get("amount") or 0) for p in open_pos)
+        equity = cash + invested                         # 원가 기준(실시간 평가는 추후)
+        bots.append({
+            "bot": acct, "name": names.get(acct, acct),
+            "cash": cash, "invested": invested, "equity": equity,
+            "return_pct": round((equity / FUND_SEED - 1) * 100, 2) if FUND_SEED else 0,
+            "n_positions": len(open_pos),
+            "positions": [{"symbol": p["symbol"], "amount": p.get("amount"),
+                           "reasoning": p.get("reasoning", ""),
+                           "pnl_pct": p.get("unrealized_pnl_pct")} for p in open_pos],
+        })
+    return {"seed": FUND_SEED, "bots": bots}
 
 
 @app.get("/api/benchmark")
