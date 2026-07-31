@@ -27,7 +27,7 @@
 | 브랜치 | `type/#번호` | `feat/#50` |
 | 커밋 | `[Type/#번호] 내용` | `[Feat/#50] Q 블렌드 정식화` |
 | PR 제목 | `[Type] #번호 - 내용` | `[Feat] #50 - 백테스트 Q 블렌드` |
-| PR 본문 | Task: `Part of #에픽` / 단발: `Closes #자기번호` | `Part of #47` |
+| PR 본문 | **`Closes #자기이슈`**(머지 시 자동종료) + Task는 `Part of #에픽` 추가(링크·에픽 안 닫음) | `Closes #55` `Part of #53` |
 | (Epic 이슈) | `[Epic] #번호 - 주제` + 투두 체크리스트 | `[Epic] #47 - AI펀드 피봇` |
 
 - 이슈 제목은 생성 후 부여된 번호를 확인해 `#번호`를 끼워 넣는다.
@@ -55,7 +55,7 @@
 1. 큰 테마면 **Epic 이슈**(`[Epic] #N` + 투두 체크리스트) 먼저. 단발이면 일반 이슈.
 2. 투두(또는 단발) → `type/#번호` 브랜치. (Task 번호 = 그 PR 번호)
 3. 커밋 `[Type/#번호] 내용` → push. (한 PR 안에서 만들고·조정·수정 여러 커밋 OK)
-4. PR: 작업 브랜치 → `main`. 본문 — Task는 `Part of #N`(에픽), 단발은 `Closes #자기번호`.
+4. PR: 작업 브랜치 → `main`. 본문 **`Closes #자기이슈`**(머지 시 자동종료) — Task는 여기에 `Part of #에픽`(링크) 추가.
 5. **셀프 리뷰**(diff 훑기) + CI 통과. 수정은 같은 브랜치에 커밋 추가.
 6. 머지 → Task면 **에픽 투두 `- [x]` 체크**. 단발이면 `Closes`로 이슈 자동 종료. 에픽은 마지막 Task가 `Closes #N` 하거나 수동 종료.
 
@@ -88,4 +88,4 @@ gh label create "Chore 🧹"    --color CFD3D7 --description "잡일" --force
 
 repo 설정:
 - **머지 후 작업 브랜치 자동 삭제** ON (`delete_branch_on_merge`). 브랜치 목록이 안 쌓인다.
-- PR 본문 `Closes #번호` → 머지 시 그 이슈 자동 종료. (Task의 `Part of #에픽`은 참조만 — 에픽 안 닫음.)
+- PR 본문 **`Closes #번호`** → 머지 시 그 이슈 자동 종료. **Task도 반드시 `Closes #자기Task이슈`**(안 그러면 이슈가 안 닫히고 쌓임). `Part of #에픽`은 참조만(에픽 안 닫음 — 수동/마지막 Task가 종료).
