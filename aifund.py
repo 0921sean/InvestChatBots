@@ -133,6 +133,30 @@ def source_today(market="US", quota=None, rng=random):
             "briefing": build_briefing(new, cat, names)}
 
 
+def _bottleneck_seed():
+    """병목 시드 유니버스 — 비공개(strategy_private), 없으면 example(빈값) 폴백."""
+    try:
+        from strategy_private import US_BOTTLENECK_SEED as seed
+    except Exception:
+        try:
+            from strategy_private_example import US_BOTTLENECK_SEED as seed
+        except Exception:
+            seed = []
+    return list(seed or [])
+
+
+def source_bottleneck(market="US", quota=None):
+    """S 자체 소싱 — 병목 시드에서 오늘 안 본 곡괭이만 골라 반환('발굴'이 S의 엣지).
+    A 리스트를 안 받고 S가 자기 유니버스를 직접 뒤진다. 반환: {'codes','names'}."""
+    quota = quota or DAILY_QUOTA
+    seed = _bottleneck_seed()
+    if market != "US" or not seed:                   # 병목 시드는 미장 전용
+        return {"codes": [], "names": {}}
+    cached = set(get_cached_codes())                 # 이미 분석된 건 제외(재분석은 카탈리스트가)
+    codes = [c for c in seed if c not in cached][:quota]
+    return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
+
+
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
 import re                                          # noqa: E402
 
@@ -233,12 +257,13 @@ def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
     return verdict, reasoning
 
 
-def analyze_candidate(code, name, yf_ticker, market="US"):
-    """P/W/S 3인이 한 종목을 각자 분석. 관대 게이트: 한 명이라도 매수면 통과.
-    반환: {'code','name','verdicts','approved'}."""
-    brief = build_research_brief(code, name, yf_ticker, market)   # A가 1회 준비 → P/W/S 공용
+def analyze_candidate(code, name, yf_ticker, market="US", bots=None):
+    """지정 봇들이 한 종목을 각자 분석(기본 P/W/S). bots로 데스크 분리 가능(P/W vs S).
+    반환: {'code','name','verdicts','reasonings','approved','brief'}."""
+    bots = bots or NEW_DESK_ORDER
+    brief = build_research_brief(code, name, yf_ticker, market)   # A가 1회 준비(리포트+분석 공용)
     verdicts, reasonings = {}, {}
-    for bot in NEW_DESK_ORDER:
+    for bot in bots:
         try:
             v, rz = analyze_stock(code, name, yf_ticker, bot, market, brief=brief)
         except Exception as e:
@@ -248,7 +273,7 @@ def analyze_candidate(code, name, yf_ticker, market="US"):
         reasonings[bot] = rz
     approved = any(v == "매수" for v in verdicts.values())
     return {"code": code, "name": name, "verdicts": verdicts,
-            "reasonings": reasonings, "approved": approved}
+            "reasonings": reasonings, "approved": approved, "brief": brief}
 
 
 # ── P/W/S 매수·청산 실행 (봇별 독립 계좌 — 경쟁) ────────────
@@ -367,18 +392,46 @@ def run_new_desk_cycle(market="US"):
     empty = {"briefing": "", "buys": [], "sells": [], "q": {"bought": [], "sold": []}}
     if not NEW_DESK_ENABLED:
         return empty
-    from db import ensure_fund_accounts, get_open_positions_by_symbol
-    from fetchers import fetch_stock_price
+    from db import ensure_fund_accounts
     ensure_fund_accounts()                                    # 4계좌 시드(멱등)
     _narrate("A", "다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.")
 
-    src = source_today(market)                                # A 소싱 + 브리프
+    src = source_today(market)                                # A 일반 풀(P/W용) + 브리프
     _narrate("A", src["briefing"])                            # 모닝 브리핑
+    pw = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]]
+    buys, sells = _process_pool(pw, market, ["P", "W"])       # P/W = A가 준 리스트
+
+    s_src = source_bottleneck(market)                         # S = 병목 시드 자체 소싱
+    if s_src["codes"]:
+        _narrate("S", f"병목 시드에서 오늘 볼 곡괭이 {len(s_src['codes'])}종목 직접 골랐어요.")
+    s_cands = [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
+    sb, ss = _process_pool(s_cands, market, ["S"])
+    buys += sb
+    sells += ss
+
+    q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
+    _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
+    _snapshot_fund_nav()                                      # 수익률 스파크라인용 일일 NAV
+    _narrate("A", "오늘 일과 끝. 계좌별 성적은 우측 패널에서 볼 수 있어요. 다들 수고했습니다 🫡")
+    return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
+
+
+def _process_pool(candidates, market, bots):
+    """(code, name) 리스트를 주어진 봇들로 분석 → A 리포트 저장 → 매수/논지청산 → 내레이션.
+    반환: (buys, sells)."""
+    from db import get_open_positions_by_symbol, record_fund_report
+    from fetchers import fetch_stock_price
+    today = _today_kst()
+    desk_tag = "S" if bots == ["S"] else "PW"
     buys, sells = [], []
-    for code in src["new"] + src["catalyst"]:
-        name = src["names"].get(code, code)
-        r = analyze_candidate(code, name, code, market)       # P/W/S 각자 verdict
-        for bot in NEW_DESK_ORDER:                            # 각자 분석 발언(실제 논지)
+    for code, name in candidates:
+        r = analyze_candidate(code, name, code, market, bots=bots)
+        packet, summary = r.get("brief") or ("", "")
+        try:
+            record_fund_report(today, code, name, summary, packet, desk_tag)   # A 리포트
+        except Exception as e:
+            logger.warning(f"리포트 저장 실패 {code}: {e}")
+        for bot in bots:                                      # 각자 분석 발언(실제 논지)
             _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}",
                      model="sonnet")
         for b in execute_buys(code, name, r["verdicts"], market):
@@ -395,12 +448,7 @@ def run_new_desk_cycle(market="US"):
             if price and execute_thesis_sell(bot, held[0], v, price):
                 _narrate(bot, f"🔻 {name} 청산 — 논지가 훼손돼 내 계좌에서 뺐어요.")
                 sells.append((bot, code))
-
-    q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
-    _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
-    _snapshot_fund_nav()                                      # 수익률 스파크라인용 일일 NAV
-    _narrate("A", "오늘 일과 끝. 계좌별 성적은 우측 패널에서 볼 수 있어요. 다들 수고했습니다 🫡")
-    return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
+    return buys, sells
 
 
 def _snapshot_fund_nav():

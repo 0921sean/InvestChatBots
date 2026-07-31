@@ -129,6 +129,26 @@ def get_fund_nav_history(bot: str, days: int = 30) -> list:
         return list(reversed([dict(r) for r in rows]))
 
 
+def record_fund_report(date: str, code: str, name: str, summary: str, packet: str, desk: str = None):
+    """A 리서치 리포트(사업개요+핵심재무) 저장 — 관전 패널 표시용. 같은 날 재호출은 갱신."""
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO fund_report (date, code, name, summary, packet, desk) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(date, code) DO UPDATE SET name=excluded.name, summary=excluded.summary, "
+            "packet=excluded.packet, desk=excluded.desk",
+            (date, code, name, summary, packet, desk))
+
+
+def get_fund_reports(limit: int = 30) -> list:
+    """최근 A 리포트 (최신순)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM fund_report ORDER BY date DESC, created_at DESC LIMIT ?",
+            (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -231,6 +251,16 @@ def init_db():
             bot TEXT NOT NULL,
             equity REAL,
             PRIMARY KEY (date, bot)
+        );
+        CREATE TABLE IF NOT EXISTS fund_report (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            summary TEXT,                              -- 사업 개요(뭐하는 회사)
+            packet TEXT,                               -- 핵심 재무 다이제스트
+            desk TEXT,                                 -- 'PW'(A 일반풀) / 'S'(병목 자체소싱)
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, code)
         );
         CREATE TABLE IF NOT EXISTS agent_state (
             agent_name TEXT PRIMARY KEY,

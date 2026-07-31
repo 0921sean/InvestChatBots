@@ -62,6 +62,18 @@ def test_fund_nav_snapshot_roundtrip_and_upsert():
     assert get_fund_nav_history("W") == []            # 봇별 분리
 
 
+def test_fund_report_roundtrip_and_upsert():
+    from db import record_fund_report, get_fund_reports
+    record_fund_report("2026-07-31", "NVDA", "NVIDIA", "GPU 만드는 회사", "PER 50 · 성장 +60%", "PW")
+    record_fund_report("2026-07-31", "COHR", "Coherent", "광부품 병목", "마진 30%", "S")
+    record_fund_report("2026-07-31", "NVDA", "NVIDIA", "AI 가속기 대장", "PER 48", "PW")  # 갱신
+    rows = get_fund_reports()
+    by_code = {r["code"]: r for r in rows}
+    assert by_code["NVDA"]["summary"] == "AI 가속기 대장"   # upsert(중복 X)
+    assert by_code["COHR"]["desk"] == "S"                    # 병목 자체소싱 태그
+    assert len(rows) == 2
+
+
 def test_agent_state_roundtrip():
     save_agent_state("Compounder", "Still bullish on semis after round 5.", 5)
     state = get_agent_state("Compounder")

@@ -633,6 +633,13 @@ def api_positions():
     return get_all_positions(50)
 
 
+@app.get("/api/fund-report")
+def api_fund_report(limit: int = 30):
+    """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
+    from db import get_fund_reports
+    return get_fund_reports(limit)
+
+
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""

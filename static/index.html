@@ -618,10 +618,24 @@
   .spark { width: 100%; height: 42px; display: block; }
   .spark-zero { stroke: #30363d; stroke-width: 1; stroke-dasharray: 3 3; }
 
-  body.fundmode #memo-panel { display: none; }
-  body.fundmode #portfolio-panel { width: 600px; }
-  @media (max-width: 1200px) { body.fundmode #portfolio-panel { width: 460px; } }
+  body.fundmode #memo-panel { width: 300px; }              /* 섹터합의 자리 → A 리서치 */
+  body.fundmode #portfolio-panel { width: 540px; }
+  @media (max-width: 1300px) { body.fundmode #portfolio-panel { width: 440px; } body.fundmode #memo-panel { width: 260px; } }
   @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 360px; } }
+  body.fundmode #memo-panel .right-tab-btn, body.fundmode #portfolio-panel .right-tab-btn { display: none; }
+  /* A 리서치 리포트 카드 */
+  #fund-report { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
+  .fr-card { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 12px 13px; }
+  .fr-top { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+  .fr-tk { font-weight: 800; font-size: 13px; color: #e7ecf1; }
+  .fr-nm { font-size: 10px; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fr-tag { margin-left: auto; font-size: 8.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+  .fr-tag.pw { color: #5aa9e6; background: rgba(90,169,230,.13); }
+  .fr-tag.s { color: #e08a3c; background: rgba(224,138,60,.13); }
+  .fr-sum { font-size: 11px; color: #c9d1d9; line-height: 1.55; }
+  .fr-fin { font-size: 10px; color: #8b949e; white-space: pre-wrap; line-height: 1.5; margin-top: 7px;
+    padding-top: 7px; border-top: 1px solid #21262d; max-height: 132px; overflow-y: auto; font-variant-numeric: tabular-nums; }
+  .fr-empty { color: #444c56; font-size: 11px; font-style: italic; padding: 10px 4px; }
   body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
   body.fundmode .pf-acct-toggle { display: none; }
   /* committee 전용 크롬 숨김(fund 모드엔 무의미) */
@@ -2653,6 +2667,31 @@ async function loadFund() {
     renderFundQuad(d);
   } catch (e) {}
 }
+function renderFundReport(reports) {
+  const hdr = document.querySelector('#memo-panel .panel-header h3');
+  const sub = document.querySelector('#memo-panel .panel-header p');
+  if (hdr) hdr.textContent = '📋 A 리서치';
+  if (sub) sub.textContent = '후보가 뭐하는 회사인지 · 핵심 재무';
+  const list = document.getElementById('memo-list');
+  if (!list) return;
+  if (!reports || !reports.length) {
+    list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 종목별로 채웁니다.</div>`;
+    return;
+  }
+  list.innerHTML = `<div id="fund-report">` + reports.map(r => {
+    const tag = r.desk === 'S'
+      ? `<span class="fr-tag s">병목</span>` : `<span class="fr-tag pw">일반</span>`;
+    const nm = (r.name && r.name !== r.code) ? `<span class="fr-nm">${esc(r.name)}</span>` : '';
+    let s = r.summary || '';
+    if (s.length > 200) s = s.slice(0, 200) + '…';
+    const sum = s ? `<div class="fr-sum">${esc(s)}</div>` : '';
+    const fin = r.packet ? `<div class="fr-fin">${esc(r.packet)}</div>` : '';
+    return `<div class="fr-card"><div class="fr-top"><span class="fr-tk">${esc(r.code)}</span>${nm}${tag}</div>${sum}${fin}</div>`;
+  }).join('') + `</div>`;
+}
+async function loadFundReport() {
+  try { renderFundReport(await (await fetch('/api/fund-report')).json()); } catch (e) {}
+}
 if (window.__FUND_MODE__) {
   document.body.classList.add('fundmode');
   const hashEl = document.getElementById('chat-hash');
@@ -2660,7 +2699,9 @@ if (window.__FUND_MODE__) {
   if (hashEl) hashEl.textContent = '# AI펀드';
   if (subEl) subEl.textContent = '4봇이 일하는 관전 피드';
   loadFund();
+  loadFundReport();
   setInterval(loadFund, 15000);
+  setInterval(loadFundReport, 30000);
 }
 // v1/v2 전환 토글 활성표시 (committee·fund 양쪽에서 실행)
 (function(){
