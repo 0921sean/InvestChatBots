@@ -384,6 +384,53 @@ def run_q_desk(market="US"):
     return {"bought": bought, "sold": sold}
 
 
+# ── 관전 멘트 풀 (매번 다르게 — 봇별 varied) ───────────────────
+# 퇴근 라인은 세션(출근/퇴근) 판정에 쓰이므로 반드시 '퇴근' 단어 포함.
+_CLOCK_IN = {
+    "A": ["다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.",
+          "좋은 아침. 밤사이 뭐 터졌나 훑고 리스트 뽑습니다.",
+          "출근이요~ 오늘의 후보 정리해서 곧 올릴게요."],
+    "P": ["린치 출근. 오늘도 생활 속 텐배거 찾아봅니다.",
+          "P 왔어요. PEG 싼 성장주 뭐 없나 보죠.",
+          "출근! 스토리 살아있는 놈으로 골라봅니다."],
+    "W": ["버핏 관점으로 출근했습니다. 좋은 회사를 적정가에.",
+          "W 도착. 능력범위 안, 해자 있는 것만 봅니다.",
+          "출근이요. 10년 들고 갈 만한지부터 봅니다."],
+    "S": ["병목 헌터 출근 — 오늘의 곡괭이 찾으러 갑니다.",
+          "S 왔습니다. 남들 완제품 볼 때 저는 사슬 뒤를 봐요.",
+          "출근! 공급망 초크포인트부터 직접 뒤져봅니다."],
+}
+_CLOCK_OUT = {
+    "A": ["오늘 리서치 끝 — A 퇴근합니다. 다들 수고했어요 🫡",
+          "정리 끝났습니다. A 퇴근할게요, 내일 또 좋은 종목으로.",
+          "계좌 성적은 우측에서 보세요. A 퇴근합니다."],
+    "P": ["P 퇴근. 오늘 고른 놈들 잘 자라라~",
+          "린치 이만 퇴근합니다. 인내가 수익이죠.",
+          "먼저 퇴근할게요. 좋은 회사는 시간이 증명해요."],
+    "W": ["W 퇴근. 서두르지 않습니다, 늘 그렇듯.",
+          "버핏 관점 정리 끝, 퇴근합니다.",
+          "이만 퇴근이요. 가격이 오면 그때 더 담죠."],
+    "S": ["S 퇴근 — 곡괭이는 조용히 값을 합니다.",
+          "병목 점검 끝. 사슬은 안 끊기니까요. 퇴근!",
+          "먼저 퇴근합니다. 다음 초크포인트는 내일 또."],
+}
+_A_DONE = [
+    "{desk} {n}종목 리서치 정리해 올렸어요 — 우측 'A 리서치' 참고!",
+    "{n}종목 다 봤습니다. 뭐하는 회사인지 리포트로 정리해뒀어요.",
+    "{desk} 리포트 {n}건 업데이트. 숫자는 거기서 확인하세요.",
+]
+_BUY_LINES = ["💰 {name} 매수 체결 — 내 계좌에 담았어요.",
+              "{name} 샀습니다. 논지대로 갑니다.",
+              "{name} 편입 완료. 지켜보죠."]
+_SELL_LINES = ["🔻 {name} 청산 — 논지가 훼손돼 뺐어요.",
+               "{name} 던졌습니다. 얘기가 달라졌네요.",
+               "{name} 정리 — 이유가 사라졌으니 홀드할 근거도 없죠."]
+
+
+def _line(pool, bot):
+    return random.choice(pool.get(bot) or [""])
+
+
 # ── 하루 사이클 오케스트레이션 (A → P/W/S → Q) ──────────────
 def run_new_desk_cycle(market="US"):
     """AI펀드 하루 흐름: 계좌 준비 → A 소싱 → P/W/S 각 후보 분석·매수/논지청산 → Q 전 유니버스 스캔·매매.
@@ -394,7 +441,7 @@ def run_new_desk_cycle(market="US"):
         return empty
     from db import ensure_fund_accounts
     ensure_fund_accounts()                                    # 4계좌 시드(멱등)
-    _narrate("A", "다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.")
+    _narrate("A", _line(_CLOCK_IN, "A"))                      # A 출근
 
     src = source_today(market)                                # A 일반 풀(P/W용) + 브리프
     _narrate("A", src["briefing"])                            # 모닝 브리핑
@@ -402,8 +449,6 @@ def run_new_desk_cycle(market="US"):
     buys, sells = _process_pool(pw, market, ["P", "W"])       # P/W = A가 준 리스트
 
     s_src = source_bottleneck(market)                         # S = 병목 시드 자체 소싱
-    if s_src["codes"]:
-        _narrate("S", f"병목 시드에서 오늘 볼 곡괭이 {len(s_src['codes'])}종목 직접 골랐어요.")
     s_cands = [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
     sb, ss = _process_pool(s_cands, market, ["S"])
     buys += sb
@@ -412,7 +457,7 @@ def run_new_desk_cycle(market="US"):
     q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
     _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
     _snapshot_fund_nav()                                      # 수익률 스파크라인용 일일 NAV
-    _narrate("A", "오늘 일과 끝. 계좌별 성적은 우측 패널에서 볼 수 있어요. 다들 수고했습니다 🫡")
+    _narrate("A", _line(_CLOCK_OUT, "A"))                     # A 퇴근
     return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
 
 
@@ -421,9 +466,14 @@ def _process_pool(candidates, market, bots):
     반환: (buys, sells)."""
     from db import get_open_positions_by_symbol, record_fund_report
     from fetchers import fetch_stock_price
+    buys, sells = [], []
+    if not candidates:                                        # 오늘 볼 게 없으면 출근도 안 함
+        return buys, sells
     today = _today_kst()
     desk_tag = "S" if bots == ["S"] else "PW"
-    buys, sells = [], []
+    desk_label = "병목" if bots == ["S"] else "일반"
+    for bot in bots:                                          # 각자 출근
+        _narrate(bot, _line(_CLOCK_IN, bot))
     for code, name in candidates:
         r = analyze_candidate(code, name, code, market, bots=bots)
         packet, summary = r.get("brief") or ("", "")
@@ -435,7 +485,7 @@ def _process_pool(candidates, market, bots):
             _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}",
                      model="sonnet")
         for b in execute_buys(code, name, r["verdicts"], market):
-            _narrate(b, f"💰 {name} 매수 체결 — 내 계좌에 담았어요.")
+            _narrate(b, random.choice(_BUY_LINES).format(name=name))
             buys.append((b, code))
         price = None
         for bot, v in r["verdicts"].items():                  # 논지 청산(보유 봇이 매도 시)
@@ -446,8 +496,11 @@ def _process_pool(candidates, market, bots):
                 continue
             price = price or fetch_stock_price(code if market == "US" else f"{code}.KS")
             if price and execute_thesis_sell(bot, held[0], v, price):
-                _narrate(bot, f"🔻 {name} 청산 — 논지가 훼손돼 내 계좌에서 뺐어요.")
+                _narrate(bot, random.choice(_SELL_LINES).format(name=name))
                 sells.append((bot, code))
+    _narrate("A", random.choice(_A_DONE).format(desk=desk_label, n=len(candidates)))   # A 분석완료
+    for bot in bots:                                          # 각자 퇴근
+        _narrate(bot, _line(_CLOCK_OUT, bot))
     return buys, sells
 
 

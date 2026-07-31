@@ -648,7 +648,7 @@ def api_fund():
     colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
     # 출근/퇴근 세션: 마지막 fund 내레이션이 '퇴근' 줄이면 off, 진행 중이면 working
     last = get_recent_messages(1, desk="fund")
-    working = bool(last) and not (last[0].get("content") or "").startswith("오늘 일과 끝")
+    working = bool(last) and "퇴근" not in (last[0].get("content") or "")
     session = "working" if working else "off"
     bots = []
     for acct in FUND_ACCOUNTS:                            # 전략 노출 방지 — 이름 없이 글자만
