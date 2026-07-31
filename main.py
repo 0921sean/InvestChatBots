@@ -643,6 +643,9 @@ def api_fund_report(limit: int = 30):
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
+    global _price_cache, _price_cache_at
+    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:   # 현재가 캐시 만료 시 백그라운드 갱신
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
     from db import (FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
     colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
@@ -658,7 +661,8 @@ def api_fund():
         open_pos = [p for p in rows if p.get("status") == "open"]
         closed = [p for p in rows if p.get("status") != "open"]
         invested = sum((p.get("amount") or 0) for p in open_pos)
-        equity = cash + invested                         # 원가 기준(실시간 평가는 추후)
+        unrealized = sum((p.get("unrealized_pnl") or 0) for p in open_pos)  # _enrich_positions가 현재가로 계산
+        equity = cash + invested + unrealized            # 시가 평가(평가손익 반영)
         # 수익률 스파크라인 — 과거 NAV 스냅샷(return%). 이력 없으면 현재값 1점 폴백
         hist = [round((r["equity"] / FUND_SEED - 1) * 100, 2)
                 for r in get_fund_nav_history(acct, days=30) if r.get("equity")]
