@@ -345,3 +345,36 @@ def run_q_desk(market="US"):
             bought.append(code)
             q_count += 1
     return {"bought": bought, "sold": sold}
+
+
+# ── 하루 사이클 오케스트레이션 (A → P/W/S → Q) ──────────────
+def run_new_desk_cycle(market="US"):
+    """AI펀드 하루 흐름: 계좌 준비 → A 소싱 → P/W/S 각 후보 분석·매수/논지청산 → Q 전 유니버스 스캔·매매.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 스케줄러 배선은 추후 Phase(라이브 orchestrator).
+    반환: {'briefing','buys','sells','q'}."""
+    empty = {"briefing": "", "buys": [], "sells": [], "q": {"bought": [], "sold": []}}
+    if not NEW_DESK_ENABLED:
+        return empty
+    from db import ensure_fund_accounts, get_open_positions_by_symbol
+    from fetchers import fetch_stock_price
+    ensure_fund_accounts()                                    # 4계좌 시드(멱등)
+
+    src = source_today(market)                                # A 소싱 + 브리프
+    buys, sells = [], []
+    for code in src["new"] + src["catalyst"]:
+        name = src["names"].get(code, code)
+        r = analyze_candidate(code, name, code, market)       # P/W/S 각자 verdict
+        buys += [(b, code) for b in execute_buys(code, name, r["verdicts"], market)]
+        price = None
+        for bot, v in r["verdicts"].items():                  # 논지 청산(보유 봇이 매도 시)
+            if v != "매도":
+                continue
+            held = get_open_positions_by_symbol(name, account=bot)
+            if not held:
+                continue
+            price = price or fetch_stock_price(code if market == "US" else f"{code}.KS")
+            if price and execute_thesis_sell(bot, held[0], v, price):
+                sells.append((bot, code))
+
+    q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
+    return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
