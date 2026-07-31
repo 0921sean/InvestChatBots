@@ -991,7 +991,7 @@ let _initialLoaded = false;
 
 async function initialLoad() {
   try {
-    const res = await fetch('/api/messages/latest?n=200');
+    const res = await fetch('/api/messages/latest?n=200' + (window.__FUND_MODE__ ? '&desk=fund' : ''));
     if (!res.ok) return;
     const msgs = await res.json();
     const c = document.getElementById('messages');
@@ -1015,7 +1015,7 @@ async function poll() {
   if (!_initialLoaded || _polling) return;
   _polling = true;
   try {
-    const res = await fetch(`/api/messages?since=${lastId}`);
+    const res = await fetch(`/api/messages?since=${lastId}` + (window.__FUND_MODE__ ? '&desk=fund' : ''));
     if (!res.ok) return;
     const msgs = await res.json();
     if (!msgs.length) return;

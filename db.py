@@ -67,6 +67,7 @@ def _migrate():
         for sql in [
             "ALTER TABLE messages ADD COLUMN summary TEXT",
             "ALTER TABLE messages ADD COLUMN translation TEXT",
+            "ALTER TABLE messages ADD COLUMN desk TEXT",   # NULL=committee(라이브) / 'fund'=AI펀드 4봇 관전 내레이션
             "ALTER TABLE virtual_positions ADD COLUMN code TEXT",
             "ALTER TABLE virtual_positions ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE virtual_positions ADD COLUMN exit_reasoning TEXT",
@@ -120,6 +121,7 @@ def init_db():
             model TEXT,
             content TEXT NOT NULL,
             summary TEXT,
+            desk TEXT,                                  -- NULL=committee(라이브) / 'fund'=AI펀드 관전
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS rounds (
@@ -474,33 +476,42 @@ def get_token_usage_recent(days: int = 7) -> list:
 
 
 # ── 기본 메시지/라운드 ─────────────────────────────────────
-def save_message(round_id, agent_name, model, content, summary=None):
+def save_message(round_id, agent_name, model, content, summary=None, desk=None):
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO messages (round_id, agent_name, model, content, summary) VALUES (?,?,?,?,?)",
-            (round_id, agent_name, model, content, summary)
+            "INSERT INTO messages (round_id, agent_name, model, content, summary, desk) VALUES (?,?,?,?,?,?)",
+            (round_id, agent_name, model, content, summary, desk)
         )
         return cur.lastrowid
 
 
-def get_messages_since(since_id, limit=100):
+def _desk_clause(desk):
+    # desk=None → committee(라이브, m.desk IS NULL) / 'fund' → AI펀드 내레이션 / 'all' → 전체
+    if desk == "all":
+        return ""
+    if desk == "fund":
+        return " AND m.desk = 'fund'"
+    return " AND m.desk IS NULL"
+
+
+def get_messages_since(since_id, limit=100, desk=None):
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute("""
+        rows = con.execute(f"""
             SELECT m.*, r.topic AS round_topic
             FROM messages m LEFT JOIN rounds r ON m.round_id = r.id
-            WHERE m.id > ? ORDER BY m.id ASC LIMIT ?
+            WHERE m.id > ?{_desk_clause(desk)} ORDER BY m.id ASC LIMIT ?
         """, (since_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_recent_messages(n=30):
+def get_recent_messages(n=30, desk=None):
     with _conn() as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute("""
+        rows = con.execute(f"""
             SELECT m.*, r.topic AS round_topic
             FROM messages m LEFT JOIN rounds r ON m.round_id = r.id
-            ORDER BY m.id DESC LIMIT ?
+            WHERE 1=1{_desk_clause(desk)} ORDER BY m.id DESC LIMIT ?
         """, (n,)).fetchall()
         return list(reversed([dict(r) for r in rows]))
 
