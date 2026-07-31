@@ -602,6 +602,30 @@
   .coh-d { width: 46px; flex: none; color: #8b949e; }
   .coh-n { width: 42px; flex: none; text-align: right; padding-right: 16px; }
   .coh-v { flex: 1; text-align: right; }
+
+  /* ── AI펀드 fund 모드 (window.__FUND_MODE__ 일 때만 활성) ── */
+  .member-ret { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .member-ret .mr-n { color: #6e7681; font-weight: 400; font-size: 9.5px; margin-left: 5px; }
+  body.fundmode #memo-panel { display: none; }
+  body.fundmode #portfolio-panel { width: 440px; }
+  @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 380px; } }
+  body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
+  body.fundmode .pf-acct-toggle { display: none; }
+  #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: #21262d; }
+  .fq-cell { background: #0d1117; display: flex; flex-direction: column; min-height: 0; padding: 9px 10px; }
+  .fq-top { display: flex; align-items: baseline; gap: 6px; }
+  .fq-id { font-weight: 800; font-size: 13px; }
+  .fq-nm { font-size: 9.5px; color: #6e7681; }
+  .fq-ret { margin-left: auto; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .fq-meta { font-size: 9.5px; color: #6e7681; font-variant-numeric: tabular-nums; margin: 3px 0 6px; }
+  .fq-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  .fq-row { display: flex; align-items: center; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .fq-row .sym { color: #c9d1d9; font-weight: 600; }
+  .fq-row .val { margin-left: auto; color: #6e7681; }
+  .fq-row.trade .tag { font-size: 8.5px; padding: 0 4px; border-radius: 3px; margin-left: 5px; }
+  .fq-empty { color: #444c56; font-size: 10px; font-style: italic; padding: 6px 0; }
+  .fq-sec { font-size: 8.5px; color: #444c56; font-weight: 700; letter-spacing: .04em; margin: 5px 0 2px; text-transform: uppercase; }
+  .up { color: #f85149; } .down { color: #58a6ff; } .flat { color: #8b949e; }
 </style>
 </head>
 <body class="readonly">
@@ -1054,6 +1078,7 @@ async function loadAgents() {
 }
 
 function _renderMembers(desk) {
+  if (window.__FUND_MODE__) return;   // fund 모드는 renderFundMembers가 담당
   const list = window._agentsData || [];
   const el = document.getElementById('member-list');
   if (!el) return;
@@ -1215,6 +1240,7 @@ async function syncPlayStatus() {
 }
 
 async function loadConsensus() {
+  if (window.__FUND_MODE__) return;   // fund 모드는 섹터 합의 패널 미사용
   try {
     const notes = await (await fetch('/api/consensus')).json();
     const list = document.getElementById('memo-list');
@@ -1307,6 +1333,7 @@ function _closedPosItemHtml(p) {
 }
 
 async function loadPortfolio() {
+  if (window.__FUND_MODE__) return;   // fund 모드는 renderFundQuad가 오른쪽 패널 담당
   try {
     const pf = await (await fetch('/api/portfolio')).json();
     // 두 계좌 데이터 캐시 (전환 시 재요청 없이 즉시 렌더)
@@ -2525,6 +2552,66 @@ setInterval(loadWhoami, 60000);  // 1분마다 owner 상태 재확인
 setInterval(updateVisitorTimers, 30000);  // 30초마다 카운트다운 갱신
 setInterval(updateFeedbackBadge, 60000);  // 1분마다 피드백 미읽음 배지 갱신 (admin only)
 loadWhoami().then(() => setTimeout(updateFeedbackBadge, 1500));  // 첫 로드 직후 한 번
+
+/* ── AI펀드 fund 모드: 기존 셸 재사용, Members+오른쪽 패널만 4봇으로 교체 ── */
+const _fKRW = n => "₩" + Math.round(n||0).toLocaleString();
+const _fPct = r => (r>=0?"+":"") + (r||0).toFixed(2) + "%";
+const _fCls = r => r>0.05 ? "up" : r<-0.05 ? "down" : "flat";   // 이익 빨강/손실 파랑(KR)
+function renderFundMembers(d) {
+  const el = document.getElementById('member-list');
+  if (!el) return;
+  el.innerHTML = '';
+  (d.bots||[]).forEach(b => {
+    const row = document.createElement('div');
+    row.className = 'member';
+    row.innerHTML = `<span class="dot" style="background:${b.color}"></span>`
+      + `<span class="member-name" style="color:${b.color}">${b.bot} ${esc(b.name)}</span>`
+      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}`
+      + `<span class="mr-n">${b.n_positions}종목</span></span>`;
+    el.appendChild(row);
+  });
+}
+function renderFundQuad(d) {
+  const panel = document.getElementById('portfolio-panel');
+  if (!panel) return;
+  const cells = (d.bots||[]).map(b => {
+    const opens = b.positions || [];
+    const posRows = opens.length ? opens.map(p =>
+      `<div class="fq-row"><span class="sym">${esc(p.symbol)}</span>`
+      + `<span class="val ${p.pnl_pct!=null?_fCls(p.pnl_pct):''}">`
+      + `${p.pnl_pct!=null?_fPct(p.pnl_pct):_fKRW(p.amount)}</span></div>`
+    ).join('') : `<div class="fq-empty">보유 없음 (관망 중)</div>`;
+    const trades = (b.recent||[]).slice(0,5).map(t => {
+      const sold = t.status !== 'open';
+      const label = sold ? `${_fPct(t.pnl_pct||0)} 매도` : '신규 매수';
+      return `<div class="fq-row trade"><span class="sym">${esc(t.symbol)}</span>`
+        + `<span class="val ${sold?_fCls(t.pnl_pct||0):'flat'}">${label}</span></div>`;
+    }).join('') || `<div class="fq-empty">거래 없음</div>`;
+    return `<div class="fq-cell">
+      <div class="fq-top"><span class="fq-id" style="color:${b.color}">${b.bot}</span>`
+      + `<span class="fq-nm">${esc(b.name)}</span>`
+      + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
+      <div class="fq-meta">현금 ${_fKRW(b.cash)} · ${b.n_positions}종목</div>
+      <div class="fq-scroll"><div class="fq-sec">보유</div>${posRows}`
+      + `<div class="fq-sec">최근 매매</div>${trades}</div>
+    </div>`;
+  }).join('');
+  panel.innerHTML = `<div class="panel-header"><h3>💼 4봇 경쟁 · 가상계좌</h3>`
+    + `<p>각 시드 ₩100,000,000 · 원가 기준</p></div><div id="fund-quad">${cells}</div>`;
+}
+async function loadFund() {
+  try {
+    const d = await (await fetch('/api/fund')).json();
+    window._fundData = d;
+    renderFundMembers(d);
+    renderFundQuad(d);
+  } catch (e) {}
+}
+if (window.__FUND_MODE__) {
+  document.body.classList.add('fundmode');
+  loadFund();
+  setInterval(loadFund, 15000);
+}
 </script>
 </body>
 </html>
