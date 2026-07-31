@@ -8,7 +8,7 @@ logger = logging.getLogger("investchat")
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from db import (
@@ -290,6 +290,21 @@ def admin_login(body: AdminLoginBody):
         httponly=True, samesite="lax",
     )
     return resp
+
+
+@app.get("/fund")
+def read_fund():
+    """AI펀드 4봇 경쟁 — 기존 메인 UI 셸을 그대로 재사용하되 fund 모드로 서빙.
+    committee의 '/'는 무영향(별도 라우트). 컷오버 시 '/'도 fund 모드로 전환."""
+    import time as _t
+    with open("static/index.html", "rb") as f:
+        html = f.read()
+    inject = f"<script>window.__FUND_MODE__=true;</script><!-- build {int(_t.time()*1000)} -->".encode()
+    html = html.replace(b"</head>", inject + b"</head>", 1)
+    return HTMLResponse(
+        content=html,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0"},
+    )
 
 
 @app.get("/")
@@ -615,6 +630,38 @@ def api_portfolio():
 @app.get("/api/positions")
 def api_positions():
     return get_all_positions(50)
+
+
+@app.get("/api/fund")
+def api_fund():
+    """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
+    from db import FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio
+    names = {"P": "피터 린치", "W": "워런 버핏", "S": "공급망 병목", "Q": "B+M 블렌드"}
+    colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
+    bots = []
+    for acct in FUND_ACCOUNTS:
+        pf = get_shared_portfolio(acct)
+        cash = pf.get("balance") or 0
+        rows = _enrich_positions(get_all_positions(60, account=acct))
+        open_pos = [p for p in rows if p.get("status") == "open"]
+        closed = [p for p in rows if p.get("status") != "open"]
+        invested = sum((p.get("amount") or 0) for p in open_pos)
+        equity = cash + invested                         # 원가 기준(실시간 평가는 추후)
+        bots.append({
+            "bot": acct, "name": names.get(acct, acct), "color": colors.get(acct, "#8b949e"),
+            "cash": cash, "invested": invested, "equity": equity,
+            "return_pct": round((equity / FUND_SEED - 1) * 100, 2) if FUND_SEED else 0,
+            "n_positions": len(open_pos),
+            "positions": [{"symbol": p["symbol"], "amount": p.get("amount"),
+                           "reasoning": p.get("reasoning", ""),
+                           "pnl_pct": p.get("unrealized_pnl_pct")} for p in open_pos],
+            "recent": [{"symbol": p["symbol"], "direction": p.get("direction"),
+                        "status": p.get("status"), "pnl_pct": p.get("pnl_pct"),
+                        "reasoning": p.get("reasoning", "") or p.get("exit_reasoning", ""),
+                        "at": p.get("closed_at") or p.get("opened_at")}
+                       for p in (open_pos + closed)[:8]],
+        })
+    return {"seed": FUND_SEED, "bots": bots}
 
 
 @app.get("/api/benchmark")
