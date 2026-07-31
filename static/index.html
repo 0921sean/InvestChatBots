@@ -619,7 +619,8 @@
   .spark-zero { stroke: #30363d; stroke-width: 1; stroke-dasharray: 3 3; }
 
   body.fundmode #memo-panel { display: none; }
-  body.fundmode #portfolio-panel { width: 460px; }
+  body.fundmode #portfolio-panel { width: 600px; }
+  @media (max-width: 1200px) { body.fundmode #portfolio-panel { width: 460px; } }
   @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 360px; } }
   body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
   body.fundmode .pf-acct-toggle { display: none; }
