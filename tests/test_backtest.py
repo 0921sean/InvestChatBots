@@ -36,6 +36,120 @@ def test_no_lookahead_fill_next_open():
     # 비용 적용: 순수익 = gross - 왕복비용(0.001). 지어낸 값이 아니라 유한·비용반영
     assert all(isinstance(t["ret"], float) for t in trades)
 
+def test_classify_regime_labels():
+    # 최근 63봉 수익률로 상승/하락/횡보, 초기는 미정
+    up = [100.0] * 63 + [100 * 1.10]      # +10% → 상승
+    assert bt.classify_regime(up)[-1] == "상승"
+    assert bt.classify_regime(up)[0] == "미정"      # lookback 미만
+    down = [100.0] * 63 + [100 * 0.90]    # -10% → 하락
+    assert bt.classify_regime(down)[-1] == "하락"
+    flat = [100.0] * 63 + [100 * 1.01]    # +1% → 횡보
+    assert bt.classify_regime(flat)[-1] == "횡보"
+
+
+def test_segment_by_regime_buckets_by_entry_date():
+    trades = [{"ret": 0.10, "entry_date": "2024-01-02"},
+              {"ret": -0.04, "entry_date": "2024-01-02"},
+              {"ret": 0.06, "entry_date": "2024-06-03"}]
+    regime = {"2024-01-02": "상승", "2024-06-03": "횡보"}
+    seg = bt.segment_by_regime(trades, regime)
+    assert seg["상승"]["n"] == 2 and seg["횡보"]["n"] == 1
+    assert seg["상승"]["win_rate"] == 50.0
+
+
+def test_segment_missing_date_is_미정():
+    seg = bt.segment_by_regime([{"ret": 0.02, "entry_date": "1999-01-01"}], {})
+    assert seg["미정"]["n"] == 1
+
+
+def test_trade_carries_entry_date():
+    # 백테스트 트레이드가 regime 분해용 진입일을 담는지
+    c = [100.0] * 310 + [100, 100, 84, 90, 95, 106, 106, 106, 106, 106]
+    d = {"open": list(c), "close": c, "low": list(c),
+         "dates": [f"d{i}" for i in range(len(c))]}
+    trades = bt.backtest_stock(d, "meanrev", "a", "US")
+    assert trades and all("entry_date" in t for t in trades)
+
+
+def test_sma_series():
+    s = bt._sma_series([1.0, 2, 3, 4, 5], 3)
+    assert s[:2] == [None, None]
+    assert s[2] == 2.0 and s[3] == 3.0 and s[4] == 4.0   # 롤링 평균
+
+
+def test_minervini_enters_uptrend_exits_on_breakdown():
+    # 상승추세(정배열·신고가 돌파 → 진입) 후 급락(50일선 하회 → 청산) = 완료거래 발생
+    rise = [100.0 + i * 0.3 for i in range(300)]         # 100 → ~190 상승추세
+    drop = [rise[-1] - 4 * i for i in range(1, 31)]      # 급락 → 50일선 하회
+    c = rise + drop
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
+         "dates": [f"d{i}" for i in range(len(c))]}
+    trades = bt.backtest_stock(o, "minervini", "std", "US")
+    assert trades                                        # 진입+청산 완료거래 ≥1
+    assert all("entry_date" in t for t in trades)
+
+
+def test_minervini_no_entry_in_downtrend():
+    # 하락추세 → 트렌드템플릿 불충족 → 진입 없음
+    c = [200.0 - i * 0.3 for i in range(320)]
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c]}
+    assert bt.backtest_stock(o, "minervini", "std", "US") == []
+
+
+def test_market_uptrend_dates():
+    # 종가가 200일선 위인 날만 set에 담김
+    up = [100.0 + i for i in range(250)]                 # 꾸준한 상승 → 후반부 200선 위
+    bench = {"close": up, "dates": [f"d{i}" for i in range(250)]}
+    ok = bt.market_uptrend_dates(bench, ma=200)
+    assert "d249" in ok and "d0" not in ok               # 초기(200선 미형성)는 제외
+
+
+def test_minervini_market_filter_blocks_entry():
+    # 시장필터에 진입일이 없으면 M 진입 안 함 = 거래 0
+    rise = [100.0 + i * 0.3 for i in range(300)]
+    drop = [rise[-1] - 4 * i for i in range(1, 31)]
+    c = rise + drop
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
+         "dates": [f"d{i}" for i in range(len(c))]}
+    assert bt.backtest_stock(o, "minervini", "std", "US") != []            # 필터 없으면 거래 있음
+    assert bt.backtest_stock(o, "minervini", "std", "US", market_ok=set()) == []  # 전부 차단
+
+
+def test_hard_stop_caps_worst_loss():
+    # 랜덤워크로 meanrev 거래 확보 → 하드스탑 버전 최악 손실이 무스탑보다 작거나 같음(꼬리 절단)
+    import random
+    rng = random.Random(7)
+    c = [100.0]
+    for _ in range(360):
+        c.append(round(max(1.0, c[-1] * (1 + rng.uniform(-0.05, 0.05))), 2))
+    o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c]}
+    no = bt.backtest_stock(o, "meanrev", "b", "US")
+    hs = bt.backtest_stock(o, "meanrev", "b", "US", hard_stop_pct=-0.10)
+    assert no and hs
+    assert min(t["ret"] for t in hs) >= min(t["ret"] for t in no) - 1e-9   # 하드스탑이 꼬리 캡
+
+
+def test_portfolio_sim_compounds_one_trade():
+    # 거래 1건 +50%, 2% 사이징 → 최종 = 0.98 + 0.02×1.5 = 1.01 → +1%
+    curve, st = bt.portfolio_sim([{"e": "d1", "x": "d2", "ret": 0.5, "prio": 0}],
+                                 ["d1", "d2"], init=1.0, weight=0.02, max_pos=50)
+    assert abs(st["final_return"] - 0.01) < 1e-9
+
+
+def test_portfolio_sim_respects_max_positions():
+    # 동시 2건, max_pos=1 → prio 낮은 것만 진입, 다른 하나 스킵
+    trades = [{"e": "d1", "x": "d3", "ret": 0.2, "prio": 0},
+              {"e": "d1", "x": "d3", "ret": -0.9, "prio": 1}]
+    curve, st = bt.portfolio_sim(trades, ["d1", "d2", "d3"], weight=0.5, max_pos=1)
+    assert st["avg_positions"] <= 1.0                  # 한 번에 1종목 초과 없음
+    assert st["final_return"] > 0                       # 손실거래(prio1)는 스킵돼 +
+
+
+def test_q_spec_is_b_plus_m():
+    keys = {(s, v) for s, v, _, _ in bt.Q_SPEC}
+    assert ("minervini", "std") in keys and ("meanrev", "b") in keys   # Q = M + B
+
+
 def test_momentum_v1_vs_v2_differ():
     # v2는 절반익절로 트레이드 기록이 v1과 다르게 나올 수 있음(구조 검증)
     import random
