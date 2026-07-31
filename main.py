@@ -368,15 +368,16 @@ def api_visit(request: Request, s: str = ""):
 
 
 @app.get("/api/messages")
-def api_messages(since: int = 0, limit: int = 100):
-    return get_messages_since(since, limit=limit)
+def api_messages(since: int = 0, limit: int = 100, desk: str = None):
+    # desk 없음 → committee(라이브) / 'fund' → AI펀드 4봇 관전 내레이션
+    return get_messages_since(since, limit=limit, desk=desk)
 
 
 @app.get("/api/messages/latest")
-def api_messages_latest(n: int = 200):
+def api_messages_latest(n: int = 200, desk: str = None):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
-    return get_recent_messages(n)
+    return get_recent_messages(n, desk=desk)
 
 
 @app.get("/api/market")

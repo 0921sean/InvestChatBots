@@ -229,6 +229,7 @@ def test_run_new_desk_cycle_noop_when_disabled():
 def test_run_new_desk_cycle_buys(monkeypatch):
     import db
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)   # 관전 피드 격리(DB 미접촉)
     monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
                         lambda m="US": {"new": ["NVDA"], "catalyst": [],
@@ -246,6 +247,7 @@ def test_run_new_desk_cycle_buys(monkeypatch):
 def test_run_new_desk_cycle_thesis_sell(monkeypatch):
     import db, fetchers
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)   # 관전 피드 격리(DB 미접촉)
     monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
                         lambda m="US": {"new": [], "catalyst": ["NVDA"],
