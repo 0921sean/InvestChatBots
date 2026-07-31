@@ -280,3 +280,68 @@ def execute_thesis_sell(bot, position, verdict, price):
     _, err = sell_shared_position(position["id"], price,
                                   exit_reasoning=f"{bot} 논지 훼손 청산")
     return not err
+
+
+# ── Q 라이브 실행 (B+M 블렌드 룰봇 — LLM 없음, 전 유니버스 자체 스캔) ──
+def q_entry_signal(closes, in_uptrend):
+    """Q 진입 신호(최신 바): M(미너비니, 시장필터) 우선 → B(볼린저 복귀확인).
+    반환: 'M' | 'B' | None (전략 태그)."""
+    import backtest as bt
+    from trading_strategies import meanrev_entry
+    if bt.minervini_entry(closes, in_uptrend):
+        return "M"
+    if meanrev_entry(closes):
+        return "B"
+    return None
+
+
+def q_exit_signal(closes, strat):
+    """Q 청산 신호(최신 바): 진입 전략(M/B)의 청산 규칙."""
+    import backtest as bt
+    from trading_strategies import meanrev_exit
+    return bt.minervini_exit(closes) if strat == "M" else meanrev_exit(closes)
+
+
+def run_q_desk(market="US"):
+    """Q(B+M 블렌드) 라이브 실행 — 전 유니버스 자체 스캔 → Q 계좌(id 6) 매수/청산.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 룰·무비용, 하루 1회.
+    반환: {'bought','sold'}."""
+    if not NEW_DESK_ENABLED:
+        return {"bought": [], "sold": []}
+    import backtest as bt
+    from trading_engine import load_universe
+    from db import (buy_shared_position, sell_shared_position, get_open_positions,
+                    get_open_positions_by_symbol, FUND_SEED)
+    from trading_strategies import position_amount, can_open
+
+    data = bt._fetch([s.split(".")[0] for s in load_universe(market)], period="2y")
+    spy = bt._fetch_bench("SPY", period="2y")
+    in_uptrend = len(spy["close"]) >= 200 and spy["close"][-1] > bt._sma(spy["close"], 200)
+
+    sold, bought = [], []
+    for pos in get_open_positions(account="Q"):            # 청산 먼저
+        o = data.get(pos["code"])
+        if not o:
+            continue
+        strat = "M" if "미너비니" in (pos.get("reasoning") or "") else "B"
+        if q_exit_signal(o["close"], strat):
+            _, err = sell_shared_position(pos["id"], o["close"][-1], exit_reasoning=f"Q {strat} 청산")
+            if not err:
+                sold.append(pos["symbol"])
+
+    q_count = len(get_open_positions(account="Q"))
+    for code, o in data.items():                           # 진입
+        if not can_open(q_count):
+            break
+        if get_open_positions_by_symbol(code, account="Q"):
+            continue
+        tag = q_entry_signal(o["close"], in_uptrend)
+        if not tag:
+            continue
+        label = "미너비니" if tag == "M" else "볼린저"
+        _, err = buy_shared_position(code, code, o["close"][-1], position_amount(FUND_SEED),
+                                     f"Q {label} 매수", market, account="Q")
+        if not err:
+            bought.append(code)
+            q_count += 1
+    return {"bought": bought, "sold": sold}
