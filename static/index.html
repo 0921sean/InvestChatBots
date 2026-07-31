@@ -605,41 +605,47 @@
 
   /* ── AI펀드 fund 모드 (window.__FUND_MODE__ 일 때만 활성) ── */
   .member-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  /* fund 모드 Members: 세로로 넓게 + 수익률 스파크라인 + 출근 글로우 */
-  body.fundmode #member-list .member { flex-direction: column; align-items: stretch; gap: 6px;
-    padding: 10px 12px; cursor: default; border-radius: 8px; margin: 3px 8px;
-    background: #12161c; border: 1px solid #21262d; }
-  .fm-top { display: flex; align-items: center; gap: 8px; }
-  .fm-top .member-name { font-size: 14px; }
-  .fm-spark { height: 30px; }
-  .spark { width: 100%; height: 30px; display: block; }
+  /* fund 모드 Members: 넉넉한 카드 + 수익률 스파크라인 + 출근 초록 테두리 */
+  body.fundmode #member-list .member { flex-direction: column; align-items: stretch; gap: 10px;
+    padding: 15px 15px; cursor: default; border-radius: 11px; margin: 8px;
+    background: #12161c; border: 1.5px solid #21262d; transition: border-color .3s; }
+  body.fundmode #member-list .member.working { border-color: #3fb950; }   /* 출근 = 초록 테두리 */
+  .fm-top { display: flex; align-items: center; gap: 9px; }
+  .fm-top .dot { width: 9px; height: 9px; }
+  .fm-top .member-name { font-size: 16px; font-weight: 800; }
+  .fm-top .member-ret { font-size: 13px; }
+  .fm-spark { height: 42px; }
+  .spark { width: 100%; height: 42px; display: block; }
   .spark-zero { stroke: #30363d; stroke-width: 1; stroke-dasharray: 3 3; }
-  #member-list .member .dot, .fq-top .dot { transition: box-shadow .3s; }
-  #member-list .member.working .dot,
-  .fq-top.working .dot { box-shadow: 0 0 6px 2px rgba(63,185,80,.9), 0 0 12px 3px rgba(63,185,80,.5); }
+
   body.fundmode #memo-panel { display: none; }
-  body.fundmode #portfolio-panel { width: 440px; }
-  @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 380px; } }
+  body.fundmode #portfolio-panel { width: 380px; }
+  @media (max-width: 900px) { body.fundmode #portfolio-panel { width: 330px; } }
   body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
   body.fundmode .pf-acct-toggle { display: none; }
   /* committee 전용 크롬 숨김(fund 모드엔 무의미) */
   body.fundmode #sector-box, body.fundmode #visitor-timers,
   body.fundmode #btn-main-run, body.fundmode #btn-sub-run,
   body.fundmode #btn-summary { display: none; }
-  #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: #21262d; }
-  .fq-cell { background: #0d1117; display: flex; flex-direction: column; min-height: 0; padding: 9px 10px; }
-  .fq-top { display: flex; align-items: baseline; gap: 6px; }
-  .fq-id { font-weight: 800; font-size: 13px; }
-  .fq-nm { font-size: 9.5px; color: #6e7681; }
-  .fq-ret { margin-left: auto; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .fq-meta { font-size: 9.5px; color: #6e7681; font-variant-numeric: tabular-nums; margin: 3px 0 6px; }
-  .fq-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
-  .fq-row { display: flex; align-items: center; font-size: 10.5px; font-variant-numeric: tabular-nums; }
-  .fq-row .sym { color: #c9d1d9; font-weight: 600; }
-  .fq-row .val { margin-left: auto; color: #6e7681; }
-  .fq-row.trade .tag { font-size: 8.5px; padding: 0 4px; border-radius: 3px; margin-left: 5px; }
-  .fq-empty { color: #444c56; font-size: 10px; font-style: italic; padding: 6px 0; }
-  .fq-sec { font-size: 8.5px; color: #444c56; font-weight: 700; letter-spacing: .04em; margin: 5px 0 2px; text-transform: uppercase; }
+  /* 4봇 가상계좌 — 원래 포트폴리오처럼 넉넉하게, 세로 스택 */
+  #fund-accts { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .fa-card { background: #0d1117; border: 1.5px solid #21262d; border-radius: 11px; padding: 14px 15px; transition: border-color .3s; }
+  .fa-card.working { border-color: rgba(63,185,80,.5); }
+  .fa-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+  .fa-head .dot { width: 9px; height: 9px; }
+  .fa-id { font-weight: 800; font-size: 15px; }
+  .fa-ret { margin-left: auto; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .fa-sum { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 11.5px;
+    padding: 10px 0; border-top: 1px solid #21262d; border-bottom: 1px solid #21262d; margin-bottom: 10px; }
+  .fa-sum .k { color: #6e7681; }
+  .fa-sum .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .fa-sec { font-size: 9px; color: #6e7681; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin: 6px 0 6px; }
+  .fa-pos { display: flex; flex-direction: column; gap: 5px; }
+  .fa-row { display: flex; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .fa-row .sym { color: #c9d1d9; font-weight: 600; }
+  .fa-row .val { margin-left: auto; color: #8b949e; }
+  .fa-more { font-size: 10.5px; color: #6e7681; font-style: italic; padding: 4px 0; }
+  .fa-empty { color: #444c56; font-size: 11px; font-style: italic; padding: 6px 0; }
   .up { color: #f85149; } .down { color: #58a6ff; } .flat { color: #8b949e; }
   /* v1(위원회) ↔ v2(AI펀드) 전환 토글 — 좌상단, owner 전용 */
   #view-switch { display: flex; gap: 4px; margin-top: 9px; }
@@ -2613,41 +2619,49 @@ function renderFundMembers(d) {
     el.appendChild(row);
   });
 }
-function renderFundQuad(d) {
+function renderFundAccounts(d) {
   const panel = document.getElementById('portfolio-panel');
   if (!panel) return;
   const working = d.session === 'working';
-  const cells = (d.bots||[]).map(b => {
+  const seed = d.seed || 100000000;
+  const cards = (d.bots||[]).map(b => {
     const opens = b.positions || [];
-    const posRows = opens.length ? opens.map(p =>
-      `<div class="fq-row"><span class="sym">${esc(p.symbol)}</span>`
-      + `<span class="val ${p.pnl_pct!=null?_fCls(p.pnl_pct):''}">`
-      + `${p.pnl_pct!=null?_fPct(p.pnl_pct):_fKRW(p.amount)}</span></div>`
-    ).join('') : `<div class="fq-empty">보유 없음 (관망 중)</div>`;
-    const trades = (b.recent||[]).slice(0,5).map(t => {
+    const posRows = opens.length
+      ? opens.slice(0, 6).map(p =>
+          `<div class="fa-row"><span class="sym">${esc(p.symbol)}</span>`
+          + `<span class="val ${p.pnl_pct!=null?_fCls(p.pnl_pct):''}">`
+          + `${p.pnl_pct!=null?_fPct(p.pnl_pct):_fKRW(p.amount)}</span></div>`
+        ).join('') + (opens.length > 6 ? `<div class="fa-more">외 ${opens.length-6}종목</div>` : '')
+      : `<div class="fa-empty">보유 없음 (관망 중)</div>`;
+    const trades = (b.recent||[]).slice(0,3).map(t => {
       const sold = t.status !== 'open';
       const label = sold ? `${_fPct(t.pnl_pct||0)} 매도` : '신규 매수';
-      return `<div class="fq-row trade"><span class="sym">${esc(t.symbol)}</span>`
+      return `<div class="fa-row"><span class="sym">${esc(t.symbol)}</span>`
         + `<span class="val ${sold?_fCls(t.pnl_pct||0):'flat'}">${label}</span></div>`;
-    }).join('') || `<div class="fq-empty">거래 없음</div>`;
-    return `<div class="fq-cell">
-      <div class="fq-top${working ? ' working' : ''}"><span class="dot" style="background:${b.color}"></span>`
-      + `<span class="fq-id" style="color:${b.color}">${b.bot}</span>`
-      + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
-      <div class="fq-meta">현금 ${_fKRW(b.cash)}</div>
-      <div class="fq-scroll"><div class="fq-sec">보유</div>${posRows}`
-      + `<div class="fq-sec">최근 매매</div>${trades}</div>
+    }).join('') || `<div class="fa-empty">거래 없음</div>`;
+    const pnl = (b.equity||0) - seed;
+    return `<div class="fa-card${working ? ' working' : ''}">
+      <div class="fa-head"><span class="dot" style="background:${b.color}"></span>`
+      + `<span class="fa-id" style="color:${b.color}">${b.bot}</span>`
+      + `<span class="fa-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
+      <div class="fa-sum">`
+      + `<span class="k">현금 잔액</span><span class="v">${_fKRW(b.cash)}</span>`
+      + `<span class="k">투자 중</span><span class="v">${_fKRW(b.invested)}</span>`
+      + `<span class="k">총 손익</span><span class="v ${_fCls(b.return_pct)}">${pnl>=0?'+':'−'}${_fKRW(Math.abs(pnl))}</span>`
+      + `<span class="k">보유 종목</span><span class="v">${b.n_positions}개</span></div>`
+      + `<div class="fa-sec">보유</div><div class="fa-pos">${posRows}</div>`
+      + `<div class="fa-sec">최근 매매</div><div class="fa-pos">${trades}</div>
     </div>`;
   }).join('');
   panel.innerHTML = `<div class="panel-header"><h3>💼 4봇 경쟁 · 가상계좌</h3>`
-    + `<p>각 시드 ₩100,000,000 · 원가 기준</p></div><div id="fund-quad">${cells}</div>`;
+    + `<p>각 시드 ${_fKRW(seed)} · 원가 기준</p></div><div id="fund-accts">${cards}</div>`;
 }
 async function loadFund() {
   try {
     const d = await (await fetch('/api/fund')).json();
     window._fundData = d;
     renderFundMembers(d);
-    renderFundQuad(d);
+    renderFundAccounts(d);
   } catch (e) {}
 }
 if (window.__FUND_MODE__) {
