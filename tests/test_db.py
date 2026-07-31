@@ -74,6 +74,30 @@ def test_fund_report_roundtrip_and_upsert():
     assert len(rows) == 2
 
 
+def test_ensure_desk_accounts_seeds_5000_and_leaves_committee():
+    from db import (ensure_desk_accounts, get_shared_portfolio, DESK_ACCOUNTS,
+                    DESK_SEED, INITIAL_BALANCE)
+    main_before = get_shared_portfolio("main")["balance"]
+    ensure_desk_accounts()
+    for acct in DESK_ACCOUNTS:                          # 대형주/발굴주 각 5,000만
+        assert get_shared_portfolio(acct)["balance"] == DESK_SEED
+    assert get_shared_portfolio("main")["balance"] == main_before   # committee 무영향
+    ensure_desk_accounts()                              # 멱등(중복 시드 안 함)
+    assert get_shared_portfolio("대형주")["balance"] == DESK_SEED
+
+
+def test_largecap_watch_crud():
+    from db import add_to_watch, get_watchlist, mark_watch
+    add_to_watch("NVDA", "엔비디아", "P,H")
+    add_to_watch("TSM", "TSMC", "W")
+    assert {w["code"] for w in get_watchlist()} == {"NVDA", "TSM"}    # 진입대기
+    mark_watch("NVDA", "bought")
+    assert {w["code"] for w in get_watchlist()} == {"TSM"}            # bought는 대기서 빠짐
+    assert {w["code"] for w in get_watchlist("bought")} == {"NVDA"}
+    add_to_watch("NVDA", "엔비디아", "S")                              # bought는 재관심에도 유지
+    assert get_watchlist("bought")[0]["code"] == "NVDA"
+
+
 def test_agent_state_roundtrip():
     save_agent_state("Compounder", "Still bullish on semis after round 5.", 5)
     state = get_agent_state("Compounder")

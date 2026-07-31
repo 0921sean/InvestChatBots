@@ -8,9 +8,13 @@ TRADING_BALANCE = 30_000_000   # 트레이딩(서브) 시드 = 3,000만 (2026-08
 
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
 # AI펀드 4봇 경쟁 계좌(P/W/S/Q=id 3~6) — committee(1/2)와 분리. 각 가상 1억.
-_ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6}
-FUND_ACCOUNTS = ("P", "W", "S", "Q")   # AI펀드 경쟁 봇 계좌
+_ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6,
+            "대형주": 7, "발굴주": 8}   # 7/8 = 통일 데스크(대형주/발굴주)
+FUND_ACCOUNTS = ("P", "W", "S", "Q")   # (레거시) 4봇 경쟁 계좌 — 통일 데스크로 대체 중
 FUND_SEED = 100_000_000                # 봇당 가상 1억
+# 통일 데스크(대형주/발굴주) — v1 대체. 설계 docs/AIFUND_PIVOT.md
+DESK_ACCOUNTS = ("대형주", "발굴주")
+DESK_SEED = 50_000_000                 # 데스크당 가상 5,000만 (총 1억)
 
 
 def _acct_id(account: str) -> int:
@@ -25,6 +29,43 @@ def ensure_fund_accounts():
         for acct in FUND_ACCOUNTS:
             con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
                         (_ACCT_ID[acct], FUND_SEED))
+
+
+def ensure_desk_accounts():
+    """통일 데스크 계좌(대형주/발굴주, 각 5,000만)를 시드(INSERT OR IGNORE). 멱등·committee 무영향.
+    ⚠️ 실제 자본 재편·committee 승계는 별도 마이그레이션(백업 후)."""
+    with _conn() as con:
+        for acct in DESK_ACCOUNTS:
+            con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
+                        (_ACCT_ID[acct], DESK_SEED))
+
+
+def add_to_watch(code: str, name: str, approved_by: str):
+    """대형주 관심종목 캐시에 추가(P/W/H 선정). 이미 있으면 찬성봇·상태만 갱신(재관심)."""
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO largecap_watch (code, name, approved_by, status) VALUES (?,?,?,'watching') "
+            "ON CONFLICT(code) DO UPDATE SET name=excluded.name, approved_by=excluded.approved_by, "
+            "status=CASE WHEN largecap_watch.status='bought' THEN 'bought' ELSE 'watching' END",
+            (code, name, approved_by))
+
+
+def get_watchlist(status: str = "watching") -> list:
+    """대형주 관심종목 조회(기본 진입대기 'watching'). status=None이면 전체."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if status is None:
+            rows = con.execute("SELECT * FROM largecap_watch ORDER BY added_at DESC").fetchall()
+        else:
+            rows = con.execute("SELECT * FROM largecap_watch WHERE status=? ORDER BY added_at DESC",
+                               (status,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_watch(code: str, status: str):
+    """관심종목 상태 변경 — 'bought'(Q 진입) / 'dropped'(관심 해제)."""
+    with _conn() as con:
+        con.execute("UPDATE largecap_watch SET status=? WHERE code=?", (status, code))
 
 
 def _conn():
@@ -261,6 +302,13 @@ def init_db():
             desk TEXT,                                 -- 'PW'(A 일반풀) / 'S'(병목 자체소싱)
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (date, code)
+        );
+        CREATE TABLE IF NOT EXISTS largecap_watch (
+            code TEXT PRIMARY KEY,                     -- 대형주 관심종목 캐시(P/W/H가 선정 → Q가 진입 타이밍 감시)
+            name TEXT,
+            approved_by TEXT,                          -- 매수 찬성 봇들(예 'P,H')
+            status TEXT DEFAULT 'watching',            -- watching(진입대기) / bought / dropped
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS agent_state (
             agent_name TEXT PRIMARY KEY,
