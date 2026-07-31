@@ -129,7 +129,7 @@ ICB가 결국 내 계좌를 굴려 경제적 자유로. 그 험난한 여정 자
 
 - **작업 단위 = Epic+Task 하이브리드** (상세 [CONVENTION.md](CONVENTION.md)):
   - **큰 테마(피봇·실험·리팩터 묶음) = Epic 이슈** `[Epic] #N - 주제` + **투두 체크리스트 본문**(언제든 편집). 그 아래 각 투두 = **Task PR**.
-  - **Task PR**: `[Type] #M - 내용`(**PR 자기 번호 M**), 브랜치 `type/#M`, 커밋 `[Type/#M]`, 본문 `Part of #N`(에픽 참조 — 안 닫음). 머지 시 에픽 투두 `- [x]` 체크. 에픽은 마지막 Task가 `Closes #N` 하거나 수동 종료.
+  - **Task PR**: `[Type] #M - 내용`(M=그 Task 이슈 번호), 브랜치 `type/#M`, 커밋 `[Type/#M]`, 본문 **`Closes #M`(자동종료 — 필수)** + `Part of #N`(에픽 링크, 에픽 안 닫음). 머지 시 에픽 투두 `- [x]` 체크. 에픽은 마지막 Task가 `Closes #N` 하거나 수동 종료.
   - **단발(버그 하나 등) = 1이슈=1PR** 기존 방식. 본문 `Closes #자기번호`.
   - 한 Task/단발의 브랜치·커밋·PR은 **자기 번호 공유**, Type만 바뀔 수 있다. 한국어 설명 OK. (Type = Epic/Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore)
 - **main 직접 커밋·푸시 금지.** main은 안정 브랜치, 작업은 `type/#번호` 브랜치 → PR → diff 셀프 리뷰 → CI 통과 → 머지. (라이브 긴급 상황의 Hotfix만 예외, 사후 이슈화.)
