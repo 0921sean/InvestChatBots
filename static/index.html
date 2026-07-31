@@ -641,6 +641,13 @@
   .fq-empty { color: #444c56; font-size: 10px; font-style: italic; padding: 6px 0; }
   .fq-sec { font-size: 8.5px; color: #444c56; font-weight: 700; letter-spacing: .04em; margin: 5px 0 2px; text-transform: uppercase; }
   .up { color: #f85149; } .down { color: #58a6ff; } .flat { color: #8b949e; }
+  /* v1(위원회) ↔ v2(AI펀드) 전환 토글 — 좌상단, owner 전용 */
+  #view-switch { display: flex; gap: 4px; margin-top: 9px; }
+  #view-switch .vs-btn { flex: 1; text-align: center; font-size: 11px; font-weight: 700;
+    padding: 5px 0; border-radius: 6px; text-decoration: none; color: #8b949e;
+    background: #12161c; border: 1px solid #21262d; transition: background .15s, color .15s, border-color .15s; }
+  #view-switch .vs-btn:hover { color: #c9d1d9; border-color: #30363d; }
+  #view-switch .vs-btn.active { color: #fff; background: #1f6feb; border-color: #1f6feb; }
 </style>
 </head>
 <body class="readonly">
@@ -651,6 +658,10 @@
     <div id="sidebar-title-row">
       <span>📈 InvestChatBots <span class="beta-tag">BETA</span></span>
       <span id="admin-mark" title="클릭하면 로그아웃" onclick="ownerLogout(event)">ADMIN</span>
+    </div>
+    <div id="view-switch" class="owner-only">
+      <a href="/" class="vs-btn" id="vs-v1">v1 · 위원회</a>
+      <a href="/fund" class="vs-btn" id="vs-v2">v2 · AI펀드</a>
     </div>
   </div>
 
@@ -2648,6 +2659,11 @@ if (window.__FUND_MODE__) {
   loadFund();
   setInterval(loadFund, 15000);
 }
+// v1/v2 전환 토글 활성표시 (committee·fund 양쪽에서 실행)
+(function(){
+  const el = document.getElementById(window.__FUND_MODE__ ? 'vs-v2' : 'vs-v1');
+  if (el) el.classList.add('active');
+})();
 </script>
 </body>
 </html>
