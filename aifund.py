@@ -431,6 +431,22 @@ def _line(pool, bot):
     return random.choice(pool.get(bot) or [""])
 
 
+def _summarize_ko(name, business_summary):
+    """영문 사업요약 → '뭐하는 회사'를 1~2문장 한국어로(가벼운 haiku). 실패 시 빈 문자열.
+    ⚠️ LLM 호출 — run_new_desk_cycle(NEW_DESK_ENABLED) 안에서만 불린다."""
+    if not business_summary:
+        return ""
+    try:
+        from agents import _call_claude_cli
+        sys = ("너는 기업을 한 줄로 요약하는 애널리스트다. 평가·전망·추천 없이 "
+               "'이 회사가 뭘 팔아서 어떻게 버는지'만 담백하게 1~2문장 한국어로.")
+        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n한국어 1~2문장으로만 요약."
+        return (_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip()
+    except Exception as e:
+        logger.warning(f"한글 요약 실패 {name}: {e}")
+        return ""
+
+
 # ── 하루 사이클 오케스트레이션 (A → P/W/S → Q) ──────────────
 def run_new_desk_cycle(market="US"):
     """AI펀드 하루 흐름: 계좌 준비 → A 소싱 → P/W/S 각 후보 분석·매수/논지청산 → Q 전 유니버스 스캔·매매.
@@ -477,6 +493,7 @@ def _process_pool(candidates, market, bots):
     for code, name in candidates:
         r = analyze_candidate(code, name, code, market, bots=bots)
         packet, summary = r.get("brief") or ("", "")
+        summary = _summarize_ko(name, summary) or summary    # '뭐하는 회사' 한글 요약(실패 시 영문)
         try:
             record_fund_report(today, code, name, summary, packet, desk_tag)   # A 리포트
         except Exception as e:
