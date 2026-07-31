@@ -46,6 +46,33 @@ def _sma_series(closes, period):
     return out
 
 
+def _sma(closes, n):
+    return sum(closes[-n:]) / n if len(closes) >= n else None
+
+
+def minervini_entry(closes, in_uptrend):
+    """M 진입 신호(최신 바 기준 — 라이브 Q용). in_uptrend=시장필터(SPY>200MA).
+    트렌드템플릿(정배열+200선 상승+52주 저점 +30%/고점 25%이내) + N일 신고가 돌파.
+    backtest_stock의 _mini_fire와 동일 규칙."""
+    if not in_uptrend or len(closes) < 252:
+        return False
+    c = closes[-1]
+    s50, s150, s200 = _sma(closes, 50), _sma(closes, 150), _sma(closes, 200)
+    s200_prev = _sma(closes[:-21], 200)
+    if None in (s50, s150, s200, s200_prev):
+        return False
+    lo, hi = min(closes[-252:]), max(closes[-252:])
+    if not (c > s50 > s150 > s200 and s200 > s200_prev and c >= 1.30 * lo and c >= 0.75 * hi):
+        return False
+    return c >= max(closes[-MINERVINI_BREAKOUT:])
+
+
+def minervini_exit(closes):
+    """M 청산(라이브): 종가가 50일선 하회(추세 이탈)."""
+    s50 = _sma(closes, 50)
+    return s50 is not None and closes[-1] < s50
+
+
 def _aligned_macd(closes):
     macd_line, signal = ts.macd_series(closes)
     n = len(closes)
