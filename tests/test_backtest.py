@@ -166,3 +166,16 @@ def test_momentum_v1_vs_v2_differ():
     v2 = bt.backtest_stock(d, "momentum", "v2", "US")
     # 둘 다 실행되고(예외 없이) 리스트 반환
     assert isinstance(v1, list) and isinstance(v2, list)
+
+
+def test_minervini_entry_live():
+    c = [round(100.0 + i * 0.3, 2) for i in range(300)]    # 상승추세, 최신=신고가
+    assert bt.minervini_entry(c, in_uptrend=True) is True
+    assert bt.minervini_entry(c, in_uptrend=False) is False  # 시장필터 하락 → 진입 X
+    assert bt.minervini_entry(c[:100], in_uptrend=True) is False  # 252봉 미만
+
+
+def test_minervini_exit_live():
+    up = [100.0 + i for i in range(60)]
+    assert bt.minervini_exit(up) is False                   # 50일선 위 → 홀드
+    assert bt.minervini_exit(up + [50.0]) is True            # 급락 50일선 하회 → 청산
