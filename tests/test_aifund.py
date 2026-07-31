@@ -200,3 +200,45 @@ def test_stops_default_uses_fund_stop_pct():
 def test_run_fund_stops_noop_when_disabled():
     assert aifund.NEW_DESK_ENABLED is False
     assert aifund.run_fund_stops() == []                   # 토글 off → no-op(라이브 무변경)
+
+
+# ── P/W/S 매수·청산 실행 (봇별 독립) ──────────────────────
+def test_execute_buys_per_bot(monkeypatch):
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])   # 미보유
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])             # 자리 있음
+    calls = []
+    def mock_buy(*a, **k):
+        calls.append((k["account"], a[0])); return (1, None)
+    monkeypatch.setattr(db, "buy_shared_position", mock_buy)
+    bought = aifund.execute_buys("NVDA", "NVDA", {"P": "매수", "W": "관망", "S": "매도"})
+    assert bought == ["P"]                         # 매수한 봇만
+    assert calls == [("P", "NVDA")]                # P 계좌에만
+
+
+def test_execute_buys_noop_when_disabled():
+    assert aifund.execute_buys("NVDA", "NVDA", {"P": "매수"}) == []   # 토글 off
+
+
+def test_execute_buys_skips_already_held(monkeypatch):
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [{"id": 1}])  # 보유중
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    def no_buy(*a, **k):
+        raise AssertionError("이미 보유인데 사면 안 됨")
+    monkeypatch.setattr(db, "buy_shared_position", no_buy)
+    assert aifund.execute_buys("NVDA", "NVDA", {"P": "매수"}) == []
+
+
+def test_execute_thesis_sell(monkeypatch):
+    import db
+    calls = []
+    monkeypatch.setattr(db, "sell_shared_position",
+                        lambda pos_id, price, exit_reasoning="": (calls.append(pos_id), (0, None))[1])
+    assert aifund.execute_thesis_sell("W", {"id": 7}, "매도", 50.0) is True
+    assert calls == [7]
+    assert aifund.execute_thesis_sell("W", {"id": 7}, "관망", 50.0) is False   # 매도 아니면 no-op
