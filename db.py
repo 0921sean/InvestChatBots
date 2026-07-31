@@ -7,11 +7,24 @@ INITIAL_BALANCE = 100_000_000  # 장기(메인) 시드 = 1억 (2026-07-27 통일
 TRADING_BALANCE = 100_000_000  # 트레이딩(서브) 시드 = 1억 (2026-07-27 증액: 전략 포텐셜 테스트용) → 총 시스템 1.75억. 비중·보유상한 등 튜닝값은 strategy_private.py
 
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
-_ACCT_ID = {"main": 1, "sub": 2}
+# AI펀드 4봇 경쟁 계좌(P/W/S/Q=id 3~6) — committee(1/2)와 분리. 각 가상 1억.
+_ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6}
+FUND_ACCOUNTS = ("P", "W", "S", "Q")   # AI펀드 경쟁 봇 계좌
+FUND_SEED = 100_000_000                # 봇당 가상 1억
 
 
 def _acct_id(account: str) -> int:
     return _ACCT_ID.get(account or "main", 1)
+
+
+def ensure_fund_accounts():
+    """AI펀드 4봇 계좌(P/W/S/Q, 각 1억)를 shared_portfolio에 시드(INSERT OR IGNORE).
+    ⚠️ 전역 init_db에서 자동 호출 안 함 — 새 데스크 파이프라인이 활성화 시 호출(라이브 DB 무영향).
+    committee 계좌(1/2)는 안 건드림. 멱등."""
+    with _conn() as con:
+        for acct in FUND_ACCOUNTS:
+            con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
+                        (_ACCT_ID[acct], FUND_SEED))
 
 
 def _conn():
