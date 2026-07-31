@@ -244,6 +244,49 @@ def analyze_candidate(code, name, yf_ticker, market="US"):
     return {"code": code, "name": name, "verdicts": verdicts, "approved": approved}
 
 
+# ── P/W/S 매수·청산 실행 (봇별 독립 계좌 — 경쟁) ────────────
+def execute_buys(code, name, verdicts, market="US"):
+    """각 봇이 '매수'면 자기 계좌(P/W/S)에 매수. 경쟁 구조 — 봇별 독립.
+    이미 보유·자리 상한(MAX_POSITIONS)·현금 부족이면 스킵. 사이징 = FUND_SEED×WEIGHT_PCT.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 반환: 매수 체결한 봇 리스트."""
+    if not NEW_DESK_ENABLED:
+        return []
+    from db import (buy_shared_position, get_open_positions,
+                    get_open_positions_by_symbol, FUND_SEED)
+    from fetchers import fetch_stock_price
+    from trading_strategies import position_amount, can_open
+
+    price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+    if not price:
+        return []
+    bought = []
+    for bot, v in verdicts.items():
+        if v != "매수":
+            continue
+        if get_open_positions_by_symbol(name, account=bot):            # 이미 보유
+            continue
+        if not can_open(len(get_open_positions(account=bot))):         # 자리 상한
+            continue
+        amt = position_amount(FUND_SEED)                               # 2% × 1억
+        _, err = buy_shared_position(name, code, price, amt, f"{bot} 발굴 매수",
+                                     market, account=bot)
+        if not err:
+            bought.append(bot)
+            logger.info(f"[AI펀드] {bot} 매수 {name} {amt:,.0f}")
+    return bought
+
+
+def execute_thesis_sell(bot, position, verdict, price):
+    """봇이 보유 종목 재분석 → '매도'면 자기 계좌에서 청산(논지 훼손). 그 외 no-op.
+    반환: 청산 여부."""
+    if verdict != "매도":
+        return False
+    from db import sell_shared_position
+    _, err = sell_shared_position(position["id"], price,
+                                  exit_reasoning=f"{bot} 논지 훼손 청산")
+    return not err
+
+
 # ── T 하드 스탑로스 (룰엔진 — LLM 없음, 급락 안전망) ──────────
 def stops_to_execute(positions, prices, stop_pct=None):
     """손절 대상 판정 (순수 함수 — 네트워크 X).
@@ -263,26 +306,27 @@ def stops_to_execute(positions, prices, stop_pct=None):
     return hits
 
 
-def run_fund_stops(market="US", account="fund"):
-    """AI펀드 보유 종목 하드 스탑 체크 → 도달분 강제 청산. 논지 주인 재분석과 별개인 안전망.
-    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 매수 실행이 배선된 뒤 스케줄러가 호출."""
+def run_fund_stops(market="US"):
+    """4봇 계좌(P/W/S/Q) 보유 종목 하드 스탑 체크 → 도달분 강제 청산. 논지 재분석과 별개 안전망.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 스케줄러가 매일 호출."""
     if not NEW_DESK_ENABLED:
         return []
-    from db import get_open_positions, sell_shared_position
+    from db import get_open_positions, sell_shared_position, FUND_ACCOUNTS
     from fetchers import fetch_stock_price
 
-    positions = get_open_positions(market=market, account=account)
-    prices = {}
-    for pos in positions:
-        code = pos.get("code")
-        prices[code] = fetch_stock_price(code if market == "US" else f"{code}.KS")
     stopped = []
-    for hit in stops_to_execute(positions, prices):
-        pos, current, pnl_pct = hit["pos"], hit["current"], hit["pnl_pct"]
-        reason = (f"T 하드 스탑로스 ({FUND_STOP_PCT * 100:.0f}% 도달) — 안전망 청산\n"
-                  f"진입가 {pos['entry_price']:,.2f} → 현재가 {current:,.2f} ({pnl_pct * 100:.1f}%)")
-        _, err = sell_shared_position(pos["id"], current, exit_reasoning=reason)
-        if not err:
-            stopped.append(pos["symbol"])
-            logger.info(f"[AI펀드] 손절 {pos['symbol']} {pnl_pct * 100:.1f}%")
+    for acct in FUND_ACCOUNTS:
+        positions = get_open_positions(market=market, account=acct)
+        if not positions:
+            continue
+        prices = {p.get("code"): fetch_stock_price(p["code"] if market == "US" else f"{p['code']}.KS")
+                  for p in positions}
+        for hit in stops_to_execute(positions, prices):
+            pos, current, pnl_pct = hit["pos"], hit["current"], hit["pnl_pct"]
+            reason = (f"하드 스탑로스 ({FUND_STOP_PCT * 100:.0f}% 도달) — {acct} 안전망 청산\n"
+                      f"진입가 {pos['entry_price']:,.2f} → 현재가 {current:,.2f} ({pnl_pct * 100:.1f}%)")
+            _, err = sell_shared_position(pos["id"], current, exit_reasoning=reason)
+            if not err:
+                stopped.append(pos["symbol"])
+                logger.info(f"[AI펀드] {acct} 손절 {pos['symbol']} {pnl_pct * 100:.1f}%")
     return stopped
