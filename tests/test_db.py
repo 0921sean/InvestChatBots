@@ -28,6 +28,29 @@ def test_get_messages_since_filters_correctly():
     assert len(later) == 1
     assert later[0]["agent_name"] == "Razor"
 
+def test_desk_separates_committee_and_fund_feeds():
+    from db import get_recent_messages
+    save_message(round_id=1, agent_name="드가자", model="claude", content="committee 발언")   # desk=None
+    save_message(round_id=None, agent_name="성장주(GARP)", model="sonnet", content="fund 발언", desk="fund")
+    # 기본(committee) 피드는 fund 내레이션을 안 본다
+    committee = get_messages_since(0)
+    assert [m["agent_name"] for m in committee] == ["드가자"]
+    # fund 피드는 fund 내레이션만 본다
+    fund = get_messages_since(0, desk="fund")
+    assert [m["agent_name"] for m in fund] == ["성장주(GARP)"]
+    # 최근 N개도 동일하게 분리
+    assert [m["agent_name"] for m in get_recent_messages(10)] == ["드가자"]
+    assert [m["agent_name"] for m in get_recent_messages(10, desk="fund")] == ["성장주(GARP)"]
+
+
+def test_narrate_writes_fund_desk_only():
+    import aifund
+    aifund._narrate("P", "관망하겠습니다.", model="sonnet")
+    assert get_messages_since(0) == []                          # committee 피드 오염 없음
+    fund = get_messages_since(0, desk="fund")
+    assert len(fund) == 1 and fund[0]["agent_name"] == "성장주(GARP)"
+
+
 def test_agent_state_roundtrip():
     save_agent_state("Compounder", "Still bullish on semis after round 5.", 5)
     state = get_agent_state("Compounder")

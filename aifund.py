@@ -18,6 +18,20 @@ logger = logging.getLogger("investchat.aifund")
 NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
 DAILY_QUOTA = 10           # A가 하루에 올리는 종목 수(=P/W/S 분량). 운영값 — 조정 쉬움.
 
+# 관전 피드 표시용 봇 이름 (Members·내레이션 일관). committee와 이름 겹치지 않음.
+FUND_BOT_NAMES = {"A": "리서처 A", "P": "성장주(GARP)", "W": "가치(오너십)",
+                  "S": "공급망 병목", "Q": "B+M 블렌드"}
+
+
+def _narrate(bot, content, model="rule"):
+    """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
+    실패해도 사이클은 계속(피드는 부가 기능)."""
+    from db import save_message
+    try:
+        save_message(None, FUND_BOT_NAMES.get(bot, bot), model, content, desk="fund")
+    except Exception as e:
+        logger.warning(f"내레이션 실패 {bot}: {e}")
+
 
 def _today_kst() -> str:
     return datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
@@ -227,16 +241,18 @@ def analyze_candidate(code, name, yf_ticker, market="US"):
     """P/W/S 3인이 한 종목을 각자 분석. 관대 게이트: 한 명이라도 매수면 통과.
     반환: {'code','name','verdicts','approved'}."""
     brief = build_research_brief(code, name, yf_ticker, market)   # A가 1회 준비 → P/W/S 공용
-    verdicts = {}
+    verdicts, reasonings = {}, {}
     for bot in NEW_DESK_ORDER:
         try:
-            v, _ = analyze_stock(code, name, yf_ticker, bot, market, brief=brief)
+            v, rz = analyze_stock(code, name, yf_ticker, bot, market, brief=brief)
         except Exception as e:
             logger.warning(f"발굴 분석 실패 {code}@{bot}: {e}")
-            v = "관망"
+            v, rz = "관망", ""
         verdicts[bot] = v
+        reasonings[bot] = rz
     approved = any(v == "매수" for v in verdicts.values())
-    return {"code": code, "name": name, "verdicts": verdicts, "approved": approved}
+    return {"code": code, "name": name, "verdicts": verdicts,
+            "reasonings": reasonings, "approved": approved}
 
 
 # ── P/W/S 매수·청산 실행 (봇별 독립 계좌 — 경쟁) ────────────
@@ -358,13 +374,20 @@ def run_new_desk_cycle(market="US"):
     from db import ensure_fund_accounts, get_open_positions_by_symbol
     from fetchers import fetch_stock_price
     ensure_fund_accounts()                                    # 4계좌 시드(멱등)
+    _narrate("A", "다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.")
 
     src = source_today(market)                                # A 소싱 + 브리프
+    _narrate("A", src["briefing"])                            # 모닝 브리핑
     buys, sells = [], []
     for code in src["new"] + src["catalyst"]:
         name = src["names"].get(code, code)
         r = analyze_candidate(code, name, code, market)       # P/W/S 각자 verdict
-        buys += [(b, code) for b in execute_buys(code, name, r["verdicts"], market)]
+        for bot in NEW_DESK_ORDER:                            # 각자 분석 발언(실제 논지)
+            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}",
+                     model="sonnet")
+        for b in execute_buys(code, name, r["verdicts"], market):
+            _narrate(b, f"💰 {name} 매수 체결 — 내 계좌에 담았어요.")
+            buys.append((b, code))
         price = None
         for bot, v in r["verdicts"].items():                  # 논지 청산(보유 봇이 매도 시)
             if v != "매도":
@@ -374,7 +397,10 @@ def run_new_desk_cycle(market="US"):
                 continue
             price = price or fetch_stock_price(code if market == "US" else f"{code}.KS")
             if price and execute_thesis_sell(bot, held[0], v, price):
+                _narrate(bot, f"🔻 {name} 청산 — 논지가 훼손돼 내 계좌에서 뺐어요.")
                 sells.append((bot, code))
 
     q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
+    _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
+    _narrate("A", "오늘 일과 끝. 계좌별 성적은 우측 패널에서 볼 수 있어요. 다들 수고했습니다 🫡")
     return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
