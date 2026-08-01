@@ -690,7 +690,21 @@ def api_fund():
         {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "rank": ranks.rank_of("S", rk), "working": _bot_working("S")},
         {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "rank": ranks.rank_of("Q", rk), "working": _bot_working("Q")},
     ]
-    return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
+    # 현재 섹터 박스 = 대형주 데스크 진행형(오늘 섹터 합의 리포트에서 도출 — 스케줄러 무배선에도 활동이 진실원천)
+    import aifund
+    from db import get_fund_reports
+    today = aifund._today_kst()
+    sec_map = aifund._largecap_sectors()
+    sec_today = [r for r in get_fund_reports(60) if r.get("desk") == "섹터합의" and r.get("date") == today]
+    cur_sector = sec_today[0]["name"] if sec_today else None
+    progress = {
+        "sector": cur_sector,
+        "done": len(sec_today), "total": len(sec_map),
+        "working": session == "working",
+        "chips": [aifund.stock_name(c) for c in sec_map.get(cur_sector, [])] if cur_sector else [],
+    }
+    return {"seed": DESK_SEED, "session": session, "accounts": accounts,
+            "roster": roster, "progress": progress}
 
 
 @app.get("/api/benchmark")
