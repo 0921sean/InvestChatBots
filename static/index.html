@@ -606,8 +606,8 @@
   /* ── AI펀드 fund 모드 (window.__FUND_MODE__ 일 때만 활성) ── */
   .member-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
   /* fund 모드 Members = v1 촘촘한 행 그대로. 모델만은 .fm-model, 출근은 초록 좌측선 */
-  .fm-model { font-size: 9px; color: #444c56; }
-  .fm-role { display: block; font-size: 9px; color: #565f6b; margin-top: 1px; }
+  .fm-role { display: block; font-size: 10px; color: #8b949e; }
+  .fm-model { display: block; font-size: 9px; color: #444c56; margin-top: 1px; }
   body.fundmode #member-list .member.working { box-shadow: inset 2px 0 0 #3fb950; }
   body.fundmode #memo-panel .right-tab-btn, body.fundmode #portfolio-panel .right-tab-btn { display: none; }
   /* 리서치 보드 리포트 카드 */
@@ -2645,8 +2645,8 @@ function renderFundMembers(d) {
     el.appendChild(row);
     const sub = document.createElement('div');
     sub.className = 'member-sub';
-    sub.innerHTML = `<span class="fm-model">${esc(model)}</span>`
-      + (role ? `<span class="fm-role">${esc(role)}</span>` : '');
+    sub.innerHTML = (role ? `<span class="fm-role">${esc(role)}</span>` : '')
+      + `<span class="fm-model">${esc(model)}</span>`;
     el.appendChild(sub);
   };
   (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.role || '', working));
@@ -2709,7 +2709,7 @@ if (window.__FUND_MODE__) {
   const hashEl = document.getElementById('chat-hash');
   const subEl = document.getElementById('round-label');
   if (hashEl) hashEl.textContent = '# AI펀드';
-  if (subEl) subEl.textContent = '대형주·발굴주 데스크 관전';
+  if (subEl) subEl.textContent = '인생 졸업을 향해';
   // 현재 섹터 box를 데스크 상태로 (loadState는 fund에서 미동작)
   const _sn = document.getElementById('sector-name-text'), _sc = document.getElementById('sector-count'),
         _sp = document.getElementById('sector-phase'), _sf = document.getElementById('sector-progress-fill'),
