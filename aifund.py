@@ -537,6 +537,27 @@ def sector_of(code: str) -> str:
     return "기타"
 
 
+def _sector_opinion(bot, sector, names, market="US"):
+    """봇 1인의 섹터 관점(자유 형식, 짧게) — 종목 [결정] 아님. LLM."""
+    from agents import call_agent
+    from prompts import AGENT_PROFILES
+    lst = ", ".join(names[:6])
+    prompt = (f"'{sector}' 섹터를 네 투자 원칙으로 지금 어떻게 보는지 2~3문장으로 코멘트해줘. "
+              f"이 섹터 대표주: {lst}. 특정 종목 [결정]은 하지 말고 섹터 전반의 큰 그림만. "
+              "미래 수익 보장·매수 권유 금지, 내 가상계좌 관점으로만.")
+    return call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
+
+
+def _store_sector_consensus(today, sector, opinions):
+    """섹터 합의(P/W/H 관점) → 리서치 보드 저장. 실패해도 무시."""
+    from db import record_fund_report
+    summary = "\n".join(f"{b} — {(op or '').strip()}" for b, op in opinions.items() if op)
+    try:
+        record_fund_report(today, f"섹터:{sector}", sector, summary, "", "섹터합의")
+    except Exception as e:
+        logger.warning(f"섹터 합의 저장 실패 {sector}: {e}")
+
+
 def source_largecap(market="US", quota=None):
     """대형주 소싱 — 고정 유니버스에서 오늘 볼 종목(캐시된 건 제외, 매일 통일성). 반환 {'codes','names'}."""
     quota = quota or DAILY_QUOTA
@@ -649,48 +670,64 @@ def run_discovery_review(market="US"):
     return {"sells": sold}
 
 
-# ── 대형주 데스크 (P/W/H 선정→관심종목 캐시 / Q 진입·청산 타이밍) ──
+# ── 대형주 데스크 (매일 전 섹터 재분석: 섹터 토론 → 종목 [결정] → 그날 관심종목 / Q 진입·청산) ──
 def run_largecap_select(market="US"):
-    """대형주 선정 슬롯(18시) — A 소싱 → P/W/H OR게이트 → 관심종목 캐시. 보유중 강한 펀더매도(2인+)면 즉시청산.
-    반환 {'watched','sold'}."""
+    """대형주 선정 슬롯(06시) — 전 섹터 매일 재분석. 섹터별 P/W/H 의견(섹터 합의) → 종목별 [결정] OR게이트 → 그날 관심종목.
+    캐시 없이 매일 다시 합격을 낸다(그날 Q도 합격 신호면 매수). 보유중 강한 펀더매도(2인+)면 즉시청산.
+    반환 {'watched','sold','sectors'}."""
     if not NEW_DESK_ENABLED:
-        return {"watched": [], "sold": []}
-    from db import (ensure_desk_accounts, add_to_watch, get_open_positions_by_symbol,
-                    sell_shared_position)
+        return {"watched": [], "sold": [], "sectors": []}
+    from db import (ensure_desk_accounts, add_to_watch, clear_watchlist,
+                    get_open_positions_by_symbol, sell_shared_position)
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
+    sectors = _largecap_sectors()
+    if market != "US" or not sectors:
+        return {"watched": [], "sold": [], "sectors": []}
+    clear_watchlist()                                    # 매일 재분석 — 어제 진입대기 비움(보유 유지)
     _narrate("A", _line(_CLOCK_IN, "A"))
-    src = source_largecap(market)
-    if not src["codes"]:
-        _narrate("A", _line(_CLOCK_OUT, "A"))
-        return {"watched": [], "sold": []}
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_IN, bot))
     today = _today_kst()
-    watched, sold = [], []
-    for code in src["codes"]:
-        name = src["names"].get(code, code)
-        r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
-        _store_report(today, code, name, r.get("brief"), "대형주")
+    watched, sold, done = [], [], []
+    for sector, codes in sectors.items():
+        names = {c: stock_name(c) for c in codes}
+        _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")            # 1단계: 섹터 토론
+        opinions = {}
         for bot in LARGECAP_BOTS:
-            _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
-        approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
-        if approvers:
-            add_to_watch(code, name, ",".join(approvers))
-            watched.append(code)
-            _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 봇 핸드오프 → Q
-        held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
-        sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
-        if held and len(sellers) >= 2:
-            price = fetch_stock_price(code if market == "US" else f"{code}.KS")
-            if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
-                sold.append(code)
-                _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
-    _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(src["codes"])))
+            try:
+                op = _sector_opinion(bot, sector, list(names.values()), market)
+            except Exception as e:
+                logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
+                op = ""
+            opinions[bot] = op
+            if op:
+                _narrate(bot, op, model="sonnet")
+        _store_sector_consensus(today, sector, opinions)
+        done.append(sector)
+        for code in codes:                                          # 2단계: 종목 [결정]
+            name = names.get(code, code)
+            r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
+            _store_report(today, code, name, r.get("brief"), "대형주")
+            for bot in LARGECAP_BOTS:
+                _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
+            approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
+            if approvers:
+                add_to_watch(code, name, ",".join(approvers))
+                watched.append(code)
+                _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 핸드오프 → Q
+            held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
+            sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
+            if held and len(sellers) >= 2:
+                price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+                if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
+                    sold.append(code)
+                    _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
+    _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(watched)))
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
     _narrate("A", _line(_CLOCK_OUT, "A"))
-    return {"watched": watched, "sold": sold}
+    return {"watched": watched, "sold": sold, "sectors": done}
 
 
 def run_largecap_execute(market="US"):

@@ -623,6 +623,10 @@
   .fr-tag { margin-left: auto; font-size: 8.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
   .fr-tag.pw { color: #5aa9e6; background: rgba(90,169,230,.13); }
   .fr-tag.s { color: #e08a3c; background: rgba(224,138,60,.13); }
+  .fr-tag.sec { color: #a78bfa; background: rgba(167,139,250,.14); }
+  .fr-card.fr-sec { background: #10131b; border-color: #2b2540; }
+  .fr-op { font-size: 11px; color: #c9d1d9; line-height: 1.5; margin-top: 6px; }
+  .fr-op-b { display: inline-block; min-width: 15px; font-weight: 800; color: #a78bfa; margin-right: 5px; }
   .fr-sum { font-size: 11px; color: #c9d1d9; line-height: 1.55; }
   .fr-fin { font-size: 10px; color: #8b949e; white-space: pre-wrap; line-height: 1.5; margin-top: 7px;
     padding-top: 7px; border-top: 1px solid #21262d; max-height: 132px; overflow-y: auto; font-variant-numeric: tabular-nums; }
@@ -2693,10 +2697,21 @@ function renderFundReport(reports) {
   const list = document.getElementById('memo-list');
   if (!list) return;
   if (!reports || !reports.length) {
-    list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 종목별로 채웁니다.</div>`;
+    list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 섹터·종목별로 채웁니다.</div>`;
     return;
   }
-  list.innerHTML = `<div id="fund-report">` + reports.map(r => {
+  const secs = reports.filter(r => r.desk === '섹터합의');           // 섹터 합의 먼저
+  const stocks = reports.filter(r => r.desk !== '섹터합의');
+  const secCards = secs.map(r => {
+    const rows = (r.summary || '').split('\n').filter(Boolean).map(ln => {
+      const i = ln.indexOf('—');
+      const who = i > 0 ? ln.slice(0, i).trim() : '';
+      const op = i > 0 ? ln.slice(i + 1).trim() : ln;
+      return `<div class="fr-op"><span class="fr-op-b">${esc(who)}</span>${esc(op)}</div>`;
+    }).join('');
+    return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${rows}</div>`;
+  }).join('');
+  const stockCards = stocks.map(r => {
     const tag = r.desk === '발굴주'
       ? `<span class="fr-tag s">발굴</span>` : `<span class="fr-tag pw">대형주</span>`;
     const nm = (r.name && r.name !== r.code) ? `<span class="fr-nm">${esc(r.name)}</span>` : '';
@@ -2705,7 +2720,8 @@ function renderFundReport(reports) {
     const sum = s ? `<div class="fr-sum">${esc(s)}</div>` : '';
     const fin = r.packet ? `<div class="fr-fin">${esc(r.packet)}</div>` : '';
     return `<div class="fr-card"><div class="fr-top"><span class="fr-tk">${esc(r.code)}</span>${nm}${tag}</div>${sum}${fin}</div>`;
-  }).join('') + `</div>`;
+  }).join('');
+  list.innerHTML = `<div id="fund-report">` + secCards + stockCards + `</div>`;
 }
 async function loadFundReport() {
   try { renderFundReport(await (await fetch('/api/fund-report')).json()); } catch (e) {}
