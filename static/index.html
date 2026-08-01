@@ -643,7 +643,8 @@
   body.fundmode #btn-main-run, body.fundmode #btn-sub-run,
   body.fundmode #btn-summary { display: none; }
   /* 4봇 가상계좌 — 2×2 사분면, 각 칸에 종목별 티커/진입/현재/투자금 */
-  #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; padding: 10px; }
+  #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 10px; padding: 10px; }
+  .fm-model { margin-left: auto; font-size: 10px; color: #6e7681; font-weight: 600; }
   .fq-cell { background: #0d1117; border: 1.5px solid #21262d; border-radius: 10px; display: flex; flex-direction: column; min-height: 0; padding: 11px 12px; transition: border-color .3s; }
   .fq-cell.working { border-color: rgba(63,185,80,.5); }
   .fq-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
@@ -2620,25 +2621,30 @@ function _spark(hist, color) {                                  // 수익률 스
 function renderFundMembers(d) {
   const el = document.getElementById('member-list');
   if (!el) return;
-  const working = d.session === 'working';                      // 출근이면 동그라미에 초록 글로우
+  const working = d.session === 'working';                      // 출근이면 봇 네모칸 초록 테두리
   el.innerHTML = '';
-  (d.bots||[]).forEach(b => {                                   // 전략 노출 방지 — 글자만
+  (d.roster||[]).forEach(b => {                                 // 글자 + 모델만 (투자스타일 미노출)
     const row = document.createElement('div');
     row.className = 'member' + (working ? ' working' : '');
     row.innerHTML = `<div class="fm-top">`
       + `<span class="dot" style="background:${b.color}"></span>`
       + `<span class="member-name" style="color:${b.color}">${b.bot}</span>`
-      + `<span class="member-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>`
-      + `<div class="fm-spark">${_spark(b.history, b.color)}</div>`;
+      + `<span class="fm-model">${esc(b.model || '')}</span></div>`;
     el.appendChild(row);
   });
+  const you = document.createElement('div');                   // '나'(감독) 유지
+  you.className = 'member';
+  you.innerHTML = `<div class="fm-top"><span class="dot" style="background:#fbbf24"></span>`
+    + `<span class="member-name" style="color:#fbbf24">나</span>`
+    + `<span class="fm-model">감독</span></div>`;
+  el.appendChild(you);
 }
 function renderFundQuad(d) {
   const panel = document.getElementById('portfolio-panel');
   if (!panel) return;
   const working = d.session === 'working';
   const px = v => v != null ? '$' + (+v).toLocaleString(undefined, {maximumFractionDigits: 2}) : '—';
-  const cells = (d.bots||[]).map(b => {
+  const cells = (d.accounts||[]).map(b => {                     // 대형주 / 발굴주 2계좌
     const opens = b.positions || [];
     const rows = opens.length ? opens.map(p => {
       const tk = esc(p.code || p.symbol);
@@ -2647,17 +2653,18 @@ function renderFundQuad(d) {
       return `<div class="fq-pos"><div class="fq-pos-top"><span class="sym">${tk}</span>`
         + (nm ? `<span class="nm">${nm}</span>` : '') + pnl + `</div>`
         + `<div class="fq-pos-sub">진입 ${px(p.entry_price)} → 현재 ${px(p.current_price)} · 투자금 ${_fKRW(p.amount)}</div></div>`;
-    }).join('') : `<div class="fq-empty">보유 없음 (관망 중)</div>`;
+    }).join('') : `<div class="fq-empty">보유 없음</div>`;
     return `<div class="fq-cell${working ? ' working' : ''}">
       <div class="fq-head"><span class="dot" style="background:${b.color}"></span>`
-      + `<span class="fq-id" style="color:${b.color}">${b.bot}</span>`
+      + `<span class="fq-id" style="color:${b.color}">${esc(b.bot)}</span>`
       + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
+      <div class="fm-spark">${_spark(b.history, b.color)}</div>
       <div class="fq-cash">현금 ${_fKRW(b.cash)} · 보유 ${b.n_positions}종목</div>
       <div class="fq-scroll">${rows}</div>
     </div>`;
   }).join('');
-  panel.innerHTML = `<div class="panel-header"><h3>💼 4봇 경쟁 · 가상계좌</h3>`
-    + `<p>각 시드 ${_fKRW(d.seed || 1e8)} · 원가 기준</p></div><div id="fund-quad">${cells}</div>`;
+  panel.innerHTML = `<div class="panel-header"><h3>💼 대형주 · 발굴주 가상 포트폴리오</h3>`
+    + `<p>각 시드 ${_fKRW(d.seed || 5e7)} · 시가 평가</p></div><div id="fund-quad">${cells}</div>`;
 }
 async function loadFund() {
   try {
@@ -2679,8 +2686,8 @@ function renderFundReport(reports) {
     return;
   }
   list.innerHTML = `<div id="fund-report">` + reports.map(r => {
-    const tag = r.desk === 'S'
-      ? `<span class="fr-tag s">병목</span>` : `<span class="fr-tag pw">일반</span>`;
+    const tag = r.desk === '발굴주'
+      ? `<span class="fr-tag s">발굴</span>` : `<span class="fr-tag pw">대형주</span>`;
     const nm = (r.name && r.name !== r.code) ? `<span class="fr-nm">${esc(r.name)}</span>` : '';
     let s = r.summary || '';
     if (s.length > 200) s = s.slice(0, 200) + '…';
