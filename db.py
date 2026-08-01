@@ -118,6 +118,7 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN half_exited INTEGER DEFAULT 0",  # 모멘텀 v2 절반익절 여부
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
+            "ALTER TABLE benchmark_daily ADD COLUMN spy REAL",
         ]:
             try:
                 con.execute(sql)
@@ -130,17 +131,18 @@ def _migrate():
             pass
 
 
-def save_benchmark_snapshot(date: str, bot_nav, qqq, schd, kospi, kosdaq):
+def save_benchmark_snapshot(date: str, bot_nav, qqq, schd, kospi, kosdaq, spy=None):
     """하루 1개 벤치마크 스냅샷(봇 NAV + 지수). 같은 날 재호출은 값 갱신(UPSERT)."""
     with _conn() as con:
         con.execute("""
-            INSERT INTO benchmark_daily (date, bot_nav, qqq, schd, kospi, kosdaq)
-            VALUES (?,?,?,?,?,?)
+            INSERT INTO benchmark_daily (date, bot_nav, qqq, spy, schd, kospi, kosdaq)
+            VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(date) DO UPDATE SET
                 bot_nav=COALESCE(excluded.bot_nav, bot_nav),
-                qqq=COALESCE(excluded.qqq, qqq), schd=COALESCE(excluded.schd, schd),
+                qqq=COALESCE(excluded.qqq, qqq), spy=COALESCE(excluded.spy, spy),
+                schd=COALESCE(excluded.schd, schd),
                 kospi=COALESCE(excluded.kospi, kospi), kosdaq=COALESCE(excluded.kosdaq, kosdaq)
-        """, (date, bot_nav, qqq, schd, kospi, kosdaq))
+        """, (date, bot_nav, qqq, spy, schd, kospi, kosdaq))
 
 
 def get_benchmark_snapshots() -> list:
@@ -244,7 +246,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS benchmark_daily (
             date TEXT PRIMARY KEY,
-            bot_nav REAL, qqq REAL, schd REAL, kospi REAL, kosdaq REAL,
+            bot_nav REAL, qqq REAL, spy REAL, schd REAL, kospi REAL, kosdaq REAL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS agent_state (
