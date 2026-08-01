@@ -428,10 +428,36 @@ _BUY_LINES = ["💰 {name} 매수 체결 — 내 계좌에 담았어요.",
 _SELL_LINES = ["🔻 {name} 청산 — 논지가 훼손돼 뺐어요.",
                "{name} 던졌습니다. 얘기가 달라졌네요.",
                "{name} 정리 — 이유가 사라졌으니 홀드할 근거도 없죠."]
+# 대형주 핸드오프 — P/W/H가 선정 후 Q에게 타이밍 넘김("살펴봐주세요")
+_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q님, 진입 타이밍 봐주세요 🙏",
+                  "{name} 관심종목으로 올립니다 — Q님, 언제 들어갈지 판단 부탁해요.",
+                  "{name} 펀더는 좋네요. 타이밍은 Q님께 맡길게요."]
 
 
 def _line(pool, bot):
     return random.choice(pool.get(bot) or [""])
+
+
+def _q_explain(name, action, tag, approvers=None):
+    """Q가 매매 이유를 대화체로 설명(haiku, 저비용). 실패 시 규칙 기반 폴백.
+    ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
+    strat = "미너비니 추세돌파" if tag == "M" else "볼린저 밴드 복귀"
+    fallback = f"{name} {action} — {strat} 신호."
+    try:
+        from agents import _call_claude_cli
+        who = f"{approvers}가 올린 " if approvers else ""
+        sysp = ("너는 규칙(B+M: 미너비니 추세돌파·볼린저 복귀)으로만 매매하는 가상계좌 퀀트봇 Q다. "
+                "규칙 신호가 떠서 이미 매매를 끝냈다 — 이건 분석 요청이 아니라 '이미 한 매매'의 캐주얼 코멘트다. "
+                "그 규칙이 왜 이 자리를 잡았는지 팀원에게 반말로 딱 1~2문장. 면책·주의·질문·인사 금지. "
+                "미래 보장·권유 금지, 내 가상계좌 관점으로만.")
+        prompt = f"{who}{name}에 '{strat}' 규칙 신호가 떠서 방금 {action}함. 팀에 한 줄 코멘트로 전해줘."
+        out = (_call_claude_cli(sysp, prompt, timeout=30, model="haiku") or "").strip()
+        out = out.split("\n\n")[0].strip().lstrip("> ").strip('"')   # 첫 문단만, 인용부호 제거
+        refuse = any(x in out.lower() for x in ("can't", "cannot", "확인할 수 없", "필요합니다", "roleplay", "실시간"))
+        return fallback if (not out or refuse) else out
+    except Exception as e:
+        logger.warning(f"Q 설명 실패 {name}: {e}")
+        return fallback
 
 
 def _summarize_ko(name, business_summary):
@@ -604,7 +630,7 @@ def run_largecap_select(market="US"):
         if approvers:
             add_to_watch(code, name, ",".join(approvers))
             watched.append(code)
-            _narrate("A", f"👀 {name} 관심종목 등록 — {'·'.join(approvers)} 매수의견. Q 진입 타이밍 대기.")
+            _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 봇 핸드오프 → Q
         held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
         sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
         if held and len(sellers) >= 2:
@@ -642,7 +668,7 @@ def run_largecap_execute(market="US"):
         strat = "M" if "미너비니" in (p.get("reasoning") or "") else "B"
         if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {strat} 익절/손절")[1]:
             sold.append(p["symbol"])
-            _narrate("Q", f"✅ {p['symbol']} 청산 — Q {'미너비니' if strat == 'M' else '볼린저'} 익절/손절.")
+            _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
     n = len(get_open_positions(account="대형주"))
     for w in watch:                                           # 진입: Q 타이밍
         if not can_open(n):
@@ -659,7 +685,7 @@ def run_largecap_execute(market="US"):
             mark_watch(w["code"], "bought")
             bought.append(w["code"])
             n += 1
-            _narrate("Q", f"⏱️ {w['name']} 진입 — {'미너비니 돌파' if tag == 'M' else '볼린저 복귀'} 타이밍.")
+            _narrate("Q", "⏱️ " + _q_explain(w["name"], "진입", tag, w.get("approved_by")))
     return {"bought": bought, "sold": sold}
 
 
