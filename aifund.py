@@ -451,85 +451,238 @@ def _summarize_ko(name, business_summary):
 
 
 # ── 하루 사이클 오케스트레이션 (A → P/W/S → Q) ──────────────
-def run_new_desk_cycle(market="US"):
-    """AI펀드 하루 흐름: 계좌 준비 → A 소싱 → P/W/S 각 후보 분석·매수/논지청산 → Q 전 유니버스 스캔·매매.
-    ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 스케줄러 배선은 추후 Phase(라이브 orchestrator).
-    반환: {'briefing','buys','sells','q'}."""
-    empty = {"briefing": "", "buys": [], "sells": [], "q": {"bought": [], "sold": []}}
-    if not NEW_DESK_ENABLED:
-        return empty
-    from db import ensure_fund_accounts
-    ensure_fund_accounts()                                    # 4계좌 시드(멱등)
-    _narrate("A", _line(_CLOCK_IN, "A"))                      # A 출근
-
-    src = source_today(market)                                # A 일반 풀(P/W용) + 브리프
-    _narrate("A", src["briefing"])                            # 모닝 브리핑
-    pw = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]]
-    buys, sells = _process_pool(pw, market, ["P", "W"])       # P/W = A가 준 리스트
-
-    s_src = source_bottleneck(market)                         # S = 병목 시드 자체 소싱
-    s_cands = [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
-    sb, ss = _process_pool(s_cands, market, ["S"])
-    buys += sb
-    sells += ss
-
-    q = run_q_desk(market)                                    # Q 전 유니버스 스캔·매매
-    _narrate("Q", f"전 유니버스 B+M 스캔 완료 — 신규 매수 {len(q['bought'])}건 / 청산 {len(q['sold'])}건.")
-    _snapshot_fund_nav()                                      # 수익률 스파크라인용 일일 NAV
-    _narrate("A", _line(_CLOCK_OUT, "A"))                     # A 퇴근
-    return {"briefing": src["briefing"], "buys": buys, "sells": sells, "q": q}
-
-
-def _process_pool(candidates, market, bots):
-    """(code, name) 리스트를 주어진 봇들로 분석 → A 리포트 저장 → 매수/논지청산 → 내레이션.
-    반환: (buys, sells)."""
-    from db import get_open_positions_by_symbol, record_fund_report
-    from fetchers import fetch_stock_price
-    buys, sells = [], []
-    if not candidates:                                        # 오늘 볼 게 없으면 출근도 안 함
-        return buys, sells
-    today = _today_kst()
-    desk_tag = "S" if bots == ["S"] else "PW"
-    desk_label = "병목" if bots == ["S"] else "일반"
-    for bot in bots:                                          # 각자 출근
-        _narrate(bot, _line(_CLOCK_IN, bot))
-    for code, name in candidates:
-        r = analyze_candidate(code, name, code, market, bots=bots)
-        packet, summary = r.get("brief") or ("", "")
-        summary = _summarize_ko(name, summary) or summary    # '뭐하는 회사' 한글 요약(실패 시 영문)
+# ── 통일 데스크 파이프라인 (대형주 / 발굴주) — 설계 docs/AIFUND_PIVOT.md ──
+def _largecap_universe():
+    try:
+        from strategy_private import LARGECAP_UNIVERSE as u
+    except Exception:
         try:
-            record_fund_report(today, code, name, summary, packet, desk_tag)   # A 리포트
-        except Exception as e:
-            logger.warning(f"리포트 저장 실패 {code}: {e}")
-        for bot in bots:                                      # 각자 분석 발언(실제 논지)
-            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}",
-                     model="sonnet")
-        for b in execute_buys(code, name, r["verdicts"], market):
-            _narrate(b, random.choice(_BUY_LINES).format(name=name))
-            buys.append((b, code))
-        price = None
-        for bot, v in r["verdicts"].items():                  # 논지 청산(보유 봇이 매도 시)
-            if v != "매도":
-                continue
-            held = get_open_positions_by_symbol(name, account=bot)
-            if not held:
-                continue
-            price = price or fetch_stock_price(code if market == "US" else f"{code}.KS")
-            if price and execute_thesis_sell(bot, held[0], v, price):
-                _narrate(bot, random.choice(_SELL_LINES).format(name=name))
-                sells.append((bot, code))
-    _narrate("A", random.choice(_A_DONE).format(desk=desk_label, n=len(candidates)))   # A 분석완료
-    for bot in bots:                                          # 각자 퇴근
+            from strategy_private_example import LARGECAP_UNIVERSE as u
+        except Exception:
+            u = []
+    return list(u or [])
+
+
+def source_largecap(market="US", quota=None):
+    """대형주 소싱 — 고정 유니버스에서 오늘 볼 종목(캐시된 건 제외, 매일 통일성). 반환 {'codes','names'}."""
+    quota = quota or DAILY_QUOTA
+    u = _largecap_universe()
+    if market != "US" or not u:
+        return {"codes": [], "names": {}}
+    cached = set(get_cached_codes())
+    codes = [c for c in u if c not in cached][:quota] or u[:quota]   # 다 봤으면 다시 처음부터
+    return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
+
+
+def _store_report(today, code, name, brief, desk_tag):
+    """A 리포트 저장(한글요약+재무). 실패해도 무시."""
+    from db import record_fund_report
+    packet, summary = brief or ("", "")
+    summary = _summarize_ko(name, summary) or summary
+    try:
+        record_fund_report(today, code, name, summary, packet, desk_tag)
+    except Exception as e:
+        logger.warning(f"리포트 저장 실패 {code}: {e}")
+
+
+def _spy_uptrend():
+    """SPY 200일선 위 여부(시장 필터)."""
+    import backtest as bt
+    spy = bt._fetch_bench("SPY", period="2y")
+    return len(spy["close"]) >= 200 and spy["close"][-1] > bt._sma(spy["close"], 200)
+
+
+def _approver_of(position):
+    """발굴주 포지션 reasoning에서 첫 매수 찬성봇 추출. 못 찾으면 P."""
+    r = position.get("reasoning") or ""
+    if "(" in r:
+        first = r.split("(")[-1].rstrip(")").split(",")[0].strip()
+        if first in DISCOVERY_BOTS:
+            return first
+    return "P"
+
+
+# ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
+def run_discovery_desk(market="US"):
+    """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
+    if not NEW_DESK_ENABLED:
+        return {"buys": []}
+    from db import (ensure_desk_accounts, get_open_positions_by_symbol,
+                    buy_shared_position, get_open_positions, DESK_SEED)
+    from fetchers import fetch_stock_price
+    from trading_strategies import position_amount, can_open
+    ensure_desk_accounts()
+    _narrate("A", _line(_CLOCK_IN, "A"))
+    src = source_today(market)
+    _narrate("A", src["briefing"])
+    s_src = source_bottleneck(market)
+    cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
+        + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
+    if not cands:
+        _narrate("A", _line(_CLOCK_OUT, "A"))
+        return {"buys": []}
+    for bot in DISCOVERY_BOTS:
+        _narrate(bot, _line(_CLOCK_IN, bot))
+    today = _today_kst()
+    buys = []
+    for code, name in cands:
+        r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
+        _store_report(today, code, name, r.get("brief"), "발굴주")
+        for bot in DISCOVERY_BOTS:
+            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
+        approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
+        if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
+            continue
+        if not can_open(len(get_open_positions(account="발굴주"))):
+            continue
+        price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+        if not price:
+            continue
+        _, err = buy_shared_position(name, code, price, position_amount(DESK_SEED),
+                                     f"발굴주 매수 ({','.join(approvers)})", market, account="발굴주")
+        if not err:
+            buys.append(code)
+            _narrate(approvers[0], random.choice(_BUY_LINES).format(name=name))
+    _narrate("A", random.choice(_A_DONE).format(desk="발굴", n=len(cands)))
+    for bot in DISCOVERY_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
-    return buys, sells
+    _narrate("A", _line(_CLOCK_OUT, "A"))
+    return {"buys": buys}
+
+
+def run_discovery_review(market="US"):
+    """발굴주 점검 슬롯(12시) — 매수 찬성봇이 재분석해 매도면 청산. 반환 {'sells'}."""
+    if not NEW_DESK_ENABLED:
+        return {"sells": []}
+    from db import get_open_positions, sell_shared_position
+    from fetchers import fetch_stock_price
+    sold = []
+    for p in get_open_positions(account="발굴주"):
+        code = p.get("code") or p["symbol"]
+        name = p["symbol"]
+        bot = _approver_of(p)
+        try:
+            v, _ = analyze_stock(code, name, code, bot, market)
+        except Exception as e:
+            logger.warning(f"발굴주 재분석 실패 {code}: {e}")
+            continue
+        if v != "매도":
+            continue
+        price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+        if price and not sell_shared_position(p["id"], price, exit_reasoning=f"{bot} 논지 훼손 청산")[1]:
+            sold.append(code)
+            _narrate(bot, random.choice(_SELL_LINES).format(name=name))
+    return {"sells": sold}
+
+
+# ── 대형주 데스크 (P/W/H 선정→관심종목 캐시 / Q 진입·청산 타이밍) ──
+def run_largecap_select(market="US"):
+    """대형주 선정 슬롯(18시) — A 소싱 → P/W/H OR게이트 → 관심종목 캐시. 보유중 강한 펀더매도(2인+)면 즉시청산.
+    반환 {'watched','sold'}."""
+    if not NEW_DESK_ENABLED:
+        return {"watched": [], "sold": []}
+    from db import (ensure_desk_accounts, add_to_watch, get_open_positions_by_symbol,
+                    sell_shared_position)
+    from fetchers import fetch_stock_price
+    ensure_desk_accounts()
+    _narrate("A", _line(_CLOCK_IN, "A"))
+    src = source_largecap(market)
+    if not src["codes"]:
+        _narrate("A", _line(_CLOCK_OUT, "A"))
+        return {"watched": [], "sold": []}
+    for bot in LARGECAP_BOTS:
+        _narrate(bot, _line(_CLOCK_IN, bot))
+    today = _today_kst()
+    watched, sold = [], []
+    for code in src["codes"]:
+        name = src["names"].get(code, code)
+        r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
+        _store_report(today, code, name, r.get("brief"), "대형주")
+        for bot in LARGECAP_BOTS:
+            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
+        approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
+        if approvers:
+            add_to_watch(code, name, ",".join(approvers))
+            watched.append(code)
+            _narrate("A", f"👀 {name} 관심종목 등록 — {'·'.join(approvers)} 매수의견. Q 진입 타이밍 대기.")
+        held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
+        sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
+        if held and len(sellers) >= 2:
+            price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+            if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
+                sold.append(code)
+                _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
+    _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(src["codes"])))
+    for bot in LARGECAP_BOTS:
+        _narrate(bot, _line(_CLOCK_OUT, bot))
+    _narrate("A", _line(_CLOCK_OUT, "A"))
+    return {"watched": watched, "sold": sold}
+
+
+def run_largecap_execute(market="US"):
+    """대형주 집행 슬롯(24시, 미장 장중) — Q가 관심종목 진입 타이밍 매수 + 보유 B+M 익절/손절. 반환 {'bought','sold'}."""
+    if not NEW_DESK_ENABLED:
+        return {"bought": [], "sold": []}
+    import backtest as bt
+    from db import (ensure_desk_accounts, get_watchlist, mark_watch, buy_shared_position,
+                    sell_shared_position, get_open_positions, get_open_positions_by_symbol, DESK_SEED)
+    from trading_strategies import position_amount, can_open
+    ensure_desk_accounts()
+    _narrate("Q", "Q 출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
+    up = _spy_uptrend()
+    watch = get_watchlist("watching")
+    held = get_open_positions(account="대형주")
+    codes = list({w["code"] for w in watch} | {(p.get("code") or p["symbol"]) for p in held})
+    data = bt._fetch(codes, period="2y") if codes else {}
+    sold, bought = [], []
+    for p in held:                                            # 청산: Q B+M 익절/손절
+        o = data.get(p.get("code") or p["symbol"])
+        if not o:
+            continue
+        strat = "M" if "미너비니" in (p.get("reasoning") or "") else "B"
+        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {strat} 익절/손절")[1]:
+            sold.append(p["symbol"])
+            _narrate("Q", f"✅ {p['symbol']} 청산 — Q {'미너비니' if strat == 'M' else '볼린저'} 익절/손절.")
+    n = len(get_open_positions(account="대형주"))
+    for w in watch:                                           # 진입: Q 타이밍
+        if not can_open(n):
+            break
+        o = data.get(w["code"])
+        if not o or get_open_positions_by_symbol(w["name"], account="대형주"):
+            continue
+        tag = q_entry_signal(o["close"], up)
+        if not tag:
+            continue
+        _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], position_amount(DESK_SEED),
+                                     f"Q {'미너비니' if tag == 'M' else '볼린저'} 진입", market, account="대형주")
+        if not err:
+            mark_watch(w["code"], "bought")
+            bought.append(w["code"])
+            n += 1
+            _narrate("Q", f"⏱️ {w['name']} 진입 — {'미너비니 돌파' if tag == 'M' else '볼린저 복귀'} 타이밍.")
+    return {"bought": bought, "sold": sold}
+
+
+# ── 하루 오케스트레이션 (수동/테스트) — 스케줄러(Phase 2)는 슬롯별로 위 함수 호출 ──
+def run_new_desk_cycle(market="US"):
+    """통일 데스크 하루 전체(수동/테스트용): 발굴주 매수·점검 + 대형주 선정·집행 + NAV 스냅샷.
+    ⚠️ NEW_DESK_ENABLED=False면 no-op. 스케줄러(Phase 2)는 슬롯별 개별 함수 호출."""
+    if not NEW_DESK_ENABLED:
+        return {"discovery": {}, "discovery_review": {}, "largecap_select": {}, "largecap_execute": {}}
+    d = run_discovery_desk(market)
+    dr = run_discovery_review(market)
+    ls = run_largecap_select(market)
+    le = run_largecap_execute(market)
+    _snapshot_fund_nav()
+    return {"discovery": d, "discovery_review": dr, "largecap_select": ls, "largecap_execute": le}
 
 
 def _snapshot_fund_nav():
-    """각 봇 계좌의 오늘 NAV(현금+투자원가)를 기록 — 수익률 그래프용. 실패해도 무시."""
-    from db import (FUND_ACCOUNTS, get_shared_portfolio, get_open_positions,
+    """데스크 계좌(대형주/발굴주) 오늘 NAV(현금+투자원가) 기록 — 수익률 그래프용. 실패해도 무시."""
+    from db import (DESK_ACCOUNTS, get_shared_portfolio, get_open_positions,
                     record_fund_nav)
     today = _today_kst()
-    for acct in FUND_ACCOUNTS:
+    for acct in DESK_ACCOUNTS:
         try:
             cash = (get_shared_portfolio(acct) or {}).get("balance") or 0
             inv = sum((p.get("amount") or 0) for p in get_open_positions(account=acct))
