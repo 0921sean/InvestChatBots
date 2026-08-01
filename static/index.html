@@ -2687,7 +2687,28 @@ async function loadFund() {
     window._fundData = d;
     renderFundMembers(d);
     renderFundPortfolio(d);
+    renderFundSector(d.progress);
   } catch (e) {}
+}
+// 현재 섹터 box = 대형주 데스크 진행형 (오늘 섹터 합의 진행에서 도출)
+function renderFundSector(p) {
+  const sn = document.getElementById('sector-name-text'), sc = document.getElementById('sector-count'),
+        sp = document.getElementById('sector-phase'), sf = document.getElementById('sector-progress-fill'),
+        ss = document.getElementById('sector-stocks');
+  if (!p || !p.done) {                                   // 오늘 아직 시작 전 — 데스크 안내
+    if (sn) sn.textContent = '대형주 · 발굴주 데스크';
+    if (sc) sc.textContent = '';
+    if (sp) sp.textContent = '일봉 종가 기준 · 대형주 06 / 발굴 12·18·24';
+    if (sf) sf.style.display = 'none';
+    if (ss) ss.innerHTML = '';
+    return;
+  }
+  if (sn) sn.textContent = p.sector || '대형주 데스크';
+  if (sc) sc.textContent = `${p.done}/${p.total}` + (p.done >= p.total ? ' ✓' : '');
+  if (sp) sp.textContent = p.working ? `대형주 데스크 진행 중 · ${p.sector || ''}`
+                                     : `오늘 ${p.done}개 섹터 분석 완료`;
+  if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round(p.done / (p.total || 1) * 100)) + '%'; }
+  if (ss) ss.innerHTML = (p.chips || []).map(n => `<span class="stock-badge">${esc(n)}</span>`).join('');
 }
 function renderFundReport(reports) {
   const hdr = document.querySelector('#memo-panel .panel-header h3');
@@ -2732,15 +2753,7 @@ if (window.__FUND_MODE__) {
   const subEl = document.getElementById('round-label');
   if (hashEl) hashEl.textContent = '# AI펀드';
   if (subEl) subEl.textContent = '인생 졸업을 향해';
-  // 현재 섹터 box를 데스크 상태로 (loadState는 fund에서 미동작)
-  const _sn = document.getElementById('sector-name-text'), _sc = document.getElementById('sector-count'),
-        _sp = document.getElementById('sector-phase'), _sf = document.getElementById('sector-progress-fill'),
-        _ss = document.getElementById('sector-stocks');
-  if (_sn) _sn.textContent = '대형주 · 발굴주 데스크';
-  if (_sc) _sc.textContent = '';
-  if (_sp) _sp.textContent = '일봉 종가 기준 · 대형주 06 / 발굴 12·18·24';
-  if (_sf) _sf.style.display = 'none';
-  if (_ss) _ss.textContent = '';
+  // 현재 섹터 box = 대형주 데스크 진행형 — loadFund가 renderFundSector로 채운다(loadState는 fund 미동작)
   loadFund();
   loadFundReport();
   setInterval(loadFund, 15000);
