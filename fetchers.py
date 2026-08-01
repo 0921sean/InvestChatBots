@@ -210,10 +210,19 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
         except Exception as e:
             logger.debug(f"TV-TA parse {code}: {e}")
 
-    # yfinance — 펀더멘털 + 가격 fallback
+    # yfinance — 펀더멘털 + 가격 fallback (일시적 429는 백오프 재시도)
     try:
         t = yf.Ticker(yf_ticker)
-        info = t.info or {}
+        info = {}
+        for _attempt in range(3):
+            try:
+                info = t.info or {}
+                if info:
+                    break
+            except Exception as _e:
+                if _attempt == 2:
+                    raise
+                time.sleep(1.5 * (_attempt + 1))
         # TV 가격 없으면 yfinance에서 보완
         if "price" not in result:
             try:

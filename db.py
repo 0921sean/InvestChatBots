@@ -68,6 +68,36 @@ def mark_watch(code: str, status: str):
         con.execute("UPDATE largecap_watch SET status=? WHERE code=?", (status, code))
 
 
+def clear_watchlist():
+    """대형주 관심종목 초기화 — 매일 재분석 전 진입대기('watching')만 비운다(보유 'bought'는 유지)."""
+    with _conn() as con:
+        con.execute("DELETE FROM largecap_watch WHERE status != 'bought'")
+
+
+def save_fundamentals_cache(code: str, date: str, data: dict):
+    """종목 재무 last-good 캐시 저장(JSON). API 리밋 시 폴백용."""
+    import json
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO fundamentals_cache (code, date, data) VALUES (?,?,?) "
+            "ON CONFLICT(code) DO UPDATE SET date=excluded.date, data=excluded.data, "
+            "updated_at=CURRENT_TIMESTAMP",
+            (code, date, json.dumps(data, ensure_ascii=False)))
+
+
+def get_fundamentals_cache(code: str) -> dict | None:
+    """종목 재무 last-good 캐시 조회. 없으면 None."""
+    import json
+    with _conn() as con:
+        row = con.execute("SELECT data FROM fundamentals_cache WHERE code=?", (code,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
 def _conn():
     path = os.getenv("DB_PATH", "investchat.db")
     return sqlite3.connect(path)
@@ -311,6 +341,12 @@ def init_db():
             approved_by TEXT,                          -- 매수 찬성 봇들(예 'P,H')
             status TEXT DEFAULT 'watching',            -- watching(진입대기) / bought / dropped
             added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS fundamentals_cache (
+            code TEXT PRIMARY KEY,                     -- 종목 재무 last-good 캐시(API 리밋 폴백용)
+            date TEXT,                                 -- 마지막 갱신일(KST)
+            data TEXT,                                 -- JSON: 재무 키만
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS agent_state (
             agent_name TEXT PRIMARY KEY,

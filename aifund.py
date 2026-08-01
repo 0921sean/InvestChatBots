@@ -213,12 +213,44 @@ def _fetch_quarterly(code):
         return [], [], [], []
 
 
+# 재무 키(캐시 대상) — 리밋으로 빠졌을 때 last-good로 채운다.
+_FUND_KEYS = ("per", "per_fwd", "eps", "roe", "peg", "eps_growth", "gross_margin",
+              "op_margin", "profit_margin", "rev_growth", "fcf", "market_cap",
+              "revenue", "debt_ratio", "business_summary")
+
+
+def _fetch_brief_data(code, yf_ticker, name, market="US"):
+    """fetch_stock_data + 일일 재무 캐시. 재무가 오면 캐시 갱신, 리밋으로 비면 last-good로 폴백.
+    → API 리밋에도 P/W/H가 판단 근거(재무)를 늘 확보."""
+    from fetchers import fetch_stock_data
+    import db
+    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    fresh = {k: data[k] for k in _FUND_KEYS if k in data}
+    if fresh:                                         # 재무 확보 → 캐시 갱신
+        try:
+            db.save_fundamentals_cache(code, _today_kst(), fresh)
+        except Exception as e:
+            logger.warning(f"재무 캐시 저장 실패 {code}: {e}")
+    else:                                             # 리밋 등으로 재무 없음 → last-good 폴백
+        cached = None
+        try:
+            cached = db.get_fundamentals_cache(code)
+        except Exception:
+            pass
+        if cached:
+            for k, v in cached.items():
+                data.setdefault(k, v)
+            data.pop("_data_unavailable", None)
+            data["_fund_cached"] = True
+    return data
+
+
 def build_research_brief(code, name, yf_ticker, market="US"):
     """A의 리서치 브리프 — P/W/S에게 넘길 최적화 다이제스트(뉴스 없이·중립 팩트만).
     현재 재무 + 심화(마진·성장·FCF) + 분기 다기간 추세. A가 종목당 1회 준비 → P/W/S 공용.
     반환: (packet_text, business_summary)."""
-    from fetchers import fetch_stock_data, format_stock_data
-    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    from fetchers import format_stock_data
+    data = _fetch_brief_data(code, yf_ticker, name, market=market)
     packet = format_stock_data(data) + _extra_fundamentals(data)
     trend = quarterly_trend(*_fetch_quarterly(code))
     if trend:
@@ -234,7 +266,8 @@ def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
     parts += [
         "",
         "위 종목을 네 투자 원칙으로 판단해줘. 네 프레임워크에 비춰 왜 그런지 근거를 대고,",
-        "마지막 줄은 반드시 `[결정] 매수` / `[결정] 관망` / `[결정] 매도` 중 하나로 끝내.",
+        "마지막 줄은 반드시 `[결정] 관망 | 이유: (한 줄 근거)` 형식으로 끝내라.",
+        "결정은 매수/관망/매도 중 하나. 예: `[결정] 관망 | 이유: PEG 4.6로 고평가, 마진 정체로 성장 신뢰도 낮음`",
     ]
     return "\n".join(parts)
 
@@ -243,6 +276,27 @@ def _parse_verdict(text) -> str:
     """응답에서 [결정] 추출. 없으면 '관망'(보수적 기본값)."""
     m = _VERDICT_RE.search(text or "")
     return m.group(1) if m else "관망"
+
+
+def _decision_line(verdict: str, reason: str = "") -> str:
+    """종목 판단 표준 포맷 `[결정] {verdict} | 이유: {reason}`."""
+    reason = (reason or "").strip() or "근거 미확보"
+    return f"[결정] {verdict} | 이유: {reason}"
+
+
+def format_stock_verdict(reasoning: str, verdict: str, name: str = "") -> str:
+    """봇 종목 판단을 `[결정] X | 이유: …` 포맷으로 정규화(관전 피드용).
+    reasoning에 이미 `[결정] X | 이유: …`가 있으면 그 줄을, 없으면 본문 요약으로 이유를 만든다."""
+    txt = (reasoning or "").strip()
+    m = re.search(r"\[결정\]\s*(?:매수|관망|매도)\s*\|\s*이유\s*[:：]\s*(.+)", txt)
+    if m:
+        return _decision_line(verdict, m.group(1).strip())
+    # [결정] 줄 앞의 본문 마지막 문장을 이유로
+    body = _VERDICT_RE.split(txt)[0].strip()
+    reason = ""
+    if body:
+        reason = [s for s in re.split(r"[.\n]", body) if s.strip()][-1].strip()[:80] if body else ""
+    return _decision_line(verdict, reason)
 
 
 def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
@@ -495,6 +549,47 @@ def _largecap_universe():
     return list(u or [])
 
 
+def _largecap_sectors() -> dict:
+    """{섹터: [코드]} — 대형주 섹터 토론용. private → example → {}."""
+    try:
+        from strategy_private import LARGECAP_SECTORS as s
+    except Exception:
+        try:
+            from strategy_private_example import LARGECAP_SECTORS as s
+        except Exception:
+            s = {}
+    return dict(s or {})
+
+
+def sector_of(code: str) -> str:
+    """코드의 섹터명. 못 찾으면 '기타'."""
+    for sec, codes in _largecap_sectors().items():
+        if code in codes:
+            return sec
+    return "기타"
+
+
+def _sector_opinion(bot, sector, names, market="US"):
+    """봇 1인의 섹터 관점(자유 형식, 짧게) — 종목 [결정] 아님. LLM."""
+    from agents import call_agent
+    from prompts import AGENT_PROFILES
+    lst = ", ".join(names[:6])
+    prompt = (f"'{sector}' 섹터를 네 투자 원칙으로 지금 어떻게 보는지 2~3문장으로 코멘트해줘. "
+              f"이 섹터 대표주: {lst}. 특정 종목 [결정]은 하지 말고 섹터 전반의 큰 그림만. "
+              "미래 수익 보장·매수 권유 금지, 내 가상계좌 관점으로만.")
+    return call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
+
+
+def _store_sector_consensus(today, sector, opinions):
+    """섹터 합의(P/W/H 관점) → 리서치 보드 저장. 실패해도 무시."""
+    from db import record_fund_report
+    summary = "\n".join(f"{b} — {(op or '').strip()}" for b, op in opinions.items() if op)
+    try:
+        record_fund_report(today, f"섹터:{sector}", sector, summary, "", "섹터합의")
+    except Exception as e:
+        logger.warning(f"섹터 합의 저장 실패 {sector}: {e}")
+
+
 def source_largecap(market="US", quota=None):
     """대형주 소싱 — 고정 유니버스에서 오늘 볼 종목(캐시된 건 제외, 매일 통일성). 반환 {'codes','names'}."""
     quota = quota or DAILY_QUOTA
@@ -561,7 +656,7 @@ def run_discovery_desk(market="US"):
         r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
         _store_report(today, code, name, r.get("brief"), "발굴주")
         for bot in DISCOVERY_BOTS:
-            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
+            _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
         approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
@@ -607,48 +702,64 @@ def run_discovery_review(market="US"):
     return {"sells": sold}
 
 
-# ── 대형주 데스크 (P/W/H 선정→관심종목 캐시 / Q 진입·청산 타이밍) ──
+# ── 대형주 데스크 (매일 전 섹터 재분석: 섹터 토론 → 종목 [결정] → 그날 관심종목 / Q 진입·청산) ──
 def run_largecap_select(market="US"):
-    """대형주 선정 슬롯(18시) — A 소싱 → P/W/H OR게이트 → 관심종목 캐시. 보유중 강한 펀더매도(2인+)면 즉시청산.
-    반환 {'watched','sold'}."""
+    """대형주 선정 슬롯(06시) — 전 섹터 매일 재분석. 섹터별 P/W/H 의견(섹터 합의) → 종목별 [결정] OR게이트 → 그날 관심종목.
+    캐시 없이 매일 다시 합격을 낸다(그날 Q도 합격 신호면 매수). 보유중 강한 펀더매도(2인+)면 즉시청산.
+    반환 {'watched','sold','sectors'}."""
     if not NEW_DESK_ENABLED:
-        return {"watched": [], "sold": []}
-    from db import (ensure_desk_accounts, add_to_watch, get_open_positions_by_symbol,
-                    sell_shared_position)
+        return {"watched": [], "sold": [], "sectors": []}
+    from db import (ensure_desk_accounts, add_to_watch, clear_watchlist,
+                    get_open_positions_by_symbol, sell_shared_position)
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
+    sectors = _largecap_sectors()
+    if market != "US" or not sectors:
+        return {"watched": [], "sold": [], "sectors": []}
+    clear_watchlist()                                    # 매일 재분석 — 어제 진입대기 비움(보유 유지)
     _narrate("A", _line(_CLOCK_IN, "A"))
-    src = source_largecap(market)
-    if not src["codes"]:
-        _narrate("A", _line(_CLOCK_OUT, "A"))
-        return {"watched": [], "sold": []}
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_IN, bot))
     today = _today_kst()
-    watched, sold = [], []
-    for code in src["codes"]:
-        name = src["names"].get(code, code)
-        r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
-        _store_report(today, code, name, r.get("brief"), "대형주")
+    watched, sold, done = [], [], []
+    for sector, codes in sectors.items():
+        names = {c: stock_name(c) for c in codes}
+        _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")            # 1단계: 섹터 토론
+        opinions = {}
         for bot in LARGECAP_BOTS:
-            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
-        approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
-        if approvers:
-            add_to_watch(code, name, ",".join(approvers))
-            watched.append(code)
-            _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 봇 핸드오프 → Q
-        held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
-        sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
-        if held and len(sellers) >= 2:
-            price = fetch_stock_price(code if market == "US" else f"{code}.KS")
-            if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
-                sold.append(code)
-                _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
-    _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(src["codes"])))
+            try:
+                op = _sector_opinion(bot, sector, list(names.values()), market)
+            except Exception as e:
+                logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
+                op = ""
+            opinions[bot] = op
+            if op:
+                _narrate(bot, op, model="sonnet")
+        _store_sector_consensus(today, sector, opinions)
+        done.append(sector)
+        for code in codes:                                          # 2단계: 종목 [결정]
+            name = names.get(code, code)
+            r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
+            _store_report(today, code, name, r.get("brief"), "대형주")
+            for bot in LARGECAP_BOTS:
+                _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
+            approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
+            if approvers:
+                add_to_watch(code, name, ",".join(approvers))
+                watched.append(code)
+                _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 핸드오프 → Q
+            held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
+            sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
+            if held and len(sellers) >= 2:
+                price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+                if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
+                    sold.append(code)
+                    _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
+    _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(watched)))
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
     _narrate("A", _line(_CLOCK_OUT, "A"))
-    return {"watched": watched, "sold": sold}
+    return {"watched": watched, "sold": sold, "sectors": done}
 
 
 def run_largecap_execute(market="US"):

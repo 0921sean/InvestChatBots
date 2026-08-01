@@ -104,7 +104,7 @@ def test_build_analysis_prompt():
     p = aifund.build_analysis_prompt("Credo", "CRDO", "패킷", "광통신 병목 회사")
     assert "Credo (CRDO)" in p and "패킷" in p
     assert "사업 개요" in p and "광통신 병목 회사" in p
-    assert "[결정] 매수" in p                      # 출력 포맷 강제
+    assert "[결정] 관망 | 이유:" in p              # 출력 포맷 강제(이유 포함)
     p2 = aifund.build_analysis_prompt("X", "X", "패킷")   # 사업요약 없어도 동작
     assert "사업 개요" not in p2
 
@@ -248,12 +248,18 @@ def test_run_discovery_desk_or_gate_buys(monkeypatch):
     assert calls == ["발굴주"]                     # 발굴주 계좌로 체결
 
 
-def test_run_largecap_select_watches_approved(monkeypatch):
+def test_run_largecap_select_2stage_daily(monkeypatch):
     import db
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
-    monkeypatch.setattr(aifund, "source_largecap", lambda m="US": {"codes": ["AAPL"], "names": {"AAPL": "애플"}})
+    monkeypatch.setattr(aifund, "_largecap_sectors", lambda: {"반도체": ["AAPL"]})   # 섹터 단위
+    monkeypatch.setattr(aifund, "stock_name", lambda c: "애플")
+    cleared = []
+    monkeypatch.setattr(db, "clear_watchlist", lambda: cleared.append(True))          # 매일 재분석
+    opin = []
+    monkeypatch.setattr(aifund, "_sector_opinion", lambda bot, sec, names, m="US": f"{bot} 섹터의견")
+    monkeypatch.setattr(aifund, "_store_sector_consensus", lambda t, sec, ops: opin.append((sec, dict(ops))))
     monkeypatch.setattr(aifund, "analyze_candidate",
                         lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "관망", "W": "매수", "H": "관망"},
                                                                    "reasonings": {}, "brief": ("", "")})
@@ -262,7 +268,10 @@ def test_run_largecap_select_watches_approved(monkeypatch):
     watched = []
     monkeypatch.setattr(db, "add_to_watch", lambda code, name, approved: watched.append((code, approved)))
     r = aifund.run_largecap_select()
-    assert r["watched"] == ["AAPL"] and watched == [("AAPL", "W")]   # W 매수 → 관심종목 등록
+    assert cleared == [True]                          # 매일 watch 초기화
+    assert r["sectors"] == ["반도체"]                  # 섹터 토론 수행
+    assert opin and opin[0][0] == "반도체"             # 섹터 합의 저장
+    assert r["watched"] == ["AAPL"] and watched == [("AAPL", "W")]   # W 매수 → 그날 관심종목
 
 
 def test_run_largecap_execute_q_entry(monkeypatch):
