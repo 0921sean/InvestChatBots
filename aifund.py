@@ -781,34 +781,44 @@ def run_largecap_select(market="US"):
     if not NEW_DESK_ENABLED:
         return {"watched": [], "sold": [], "sectors": []}
     from db import (ensure_desk_accounts, add_to_watch, clear_watchlist,
-                    get_open_positions_by_symbol, sell_shared_position)
+                    get_open_positions_by_symbol, sell_shared_position, get_fund_reports)
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
     sectors = _largecap_sectors()
     if market != "US" or not sectors:
         return {"watched": [], "sold": [], "sectors": []}
-    clear_watchlist()                                    # 매일 재분석 — 어제 진입대기 비움(보유 유지)
+    today = _today_kst()
+    # 오늘 이미 끝낸 것 파악 → 재시작 시 처음부터 안 하고 이어감(idempotent resume, 토큰 절약).
+    reps = [r for r in get_fund_reports(300) if r.get("date") == today]
+    done_codes = {r["code"] for r in reps if r.get("desk") != "섹터합의"}
+    done_secs = {r["name"] for r in reps if r.get("desk") == "섹터합의"}
+    if not done_secs:                                    # 오늘 첫 실행일 때만 어제 관심종목 비움
+        clear_watchlist()
     _narrate("A", _line(_CLOCK_IN, "A"))
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_IN, bot))
-    today = _today_kst()
     watched, sold, done = [], [], []
     for sector, codes in sectors.items():
+        if sector in done_secs and all(c in done_codes for c in codes):
+            continue                                     # 섹터 완전 완료 → 스킵(resume)
         names = {c: stock_name(c) for c in codes}
-        _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")            # 1단계: 섹터 토론
-        opinions = {}
-        for bot in LARGECAP_BOTS:
-            try:
-                op = _sector_opinion(bot, sector, list(names.values()), market)
-            except Exception as e:
-                logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
-                op = ""
-            opinions[bot] = op
-            if op:
-                _narrate(bot, op, model="sonnet")
-        _store_sector_consensus(today, sector, opinions)
+        if sector not in done_secs:                      # 1단계: 섹터 토론(합의 없을 때만 — 재분석 스킵)
+            _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")
+            opinions = {}
+            for bot in LARGECAP_BOTS:
+                try:
+                    op = _sector_opinion(bot, sector, list(names.values()), market)
+                except Exception as e:
+                    logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
+                    op = ""
+                opinions[bot] = op
+                if op:
+                    _narrate(bot, op, model="sonnet")
+            _store_sector_consensus(today, sector, opinions)
         done.append(sector)
         for code in codes:                                          # 2단계: 종목별 A가 데이터 올림 → P/W/H 판단
+            if code in done_codes:                                  # 이미 분석한 종목 스킵(resume)
+                continue
             name = names.get(code, code)
             r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
             _store_report(today, code, name, r.get("brief"), "대형주")
