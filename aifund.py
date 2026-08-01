@@ -399,7 +399,10 @@ _CLOCK_IN = {
     "W": ["W 출근했습니다. 좋은 회사를 적정가에.",
           "W 도착. 능력범위 안, 해자 있는 것만 봅니다.",
           "출근이요. 10년 들고 갈 만한지부터 봅니다."],
-    "S": ["병목 헌터 출근 — 오늘의 곡괭이 찾으러 갑니다.",
+    "H": ["H 출근. 실적으로 증명된 놈만 봅니다.",
+          "H 왔습니다. 성장률·마진부터 확인하죠.",
+          "출근! 숫자 안 나오면 안 삽니다."],
+    "S": ["S 출근 — 오늘의 곡괭이 찾으러 갑니다.",
           "S 왔습니다. 남들 완제품 볼 때 저는 사슬 뒤를 봐요.",
           "출근! 공급망 초크포인트부터 직접 뒤져봅니다."],
 }
@@ -413,6 +416,9 @@ _CLOCK_OUT = {
     "W": ["W 퇴근. 서두르지 않습니다, 늘 그렇듯.",
           "W 관점 정리 끝, 퇴근합니다.",
           "이만 퇴근이요. 가격이 오면 그때 더 담죠."],
+    "H": ["H 퇴근. 결국 실적이 답이죠.",
+          "숫자 확인 끝, H 퇴근합니다.",
+          "먼저 퇴근이요. 다음 실적 시즌도 지켜보죠."],
     "S": ["S 퇴근 — 곡괭이는 조용히 값을 합니다.",
           "병목 점검 끝. 사슬은 안 끊기니까요. 퇴근!",
           "먼저 퇴근합니다. 다음 초크포인트는 내일 또."],
@@ -429,9 +435,9 @@ _SELL_LINES = ["🔻 {name} 청산 — 논지가 훼손돼 뺐어요.",
                "{name} 던졌습니다. 얘기가 달라졌네요.",
                "{name} 정리 — 이유가 사라졌으니 홀드할 근거도 없죠."]
 # 대형주 핸드오프 — P/W/H가 선정 후 Q에게 타이밍 넘김("살펴봐주세요")
-_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q님, 진입 타이밍 봐주세요 🙏",
-                  "{name} 관심종목으로 올립니다 — Q님, 언제 들어갈지 판단 부탁해요.",
-                  "{name} 펀더는 좋네요. 타이밍은 Q님께 맡길게요."]
+_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q, 진입 타이밍 봐주세요 🙏",
+                  "{name} 관심종목으로 올립니다 — Q, 언제 들어갈지 판단 부탁해요.",
+                  "{name} 펀더는 좋네요. 타이밍은 Q에게 맡길게요."]
 
 
 def _line(pool, bot):
@@ -665,8 +671,8 @@ def run_largecap_execute(market="US"):
         o = data.get(p.get("code") or p["symbol"])
         if not o:
             continue
-        strat = "M" if "미너비니" in (p.get("reasoning") or "") else "B"
-        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {strat} 익절/손절")[1]:
+        strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
+        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
             sold.append(p["symbol"])
             _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
     n = len(get_open_positions(account="대형주"))
