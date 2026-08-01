@@ -636,8 +636,7 @@
   .fr-fin { font-size: 10px; color: #8b949e; white-space: pre-wrap; line-height: 1.5; margin-top: 7px;
     padding-top: 7px; border-top: 1px solid #21262d; max-height: 132px; overflow-y: auto; font-variant-numeric: tabular-nums; }
   .fr-empty { color: #444c56; font-size: 11px; font-style: italic; padding: 10px 4px; }
-  body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading,
-  body.fundmode .pf-acct-toggle { display: none; }
+  body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading { display: none; }
   /* committee 전용 크롬 숨김(fund 모드엔 무의미) */
   body.fundmode #sector-box, body.fundmode #visitor-timers,
   body.fundmode #btn-main-run, body.fundmode #btn-sub-run,
@@ -995,9 +994,13 @@ function avatar(name, color) {
   return `<div class="avatar" style="color:${color};background:${color}18;border-color:${color}55">${name[0]}</div>`;
 }
 
+const FUND_ANIMALS = {A:'올빼미', P:'다람쥐', W:'거북이', H:'황소', S:'두더지', Q:'매'};
+const _botDisplay = n => (window.__FUND_MODE__ && FUND_ANIMALS[n]) ? FUND_ANIMALS[n] : n;
+
 function renderMessage(msg) {
   const el = document.createElement('div');
   const color = BOT_COLORS[msg.agent_name] || '#8b949e';
+  const disp = _botDisplay(msg.agent_name);
   // 후원 라운드 메시지인지 (round_topic이 '후원'으로 시작)
   const isDonation = (msg.round_topic || '').startsWith('후원');
 
@@ -1011,7 +1014,7 @@ function renderMessage(msg) {
     const sub = agents[msg.agent_name]?.description || '';
     el.className = 'msg' + (isDonation ? ' msg-donation' : '');
     const donationTag = isDonation ? '<span style="font-size:9px;background:rgba(63,185,80,.18);color:#3fb950;padding:1px 6px;border-radius:6px;font-weight:700;margin-left:4px">💚 후원 인사</span>' : '';
-    el.innerHTML = `${avatar(msg.agent_name,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(msg.agent_name)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span>${donationTag}<span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
+    el.innerHTML = `${avatar(disp,color)}<div class="msg-body"><div class="msg-meta"><span class="msg-name" style="color:${color}">${esc(disp)}</span><span style="color:#6e7681;font-size:10px">${esc(sub)}</span>${donationTag}<span>${timeStr(msg.timestamp)}</span></div><span class="msg-bubble">${highlight(msg.content)}</span></div>`;
   }
   return el;
 }
@@ -1429,6 +1432,10 @@ window._activeDesk = window._activeDesk || _defaultDeskForNow();  // 'main'(장�
 async function loadBenchmark() {
   const el = document.getElementById('pf-benchmark');
   if (!el) return;
+  if (window.__FUND_MODE__) {   // 데스크 벤치마크 — 사이클 돌아 NAV 쌓이면 채워짐
+    el.innerHTML = '<div class="pf-bm-title">봇 vs 지수</div><div class="pf-bm-empty">데이터 없음 — 사이클 누적 중(첫 가동)</div>';
+    return;
+  }
   try {
     const b = await (await fetch('/api/benchmark')).json();
     if (!b.available) {
@@ -1964,6 +1971,7 @@ function _fmtKstRelative(target) {
 }
 
 function openSchedule() {
+  if (window.__FUND_MODE__) { _openFundSchedule(); return; }
   // 현재 활동(activity / phase / running / 요일)에 따라 active 표시
   let activeKey = null;
   const wd = _kstNow().getUTCDay();  // 0=일, 6=토
@@ -2038,6 +2046,25 @@ function openSchedule() {
 }
 function closeSchedule() {
   document.getElementById('schedule-modal').classList.remove('open');
+}
+function _openFundSchedule() {   // 통일 데스크 일정 (전부 일봉 종가 기준)
+  const now = _kstNow();
+  document.getElementById('sched-now').textContent =
+    '현재 ' + now.toLocaleString('ko-KR', { timeZone: 'UTC', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + ' (KST)';
+  const items = [
+    { title: '📈 대형주 (선정→집행)', time: '평일 06:00', next: _nextKstWeekdayAt(6),
+      desc: '올빼미 소싱 → 다람쥐·거북이·황소 관심종목 선정 → 매가 진입 타이밍 (US 종가 직후 일봉)' },
+    { title: '🔍 발굴주', time: '평일 12·18·24시', next: _nextKstDailyAt([12, 18, 0]),
+      desc: '올빼미·두더지 발굴 → 다람쥐·거북이·두더지 OR게이트 즉시 매수' },
+    { title: '주말 휴식', time: '토 · 일', next: null, desc: '모든 사이클 정지 · 월 06:00 재개' },
+  ];
+  document.getElementById('sched-list').innerHTML = items.map(it => {
+    const next = it.next ? _fmtKstRelative(it.next) : null;
+    const nextHtml = next ? `<div class="sched-next">▶ ${next.abs} · ${next.rel}</div>` : '';
+    return `<div class="sched-item"><div class="sched-row"><span class="sched-title">${it.title}</span>`
+      + `<span class="sched-time">${it.time}</span></div><div class="sched-desc">${it.desc}</div>${nextHtml}</div>`;
+  }).join('');
+  document.getElementById('schedule-modal').classList.add('open');
 }
 
 // ───── 방문 통계 모달 (owner only) ─────
@@ -2623,12 +2650,12 @@ function renderFundMembers(d) {
   if (!el) return;
   const working = d.session === 'working';                      // 출근이면 봇 네모칸 초록 테두리
   el.innerHTML = '';
-  (d.roster||[]).forEach(b => {                                 // 글자 + 모델만 (투자스타일 미노출)
+  (d.roster||[]).forEach(b => {                                 // 동물 이름 + 모델만 (투자스타일 미노출)
     const row = document.createElement('div');
     row.className = 'member' + (working ? ' working' : '');
     row.innerHTML = `<div class="fm-top">`
       + `<span class="dot" style="background:${b.color}"></span>`
-      + `<span class="member-name" style="color:${b.color}">${b.bot}</span>`
+      + `<span class="member-name" style="color:${b.color}">${esc(b.name || b.bot)}</span>`
       + `<span class="fm-model">${esc(b.model || '')}</span></div>`;
     el.appendChild(row);
   });
@@ -2639,39 +2666,31 @@ function renderFundMembers(d) {
     + `<span class="fm-model">감독</span></div>`;
   el.appendChild(you);
 }
-function renderFundQuad(d) {
-  const panel = document.getElementById('portfolio-panel');
-  if (!panel) return;
-  const working = d.session === 'working';
-  const px = v => v != null ? '$' + (+v).toLocaleString(undefined, {maximumFractionDigits: 2}) : '—';
-  const cells = (d.accounts||[]).map(b => {                     // 대형주 / 발굴주 2계좌
-    const opens = b.positions || [];
-    const rows = opens.length ? opens.map(p => {
-      const tk = esc(p.code || p.symbol);
-      const nm = (p.symbol && p.symbol !== (p.code || p.symbol)) ? esc(p.symbol) : '';
-      const pnl = p.pnl_pct != null ? `<span class="pnl ${_fCls(p.pnl_pct)}">${_fPct(p.pnl_pct)}</span>` : '';
-      return `<div class="fq-pos"><div class="fq-pos-top"><span class="sym">${tk}</span>`
-        + (nm ? `<span class="nm">${nm}</span>` : '') + pnl + `</div>`
-        + `<div class="fq-pos-sub">진입 ${px(p.entry_price)} → 현재 ${px(p.current_price)} · 투자금 ${_fKRW(p.amount)}</div></div>`;
-    }).join('') : `<div class="fq-empty">보유 없음</div>`;
-    return `<div class="fq-cell${working ? ' working' : ''}">
-      <div class="fq-head"><span class="dot" style="background:${b.color}"></span>`
-      + `<span class="fq-id" style="color:${b.color}">${esc(b.bot)}</span>`
-      + `<span class="fq-ret ${_fCls(b.return_pct)}">${_fPct(b.return_pct)}</span></div>
-      <div class="fm-spark">${_spark(b.history, b.color)}</div>
-      <div class="fq-cash">현금 ${_fKRW(b.cash)} · 보유 ${b.n_positions}종목</div>
-      <div class="fq-scroll">${rows}</div>
-    </div>`;
-  }).join('');
-  panel.innerHTML = `<div class="panel-header"><h3>💼 대형주 · 발굴주 가상 포트폴리오</h3>`
-    + `<p>각 시드 ${_fKRW(d.seed || 5e7)} · 시가 평가</p></div><div id="fund-quad">${cells}</div>`;
+// 대형주/발굴주 = v1 포트폴리오 패널(_renderPfAccount) 그대로 재사용, 탭만 교체
+function renderFundPortfolio(d) {
+  window._pfData = d.accounts || {};
+  if (!window._fundDesk) window._fundDesk = '대형주';
+  const t1 = document.getElementById('pf-tab-main'), t2 = document.getElementById('pf-tab-sub'),
+        t3 = document.getElementById('pf-tab-all');
+  if (t1) { t1.innerHTML = '📈 대형주'; t1.onclick = () => setFundDesk('대형주'); }
+  if (t2) { t2.innerHTML = '🔍 발굴주'; t2.onclick = () => setFundDesk('발굴주'); }
+  if (t3) t3.style.display = 'none';
+  const lbl = document.getElementById('market-status-label');
+  if (lbl) lbl.textContent = '시가 평가 · 각 시드 ₩50,000,000';
+  setFundDesk(window._fundDesk);
+}
+function setFundDesk(acct) {
+  window._fundDesk = acct;
+  const set = (id, on) => { const e = document.getElementById(id); if (e) e.classList.toggle('active', on); };
+  set('pf-tab-main', acct === '대형주'); set('pf-tab-sub', acct === '발굴주');
+  if (window._pfData && window._pfData[acct]) _renderPfAccount(acct);
 }
 async function loadFund() {
   try {
     const d = await (await fetch('/api/fund')).json();
     window._fundData = d;
     renderFundMembers(d);
-    renderFundQuad(d);
+    renderFundPortfolio(d);
   } catch (e) {}
 }
 function renderFundReport(reports) {
@@ -2704,7 +2723,7 @@ if (window.__FUND_MODE__) {
   const hashEl = document.getElementById('chat-hash');
   const subEl = document.getElementById('round-label');
   if (hashEl) hashEl.textContent = '# AI펀드';
-  if (subEl) subEl.textContent = '4봇이 일하는 관전 피드';
+  if (subEl) subEl.textContent = '대형주·발굴주 데스크 관전';
   loadFund();
   loadFundReport();
   setInterval(loadFund, 15000);
