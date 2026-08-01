@@ -139,10 +139,11 @@ MINERVINI_BREAKOUT = 50      # M 신고가 돌파 룩백 예시
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []
 
-# 대형주 유니버스 — 섹터×중심주. 실제 큐레이션은 strategy_private.py. 폴백은 공개 메가캡.
+# 대형주 유니버스 — 섹터×중심주. 실제 17섹터 큐레이션은 strategy_private.py. 폴백은 공개 메가캡 일부.
 LARGECAP_SECTORS = {
     "빅테크·플랫폼": ["AAPL", "MSFT", "GOOGL", "AMZN", "META"],
-    "반도체": ["NVDA", "AVGO", "TSLA"],
+    "AI·반도체": ["NVDA", "AVGO", "TSM"],
+    "금융": ["JPM", "V", "MA"],
 }
 LARGECAP_UNIVERSE = [t for _codes in LARGECAP_SECTORS.values() for t in _codes]
 
