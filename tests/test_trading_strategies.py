@@ -185,7 +185,7 @@ def test_can_open_respects_cap():
 def test_engine_buy_amount_resolves():
     # 회귀: 엔진이 ts.TRADING_BALANCE(존재X)를 참조하던 크래시 버그 방지
     import trading_engine as te
-    assert te.TRADING_BALANCE == 100_000_000   # 2026-07-27 증액
+    assert te.TRADING_BALANCE == 30_000_000    # 2026-08-01 v1 70/30 재분할(트레이딩 3,000만)
     # position_amount는 WEIGHT_PCT 출처(private/example)에 따라 달라지므로 상대식으로 검증
     assert ts.position_amount(te.TRADING_BALANCE) == te.TRADING_BALANCE * ts.WEIGHT_PCT
 
