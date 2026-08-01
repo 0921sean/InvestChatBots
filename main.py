@@ -676,7 +676,7 @@ def api_fund():
         {"bot": "W", "name": "거북이", "color": "#c9a227", "model": "Claude Sonnet", "role": "대형주·발굴주 가치 매수판단"},
         {"bot": "H", "name": "황소",  "color": "#a78bfa", "model": "Claude Sonnet", "role": "대형주 실적·성장 게이트"},
         {"bot": "S", "name": "두더지", "color": "#e08a3c", "model": "Claude Sonnet", "role": "발굴주 자체 소싱(병목)"},
-        {"bot": "Q", "name": "매",    "color": "#4bbf8a", "model": "Claude Haiku",  "role": "퀀트 · 대형주 타이밍(B+M)"},
+        {"bot": "Q", "name": "매",    "color": "#4bbf8a", "model": "Claude Haiku",  "role": "퀀트 · 대형주 진입 타이밍"},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
