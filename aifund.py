@@ -213,12 +213,44 @@ def _fetch_quarterly(code):
         return [], [], [], []
 
 
+# 재무 키(캐시 대상) — 리밋으로 빠졌을 때 last-good로 채운다.
+_FUND_KEYS = ("per", "per_fwd", "eps", "roe", "peg", "eps_growth", "gross_margin",
+              "op_margin", "profit_margin", "rev_growth", "fcf", "market_cap",
+              "revenue", "debt_ratio", "business_summary")
+
+
+def _fetch_brief_data(code, yf_ticker, name, market="US"):
+    """fetch_stock_data + 일일 재무 캐시. 재무가 오면 캐시 갱신, 리밋으로 비면 last-good로 폴백.
+    → API 리밋에도 P/W/H가 판단 근거(재무)를 늘 확보."""
+    from fetchers import fetch_stock_data
+    import db
+    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    fresh = {k: data[k] for k in _FUND_KEYS if k in data}
+    if fresh:                                         # 재무 확보 → 캐시 갱신
+        try:
+            db.save_fundamentals_cache(code, _today_kst(), fresh)
+        except Exception as e:
+            logger.warning(f"재무 캐시 저장 실패 {code}: {e}")
+    else:                                             # 리밋 등으로 재무 없음 → last-good 폴백
+        cached = None
+        try:
+            cached = db.get_fundamentals_cache(code)
+        except Exception:
+            pass
+        if cached:
+            for k, v in cached.items():
+                data.setdefault(k, v)
+            data.pop("_data_unavailable", None)
+            data["_fund_cached"] = True
+    return data
+
+
 def build_research_brief(code, name, yf_ticker, market="US"):
     """A의 리서치 브리프 — P/W/S에게 넘길 최적화 다이제스트(뉴스 없이·중립 팩트만).
     현재 재무 + 심화(마진·성장·FCF) + 분기 다기간 추세. A가 종목당 1회 준비 → P/W/S 공용.
     반환: (packet_text, business_summary)."""
-    from fetchers import fetch_stock_data, format_stock_data
-    data = fetch_stock_data(code, yf_ticker, name, market=market)
+    from fetchers import format_stock_data
+    data = _fetch_brief_data(code, yf_ticker, name, market=market)
     packet = format_stock_data(data) + _extra_fundamentals(data)
     trend = quarterly_trend(*_fetch_quarterly(code))
     if trend:
