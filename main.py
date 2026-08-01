@@ -315,6 +315,10 @@ def root(request: Request, s: str = ""):
     import time as _t
     with open("static/index.html", "rb") as f:
         html = f.read()
+    # 루트 컷오버 게이트 — ROOT_IS_FUND면 '/'도 fund 모드로(committee UI 은퇴). 기본 off=committee 무변경, 완전 되돌림.
+    if os.getenv("ROOT_IS_FUND", "").lower() in ("1", "true", "yes"):
+        inject = b"<script>window.__FUND_MODE__=true;window.__ROOT_FUND__=true;</script>"
+        html = html.replace(b"</head>", inject + b"</head>", 1)
     marker = f"<!-- build {int(_t.time()*1000)} -->".encode()
     html = html.replace(b"</head>", marker + b"</head>", 1)
     headers = {

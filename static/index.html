@@ -2759,8 +2759,13 @@ if (window.__FUND_MODE__) {
   setInterval(loadFund, 15000);
   setInterval(loadFundReport, 30000);
 }
-// v1/v2 전환 토글 활성표시 (committee·fund 양쪽에서 실행)
+// v1/v2 전환 토글 — 루트 컷오버(committee 은퇴) 후엔 숨김. 그 외엔 현재 모드 활성표시.
 (function(){
+  if (window.__ROOT_FUND__) {                    // 컷오버: committee 없음 → 토글 제거
+    const sw = document.getElementById('view-switch');
+    if (sw) sw.style.display = 'none';
+    return;
+  }
   const el = document.getElementById(window.__FUND_MODE__ ? 'vs-v2' : 'vs-v1');
   if (el) el.classList.add('active');
 })();
