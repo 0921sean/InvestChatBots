@@ -125,9 +125,12 @@ def _get_gemini():
     return genai
 
 
-def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model: str = None):
+def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model: str = None, trim: bool = True):
     """timeout: claude CLI subprocess 시간 한도. 큰 prompt(합의 종합)는 180~300초 권장.
-    model: 'haiku' / 'sonnet' / 'opus' 명시. None이면 CLI default (opus)."""
+    model: 'haiku' / 'sonnet' / 'opus' 명시. None이면 CLI default (opus).
+    trim: True면 MAX_RESPONSE_CHARS에서 문장단위로 자름(피드 브레비티). 종목 [결정]처럼
+          끝줄이 중요한 응답은 False로 넘겨 잘림 방지."""
+    _trim = trim_at_sentence if trim else (lambda x: x)
     profile = AGENT_PROFILES[agent_name]
     provider = profile["model_provider"]
     model_id = profile["model_id"]
@@ -136,7 +139,7 @@ def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model:
         try:
             if provider == "claude":
                 # Claude Code 구독 토큰 사용 (API 크레딧 아님)
-                return trim_at_sentence(_call_claude_cli(system_prompt, user_prompt, timeout=timeout, model=model))
+                return _trim(_call_claude_cli(system_prompt, user_prompt, timeout=timeout, model=model))
 
             elif provider == "openai":
                 client = _get_openai()
@@ -149,7 +152,7 @@ def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model:
                     ],
                     timeout=30,
                 )
-                return trim_at_sentence(resp.choices[0].message.content)
+                return _trim(resp.choices[0].message.content)
 
             elif provider == "gemini":
                 g = _get_gemini()
@@ -161,7 +164,7 @@ def call_agent(agent_name, system_prompt, user_prompt, timeout: int = 60, model:
                     user_prompt,
                     request_options={"timeout": 30},
                 )
-                return trim_at_sentence(resp.text)
+                return _trim(resp.text)
 
             raise ValueError(f"Unknown provider: {provider}")
 

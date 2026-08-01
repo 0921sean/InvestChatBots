@@ -308,7 +308,8 @@ def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
 
     packet, business = brief if brief else build_research_brief(code, name, yf_ticker, market)
     prompt = build_analysis_prompt(name, code, packet, business)
-    reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
+    # trim=False: 끝줄 [결정]이 문장단위 트림에 잘리지 않게(잘리면 관망 오폴백·메시지 끊김)
+    reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet", trim=False)
     verdict = _parse_verdict(reasoning)
     save_thesis(code, bot, verdict, reasoning)
     return verdict, reasoning
