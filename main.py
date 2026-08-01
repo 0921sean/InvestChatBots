@@ -649,10 +649,16 @@ def api_fund():
     from db import (DESK_ACCOUNTS, DESK_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
     acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c"}
-    # 출근/퇴근 세션: 마지막 fund 내레이션이 '퇴근' 줄이면 off, 진행 중이면 working
-    last = get_recent_messages(1, desk="fund")
-    working = bool(last) and "퇴근" not in (last[0].get("content") or "")
-    session = "working" if working else "off"
+    # 봇별 출근/퇴근: 각 봇의 최신 fund 내레이션이 '퇴근'이면 off, 그 외 발화 있으면 working.
+    # → 06 대형주엔 S가 발화 없어 자동 off, Q는 핸드오프 후 출근 멘트로 on. (스케줄러 무배선 상태에서도 피드가 진실원천)
+    recent = get_recent_messages(60, desk="fund")
+    _last_by_bot = {}
+    for m in recent:                                    # oldest→newest이라 마지막 값이 최신
+        _last_by_bot[m.get("agent_name")] = m.get("content") or ""
+    def _bot_working(bot):
+        c = _last_by_bot.get(bot)
+        return c is not None and "퇴근" not in c
+    session = "working" if any(_bot_working(b) for b in ("A", "P", "W", "H", "S", "Q")) else "off"
     accounts = {}
     for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 — v1 포트폴리오 패널 그대로 씀
         pf = get_shared_portfolio(acct)
@@ -677,12 +683,12 @@ def api_fund():
     all_pos = [p for a in accounts.values() for p in a["positions"]]
     rk = ranks.compute_ranks(all_pos)
     roster = [
-        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "rank": ranks.rank_of("A", rk)},
-        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "rank": ranks.rank_of("P", rk)},
-        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "rank": ranks.rank_of("W", rk)},
-        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "rank": ranks.rank_of("H", rk)},
-        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "rank": ranks.rank_of("S", rk)},
-        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "rank": ranks.rank_of("Q", rk)},
+        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "rank": ranks.rank_of("A", rk), "working": _bot_working("A")},
+        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "rank": ranks.rank_of("P", rk), "working": _bot_working("P")},
+        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "rank": ranks.rank_of("W", rk), "working": _bot_working("W")},
+        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "rank": ranks.rank_of("H", rk), "working": _bot_working("H")},
+        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "rank": ranks.rank_of("S", rk), "working": _bot_working("S")},
+        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "rank": ranks.rank_of("Q", rk), "working": _bot_working("Q")},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
