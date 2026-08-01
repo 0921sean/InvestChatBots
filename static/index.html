@@ -2715,7 +2715,11 @@ function renderFundSector(p) {
   if (sp) sp.textContent = p.working ? `대형주 데스크 진행 중 · ${p.sector || ''}`
                                      : `오늘 ${p.done}개 섹터 분석 완료`;
   if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round(p.done / (p.total || 1) * 100)) + '%'; }
-  if (ss) ss.innerHTML = (p.chips || []).map(n => `<span class="stock-badge">${esc(n)}</span>`).join('');
+  if (ss) ss.innerHTML = (p.chips || []).map(x => {          // 티커 표시 · 호버 툴팁(풀네임 + 설명)
+    const code = (typeof x === 'string') ? x : (x.code || '');
+    const tip = (typeof x === 'string') ? '' : ((x.name || '') + (x.desc ? ' — ' + x.desc : ''));
+    return `<span class="stock-badge" title="${esc(tip)}">${esc(code)}</span>`;
+  }).join('');
 }
 function renderFundReport(reports) {
   const hdr = document.querySelector('#memo-panel .panel-header h3');
@@ -2731,13 +2735,9 @@ function renderFundReport(reports) {
   const secs = reports.filter(r => r.desk === '섹터합의');           // 섹터 합의 먼저
   const stocks = reports.filter(r => r.desk !== '섹터합의');
   const secCards = secs.map(r => {
-    const rows = (r.summary || '').split('\n').filter(Boolean).map(ln => {
-      const i = ln.indexOf('—');
-      const who = i > 0 ? ln.slice(0, i).trim() : '';
-      const op = i > 0 ? ln.slice(i + 1).trim() : ln;
-      return `<div class="fr-op"><span class="fr-op-b">${esc(who)}</span>${esc(op)}</div>`;
-    }).join('');
-    return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${rows}</div>`;
+    const sum = (r.summary || '').trim();
+    const body = sum ? `<div class="fr-op">${esc(sum)}</div>` : '';
+    return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${body}</div>`;
   }).join('');
   const stockCards = stocks.map(r => {
     const tag = r.desk === '발굴주'

@@ -686,8 +686,8 @@ def api_fund():
     import ranks
     all_pos = [p for a in accounts.values() for p in a["positions"]]
     ret = ranks.compute_returns(all_pos)
-    _R = {"A": "애널리스트 · 발굴·리서치", "P": "성장주 매수판단", "W": "가치주 매수판단",
-          "H": "대형주 실적 게이트", "S": "병목 발굴(자체 소싱)", "Q": "퀀트 진입 타이밍"}
+    _R = {"A": "애널리스트·종목발굴", "P": "성장주 판단", "W": "가치주 판단",
+          "H": "실적 게이트", "S": "병목 발굴", "Q": "퀀트 타이밍"}
     roster = [
         {"bot": b, "name": b, "color": c, "model": m, "role": _R[b],
          "ret": ranks.return_of(b, ret), "working": _bot_working(b)}
@@ -702,13 +702,19 @@ def api_fund():
     from db import get_fund_reports
     today = aifund._today_kst()
     sec_map = aifund._largecap_sectors()
-    sec_today = [r for r in get_fund_reports(60) if r.get("desk") == "섹터합의" and r.get("date") == today]
+    reports_today = [r for r in get_fund_reports(90) if r.get("date") == today]
+    sec_today = [r for r in reports_today if r.get("desk") == "섹터합의"]
+    desc_map = {r["code"]: (r.get("summary") or "") for r in reports_today if r.get("desk") != "섹터합의"}
     cur_sector = sec_today[0]["name"] if sec_today else None
+
+    def _chip(c):                                    # 티커 + 호버 툴팁(풀네임 + A 사업요약)
+        d = desc_map.get(c, "")
+        return {"code": c, "name": aifund.stock_name(c), "desc": d[:80] if d else ""}
     progress = {
         "sector": cur_sector,
         "done": len(sec_today), "total": len(sec_map),
         "working": session == "working",
-        "chips": [aifund.stock_name(c) for c in sec_map.get(cur_sector, [])] if cur_sector else [],
+        "chips": [_chip(c) for c in sec_map.get(cur_sector, [])] if cur_sector else [],
     }
     return {"seed": DESK_SEED, "session": session, "accounts": accounts,
             "roster": roster, "progress": progress}
