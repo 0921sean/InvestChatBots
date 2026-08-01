@@ -642,13 +642,24 @@ def _store_sector_consensus(today, sector, opinions):
         logger.warning(f"섹터 합의 저장 실패 {sector}: {e}")
 
 
+# A가 종목 차례를 알리는 인트로(varied) — P/W/H에게 자연스럽게 넘긴다.
+_STOCK_INTRO = [
+    "자, 다음은 {name} ({code}) 볼 차례네요.",
+    "이번엔 {name} ({code}) 올려봅니다.",
+    "다음 종목은 {name} ({code})입니다.",
+    "{name} ({code}), 이건 어떻게들 보세요?",
+]
+_STOCK_HANDOFF = ["세 분 판단 부탁해요.", "다들 어떻게 보시는지?", "의견 주세요!", "판단 넘길게요."]
+
+
 def _stock_data_msg(name, code, brief) -> str:
-    """A가 종목을 피드에 올릴 때 붙이는 핵심 재무(=TradingView 데이터) 한 조각. P/W/H가 이걸 보고 판단."""
+    """A가 종목 차례를 알리며 핵심 재무(=TradingView 데이터)를 올리고 P/W/H에게 넘기는 멘트."""
     packet = (brief or ("", ""))[0] or ""
     keys = ("현재가", "PER", "PEG", "EPS", "ROE", "마진", "성장", "매출", "잉여현금")
     keep = [ln.strip() for ln in packet.splitlines() if any(k in ln for k in keys)][:6]
-    body = " · ".join(keep) if keep else "핵심 재무 데이터 확인이 어려워요"
-    return f"다음은 {name} ({code}) 볼게요 📊  {body}"
+    body = " · ".join(keep) if keep else "핵심 재무 데이터가 잘 안 잡히네요"
+    intro = random.choice(_STOCK_INTRO).format(name=name, code=code)
+    return f"{intro} 📊  {body}\n{random.choice(_STOCK_HANDOFF)}"
 
 
 def source_largecap(market="US", quota=None):
