@@ -646,15 +646,15 @@ def api_fund():
     global _price_cache, _price_cache_at
     if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:   # 현재가 캐시 만료 시 백그라운드 갱신
         threading.Thread(target=_refresh_prices_bg, daemon=True).start()
-    from db import (FUND_ACCOUNTS, FUND_SEED, get_shared_portfolio,
+    from db import (DESK_ACCOUNTS, DESK_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
-    colors = {"P": "#5aa9e6", "W": "#c9a227", "S": "#e08a3c", "Q": "#4bbf8a"}
+    acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c"}
     # 출근/퇴근 세션: 마지막 fund 내레이션이 '퇴근' 줄이면 off, 진행 중이면 working
     last = get_recent_messages(1, desk="fund")
     working = bool(last) and "퇴근" not in (last[0].get("content") or "")
     session = "working" if working else "off"
-    bots = []
-    for acct in FUND_ACCOUNTS:                            # 전략 노출 방지 — 이름 없이 글자만
+    accounts = []
+    for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 2계좌
         pf = get_shared_portfolio(acct)
         cash = pf.get("balance") or 0
         rows = _enrich_positions(get_all_positions(60, account=acct))
@@ -663,15 +663,14 @@ def api_fund():
         invested = sum((p.get("amount") or 0) for p in open_pos)
         unrealized = sum((p.get("unrealized_pnl") or 0) for p in open_pos)  # _enrich_positions가 현재가로 계산
         equity = cash + invested + unrealized            # 시가 평가(평가손익 반영)
-        # 수익률 스파크라인 — 과거 NAV 스냅샷(return%). 이력 없으면 현재값 1점 폴백
-        hist = [round((r["equity"] / FUND_SEED - 1) * 100, 2)
+        hist = [round((r["equity"] / DESK_SEED - 1) * 100, 2)
                 for r in get_fund_nav_history(acct, days=30) if r.get("equity")]
         if not hist:
-            hist = [round((equity / FUND_SEED - 1) * 100, 2)]
-        bots.append({
-            "bot": acct, "color": colors.get(acct, "#8b949e"),
+            hist = [round((equity / DESK_SEED - 1) * 100, 2)]
+        accounts.append({
+            "bot": acct, "color": acct_color.get(acct, "#8b949e"),
             "cash": cash, "invested": invested, "equity": equity, "history": hist,
-            "return_pct": round((equity / FUND_SEED - 1) * 100, 2) if FUND_SEED else 0,
+            "return_pct": round((equity / DESK_SEED - 1) * 100, 2) if DESK_SEED else 0,
             "n_positions": len(open_pos),
             "positions": [{"symbol": p["symbol"], "code": p.get("code"),
                            "amount": p.get("amount"), "entry_price": p.get("entry_price"),
@@ -682,7 +681,16 @@ def api_fund():
                         "at": p.get("closed_at") or p.get("opened_at")}
                        for p in (open_pos + closed)[:8]],
         })
-    return {"seed": FUND_SEED, "session": session, "bots": bots}
+    # Members 로스터 — 봇 글자 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
+    roster = [
+        {"bot": "A", "color": "#8b949e", "model": "규칙"},
+        {"bot": "P", "color": "#5aa9e6", "model": "Claude Sonnet"},
+        {"bot": "W", "color": "#c9a227", "model": "Claude Sonnet"},
+        {"bot": "H", "color": "#a78bfa", "model": "Claude Sonnet"},
+        {"bot": "S", "color": "#e08a3c", "model": "Claude Sonnet"},
+        {"bot": "Q", "color": "#4bbf8a", "model": "규칙"},
+    ]
+    return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
 
 @app.get("/api/benchmark")
