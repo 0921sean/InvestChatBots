@@ -705,7 +705,18 @@ def api_fund():
     reports_today = [r for r in get_fund_reports(90) if r.get("date") == today]
     sec_today = [r for r in reports_today if r.get("desk") == "섹터합의"]
     desc_map = {r["code"]: (r.get("summary") or "") for r in reports_today if r.get("desk") != "섹터합의"}
-    cur_sector = sec_today[0]["name"] if sec_today else None
+    # 현재 섹터 = A가 "○○ 섹터 어떻게 보세요?" 물은 최신 섹터(섹터 시작 시점 = 즉시 반영).
+    # 합의 저장은 의견 끝난 뒤라 늦음 → 피드의 A 질문으로 앞당긴다. 없으면 합의 폴백.
+    import re as _re
+    cur_sector = None
+    for _m in reversed(recent):
+        if _m.get("agent_name") == "A":
+            _mm = _re.match(r"(.+?) 섹터, 오늘 어떻게", _m.get("content") or "")
+            if _mm:
+                cur_sector = _mm.group(1).strip()
+                break
+    if not cur_sector:
+        cur_sector = sec_today[0]["name"] if sec_today else None
     cur_codes = sec_map.get(cur_sector, []) if cur_sector else []
     done_set = set(desc_map.keys())                  # 오늘 리포트 있는 종목 = 분석 완료
     working = session == "working"
