@@ -234,7 +234,8 @@ def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
     parts += [
         "",
         "위 종목을 네 투자 원칙으로 판단해줘. 네 프레임워크에 비춰 왜 그런지 근거를 대고,",
-        "마지막 줄은 반드시 `[결정] 매수` / `[결정] 관망` / `[결정] 매도` 중 하나로 끝내.",
+        "마지막 줄은 반드시 `[결정] 관망 | 이유: (한 줄 근거)` 형식으로 끝내라.",
+        "결정은 매수/관망/매도 중 하나. 예: `[결정] 관망 | 이유: PEG 4.6로 고평가, 마진 정체로 성장 신뢰도 낮음`",
     ]
     return "\n".join(parts)
 
@@ -243,6 +244,27 @@ def _parse_verdict(text) -> str:
     """응답에서 [결정] 추출. 없으면 '관망'(보수적 기본값)."""
     m = _VERDICT_RE.search(text or "")
     return m.group(1) if m else "관망"
+
+
+def _decision_line(verdict: str, reason: str = "") -> str:
+    """종목 판단 표준 포맷 `[결정] {verdict} | 이유: {reason}`."""
+    reason = (reason or "").strip() or "근거 미확보"
+    return f"[결정] {verdict} | 이유: {reason}"
+
+
+def format_stock_verdict(reasoning: str, verdict: str, name: str = "") -> str:
+    """봇 종목 판단을 `[결정] X | 이유: …` 포맷으로 정규화(관전 피드용).
+    reasoning에 이미 `[결정] X | 이유: …`가 있으면 그 줄을, 없으면 본문 요약으로 이유를 만든다."""
+    txt = (reasoning or "").strip()
+    m = re.search(r"\[결정\]\s*(?:매수|관망|매도)\s*\|\s*이유\s*[:：]\s*(.+)", txt)
+    if m:
+        return _decision_line(verdict, m.group(1).strip())
+    # [결정] 줄 앞의 본문 마지막 문장을 이유로
+    body = _VERDICT_RE.split(txt)[0].strip()
+    reason = ""
+    if body:
+        reason = [s for s in re.split(r"[.\n]", body) if s.strip()][-1].strip()[:80] if body else ""
+    return _decision_line(verdict, reason)
 
 
 def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
@@ -495,6 +517,26 @@ def _largecap_universe():
     return list(u or [])
 
 
+def _largecap_sectors() -> dict:
+    """{섹터: [코드]} — 대형주 섹터 토론용. private → example → {}."""
+    try:
+        from strategy_private import LARGECAP_SECTORS as s
+    except Exception:
+        try:
+            from strategy_private_example import LARGECAP_SECTORS as s
+        except Exception:
+            s = {}
+    return dict(s or {})
+
+
+def sector_of(code: str) -> str:
+    """코드의 섹터명. 못 찾으면 '기타'."""
+    for sec, codes in _largecap_sectors().items():
+        if code in codes:
+            return sec
+    return "기타"
+
+
 def source_largecap(market="US", quota=None):
     """대형주 소싱 — 고정 유니버스에서 오늘 볼 종목(캐시된 건 제외, 매일 통일성). 반환 {'codes','names'}."""
     quota = quota or DAILY_QUOTA
@@ -561,7 +603,7 @@ def run_discovery_desk(market="US"):
         r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
         _store_report(today, code, name, r.get("brief"), "발굴주")
         for bot in DISCOVERY_BOTS:
-            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
+            _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
         approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
@@ -631,7 +673,7 @@ def run_largecap_select(market="US"):
         r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
         _store_report(today, code, name, r.get("brief"), "대형주")
         for bot in LARGECAP_BOTS:
-            _narrate(bot, r.get("reasonings", {}).get(bot) or f"[결정] {r['verdicts'].get(bot, '관망')} — {name}", model="sonnet")
+            _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
         approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
         if approvers:
             add_to_watch(code, name, ",".join(approvers))

@@ -104,7 +104,7 @@ def test_build_analysis_prompt():
     p = aifund.build_analysis_prompt("Credo", "CRDO", "패킷", "광통신 병목 회사")
     assert "Credo (CRDO)" in p and "패킷" in p
     assert "사업 개요" in p and "광통신 병목 회사" in p
-    assert "[결정] 매수" in p                      # 출력 포맷 강제
+    assert "[결정] 관망 | 이유:" in p              # 출력 포맷 강제(이유 포함)
     p2 = aifund.build_analysis_prompt("X", "X", "패킷")   # 사업요약 없어도 동작
     assert "사업 개요" not in p2
 
