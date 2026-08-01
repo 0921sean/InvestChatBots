@@ -624,9 +624,8 @@
   .fr-empty { color: #444c56; font-size: 11px; font-style: italic; padding: 10px 4px; }
   body.fundmode #mem-tab-main, body.fundmode #mem-tab-trading { display: none; }
   /* committee 전용 크롬 숨김(fund 모드엔 무의미) */
-  body.fundmode #sector-box, body.fundmode #visitor-timers,
-  body.fundmode #btn-main-run, body.fundmode #btn-sub-run,
-  body.fundmode #btn-summary { display: none; }
+  body.fundmode #visitor-timers, body.fundmode #btn-main-run,
+  body.fundmode #btn-sub-run, body.fundmode #btn-summary { display: none; }
   /* 4봇 가상계좌 — 2×2 사분면, 각 칸에 종목별 티커/진입/현재/투자금 */
   #fund-quad { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 10px; padding: 10px; }
   .fm-model { margin-left: auto; font-size: 10px; color: #6e7681; font-weight: 600; }
@@ -1418,12 +1417,8 @@ window._activeDesk = window._activeDesk || _defaultDeskForNow();  // 'main'(장�
 async function loadBenchmark() {
   const el = document.getElementById('pf-benchmark');
   if (!el) return;
-  if (window.__FUND_MODE__) {   // 데스크 벤치마크 — 사이클 돌아 NAV 쌓이면 채워짐
-    el.innerHTML = '<div class="pf-bm-title">봇 vs 지수</div><div class="pf-bm-empty">데이터 없음 — 사이클 누적 중(첫 가동)</div>';
-    return;
-  }
   try {
-    const b = await (await fetch('/api/benchmark')).json();
+    const b = await (await fetch('/api/benchmark')).json();   // 지수는 시장 공통(committee·데스크 동일)
     if (!b.available) {
       el.innerHTML = '<div class="pf-bm-title">봇 vs 지수</div><div class="pf-bm-empty">데이터 없음 — 스냅샷 누적 중(첫 가동)</div>';
       return;
@@ -1432,10 +1427,15 @@ async function loadBenchmark() {
       ? '<span class="pf-bm-na">데이터 없음</span>'
       : `<span class="${v >= 0 ? 'pf-pos' : 'pf-neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
     const row = (label, v, strong) => `<div class="pf-bm-row${strong ? ' strong' : ''}"><span>${label}</span>${fmt(v)}</div>`;
+    // fund 모드: 봇 = 데스크(아직 NAV 없어 데이터없음), 지수는 공통
+    const botLabel = window.__FUND_MODE__ ? '🤖 봇(데스크)' : '🤖 봇(합산)';
+    const botVal = window.__FUND_MODE__ ? null : b.bot;
     el.innerHTML = `<div class="pf-bm-title">봇 vs 지수 <span class="pf-bm-sub">${b.baseline_date}~ 누적 (${b.days}일)</span></div>`
-      + row('🤖 봇(합산)', b.bot, true)
+      + row(botLabel, botVal, true)
       + row('QQQ (나스닥100)', b.qqq)
-      + row('SCHD (배당·방어)', b.schd);   // US-only: 코스피·코스닥 제거(2026-07-28)
+      + row('SPY (S&P500)', b.spy)
+      + row('코스피', b.kospi)
+      + row('코스닥', b.kosdaq);
   } catch (e) { console.error('benchmark', e); }
 }
 
@@ -2708,6 +2708,15 @@ if (window.__FUND_MODE__) {
   const subEl = document.getElementById('round-label');
   if (hashEl) hashEl.textContent = '# AI펀드';
   if (subEl) subEl.textContent = '대형주·발굴주 데스크 관전';
+  // 현재 섹터 box를 데스크 상태로 (loadState는 fund에서 미동작)
+  const _sn = document.getElementById('sector-name-text'), _sc = document.getElementById('sector-count'),
+        _sp = document.getElementById('sector-phase'), _sf = document.getElementById('sector-progress-fill'),
+        _ss = document.getElementById('sector-stocks');
+  if (_sn) _sn.textContent = '대형주 · 발굴주 데스크';
+  if (_sc) _sc.textContent = '';
+  if (_sp) _sp.textContent = '일봉 종가 기준 · 대형주 06 / 발굴 12·18·24';
+  if (_sf) _sf.style.display = 'none';
+  if (_ss) _ss.textContent = '';
   loadFund();
   loadFundReport();
   setInterval(loadFund, 15000);

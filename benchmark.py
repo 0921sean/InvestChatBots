@@ -10,7 +10,7 @@ import db
 logger = logging.getLogger("investchat.benchmark")
 
 # 벤치마크 지수 (yfinance 심볼)
-_INDICES = {"qqq": "QQQ", "schd": "SCHD", "kospi": "^KS11", "kosdaq": "^KQ11"}
+_INDICES = {"qqq": "QQQ", "spy": "SPY", "schd": "SCHD", "kospi": "^KS11", "kosdaq": "^KQ11"}
 
 
 def _yf_price(sym: str):
@@ -57,7 +57,7 @@ def capture_snapshot(date: str) -> dict:
     """오늘(date) 스냅샷 저장 — 봇 NAV + 지수. 하루 1회 UPSERT."""
     idx = fetch_index_prices()
     nav = bot_combined_nav()
-    db.save_benchmark_snapshot(date, nav, idx["qqq"], idx["schd"], idx["kospi"], idx["kosdaq"])
+    db.save_benchmark_snapshot(date, nav, idx["qqq"], idx["schd"], idx["kospi"], idx["kosdaq"], idx.get("spy"))
     logger.info(f"벤치마크 스냅샷 {date}: NAV {nav:,.0f} / {idx}")
     return {"date": date, "bot_nav": nav, **idx}
 
@@ -82,6 +82,7 @@ def compute_benchmark() -> dict:
         "days": len(snaps),
         "bot": _cum(base, latest, "bot_nav"),
         "qqq": _cum(base, latest, "qqq"),
+        "spy": _cum(base, latest, "spy"),
         "schd": _cum(base, latest, "schd"),
         "kospi": _cum(base, latest, "kospi"),
         "kosdaq": _cum(base, latest, "kosdaq"),
