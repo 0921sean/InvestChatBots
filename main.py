@@ -671,12 +671,12 @@ def api_fund():
         }
     # Members 로스터 — 동물 한국어 이름 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
     roster = [
-        {"bot": "A", "name": "올빼미", "color": "#8b949e", "model": "규칙"},
-        {"bot": "P", "name": "다람쥐", "color": "#5aa9e6", "model": "Claude Sonnet"},
-        {"bot": "W", "name": "거북이", "color": "#c9a227", "model": "Claude Sonnet"},
-        {"bot": "H", "name": "황소", "color": "#a78bfa", "model": "Claude Sonnet"},
-        {"bot": "S", "name": "두더지", "color": "#e08a3c", "model": "Claude Sonnet"},
-        {"bot": "Q", "name": "매", "color": "#4bbf8a", "model": "규칙"},
+        {"bot": "A", "name": "올빼미", "emoji": "🦉", "color": "#8b949e", "model": "애널리스트"},
+        {"bot": "P", "name": "다람쥐", "emoji": "🐿️", "color": "#5aa9e6", "model": "Claude Sonnet"},
+        {"bot": "W", "name": "거북이", "emoji": "🐢", "color": "#c9a227", "model": "Claude Sonnet"},
+        {"bot": "H", "name": "황소", "emoji": "🐂", "color": "#a78bfa", "model": "Claude Sonnet"},
+        {"bot": "S", "name": "두더지", "emoji": "🦡", "color": "#e08a3c", "model": "Claude Sonnet"},
+        {"bot": "Q", "name": "매", "emoji": "🦅", "color": "#4bbf8a", "model": "퀀트"},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
