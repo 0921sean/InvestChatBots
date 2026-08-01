@@ -68,6 +68,12 @@ def mark_watch(code: str, status: str):
         con.execute("UPDATE largecap_watch SET status=? WHERE code=?", (status, code))
 
 
+def clear_watchlist():
+    """대형주 관심종목 초기화 — 매일 재분석 전 진입대기('watching')만 비운다(보유 'bought'는 유지)."""
+    with _conn() as con:
+        con.execute("DELETE FROM largecap_watch WHERE status != 'bought'")
+
+
 def _conn():
     path = os.getenv("DB_PATH", "investchat.db")
     return sqlite3.connect(path)
