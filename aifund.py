@@ -685,8 +685,10 @@ def run_largecap_execute(market="US"):
         tag = q_entry_signal(o["close"], up)
         if not tag:
             continue
+        appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
+        rz = f"Q {'추세돌파' if tag == 'M' else '되돌림'} 진입" + (f" · 관심 {appr}" if appr else "")
         _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], position_amount(DESK_SEED),
-                                     f"Q {'추세돌파' if tag == 'M' else '되돌림'} 진입", market, account="대형주")
+                                     rz, market, account="대형주")
         if not err:
             mark_watch(w["code"], "bought")
             bought.append(w["code"])

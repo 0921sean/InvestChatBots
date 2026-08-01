@@ -2636,7 +2636,7 @@ function renderFundMembers(d) {
   if (!el) return;
   const working = d.session === 'working';                      // 출근이면 초록 좌측선
   el.innerHTML = '';
-  const add = (name, color, model, role, work) => {            // v1 촘촘한 행 + member-sub(모델 + 역할)
+  const add = (name, color, model, rank, work) => {            // v1 촘촘한 행 + member-sub(직위 + 모델)
     const row = document.createElement('div');
     row.className = 'member' + (work ? ' working' : '');
     row.innerHTML = `<span class="dot" style="background:${color}"></span>`
@@ -2644,11 +2644,11 @@ function renderFundMembers(d) {
     el.appendChild(row);
     const sub = document.createElement('div');
     sub.className = 'member-sub';
-    sub.innerHTML = (role ? `<span class="fm-role">${esc(role)}</span>` : '')
+    sub.innerHTML = (rank ? `<span class="fm-role">${esc(rank)}</span>` : '')
       + `<span class="fm-model">${esc(model)}</span>`;
     el.appendChild(sub);
   };
-  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.role || '', working));
+  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.rank || '', working));
   add('나', '#fbbf24', '감독', '', false);                      // '나'(감독) 유지
 }
 // 대형주/발굴주 = v1 포트폴리오 패널(_renderPfAccount) 그대로 재사용, 탭만 교체

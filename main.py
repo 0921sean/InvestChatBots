@@ -672,14 +672,17 @@ def api_fund():
                            "opened_at": p.get("opened_at"), "closed_at": p.get("closed_at"),
                            "reasoning": p.get("reasoning", "")} for p in rows],
         }
-    # Members 로스터 — 동물 한국어 이름 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
+    # Members 로스터 — 단일 알파벳 + 직위(픽 성과 승진) + 모델. A=신입 고정.
+    import ranks
+    all_pos = [p for a in accounts.values() for p in a["positions"]]
+    rk = ranks.compute_ranks(all_pos)
     roster = [
-        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "role": "애널리스트 · 발굴·리서치"},
-        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "role": "대형주·발굴주 성장주 매수판단"},
-        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "role": "대형주·발굴주 가치 매수판단"},
-        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "role": "대형주 실적·성장 게이트"},
-        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "role": "발굴주 자체 소싱(병목)"},
-        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "role": "퀀트 · 대형주 진입 타이밍"},
+        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "rank": ranks.rank_of("A", rk)},
+        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "rank": ranks.rank_of("P", rk)},
+        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "rank": ranks.rank_of("W", rk)},
+        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "rank": ranks.rank_of("H", rk)},
+        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "rank": ranks.rank_of("S", rk)},
+        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "rank": ranks.rank_of("Q", rk)},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
