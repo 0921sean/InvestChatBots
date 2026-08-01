@@ -393,13 +393,16 @@ _CLOCK_IN = {
     "A": ["다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.",
           "좋은 아침. 밤사이 뭐 터졌나 훑고 리스트 뽑습니다.",
           "출근이요~ 오늘의 후보 정리해서 곧 올릴게요."],
-    "P": ["린치 출근. 오늘도 생활 속 텐배거 찾아봅니다.",
+    "P": ["P 출근. 오늘도 생활 속에서 크게 자랄 놈 찾아봅니다.",
           "P 왔어요. PEG 싼 성장주 뭐 없나 보죠.",
           "출근! 스토리 살아있는 놈으로 골라봅니다."],
-    "W": ["버핏 관점으로 출근했습니다. 좋은 회사를 적정가에.",
+    "W": ["W 출근했습니다. 좋은 회사를 적정가에.",
           "W 도착. 능력범위 안, 해자 있는 것만 봅니다.",
           "출근이요. 10년 들고 갈 만한지부터 봅니다."],
-    "S": ["병목 헌터 출근 — 오늘의 곡괭이 찾으러 갑니다.",
+    "H": ["H 출근. 실적으로 증명된 놈만 봅니다.",
+          "H 왔습니다. 성장률·마진부터 확인하죠.",
+          "출근! 숫자 안 나오면 안 삽니다."],
+    "S": ["S 출근 — 오늘의 곡괭이 찾으러 갑니다.",
           "S 왔습니다. 남들 완제품 볼 때 저는 사슬 뒤를 봐요.",
           "출근! 공급망 초크포인트부터 직접 뒤져봅니다."],
 }
@@ -408,17 +411,20 @@ _CLOCK_OUT = {
           "정리 끝났습니다. A 퇴근할게요, 내일 또 좋은 종목으로.",
           "계좌 성적은 우측에서 보세요. A 퇴근합니다."],
     "P": ["P 퇴근. 오늘 고른 놈들 잘 자라라~",
-          "린치 이만 퇴근합니다. 인내가 수익이죠.",
+          "P 이만 퇴근합니다. 인내가 수익이죠.",
           "먼저 퇴근할게요. 좋은 회사는 시간이 증명해요."],
     "W": ["W 퇴근. 서두르지 않습니다, 늘 그렇듯.",
-          "버핏 관점 정리 끝, 퇴근합니다.",
+          "W 관점 정리 끝, 퇴근합니다.",
           "이만 퇴근이요. 가격이 오면 그때 더 담죠."],
+    "H": ["H 퇴근. 결국 실적이 답이죠.",
+          "숫자 확인 끝, H 퇴근합니다.",
+          "먼저 퇴근이요. 다음 실적 시즌도 지켜보죠."],
     "S": ["S 퇴근 — 곡괭이는 조용히 값을 합니다.",
           "병목 점검 끝. 사슬은 안 끊기니까요. 퇴근!",
           "먼저 퇴근합니다. 다음 초크포인트는 내일 또."],
 }
 _A_DONE = [
-    "{desk} {n}종목 리서치 정리해 올렸어요 — 우측 'A 리서치' 참고!",
+    "{desk} {n}종목 리서치 정리해 올렸어요 — 우측 '리서치 보드' 참고!",
     "{n}종목 다 봤습니다. 뭐하는 회사인지 리포트로 정리해뒀어요.",
     "{desk} 리포트 {n}건 업데이트. 숫자는 거기서 확인하세요.",
 ]
@@ -429,9 +435,9 @@ _SELL_LINES = ["🔻 {name} 청산 — 논지가 훼손돼 뺐어요.",
                "{name} 던졌습니다. 얘기가 달라졌네요.",
                "{name} 정리 — 이유가 사라졌으니 홀드할 근거도 없죠."]
 # 대형주 핸드오프 — P/W/H가 선정 후 Q에게 타이밍 넘김("살펴봐주세요")
-_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q님, 진입 타이밍 봐주세요 🙏",
-                  "{name} 관심종목으로 올립니다 — Q님, 언제 들어갈지 판단 부탁해요.",
-                  "{name} 펀더는 좋네요. 타이밍은 Q님께 맡길게요."]
+_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q, 진입 타이밍 봐주세요 🙏",
+                  "{name} 관심종목으로 올립니다 — Q, 언제 들어갈지 판단 부탁해요.",
+                  "{name} 펀더는 좋네요. 타이밍은 Q에게 맡길게요."]
 
 
 def _line(pool, bot):
@@ -441,12 +447,12 @@ def _line(pool, bot):
 def _q_explain(name, action, tag, approvers=None):
     """Q가 매매 이유를 대화체로 설명(haiku, 저비용). 실패 시 규칙 기반 폴백.
     ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
-    strat = "미너비니 추세돌파" if tag == "M" else "볼린저 밴드 복귀"
+    strat = "추세 돌파" if tag == "M" else "밴드 되돌림"
     fallback = f"{name} {action} — {strat} 신호."
     try:
         from agents import _call_claude_cli
         who = f"{approvers}가 올린 " if approvers else ""
-        sysp = ("너는 규칙(B+M: 미너비니 추세돌파·볼린저 복귀)으로만 매매하는 가상계좌 퀀트봇 Q다. "
+        sysp = ("너는 규칙(추세추종·평균회귀 블렌드)으로만 매매하는 가상계좌 퀀트봇 Q다. "
                 "규칙 신호가 떠서 이미 매매를 끝냈다 — 이건 분석 요청이 아니라 '이미 한 매매'의 캐주얼 코멘트다. "
                 "그 규칙이 왜 이 자리를 잡았는지 팀원에게 반말로 딱 1~2문장. 면책·주의·질문·인사 금지. "
                 "미래 보장·권유 금지, 내 가상계좌 관점으로만.")
@@ -665,8 +671,8 @@ def run_largecap_execute(market="US"):
         o = data.get(p.get("code") or p["symbol"])
         if not o:
             continue
-        strat = "M" if "미너비니" in (p.get("reasoning") or "") else "B"
-        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {strat} 익절/손절")[1]:
+        strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
+        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
             sold.append(p["symbol"])
             _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
     n = len(get_open_positions(account="대형주"))
@@ -680,7 +686,7 @@ def run_largecap_execute(market="US"):
         if not tag:
             continue
         _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], position_amount(DESK_SEED),
-                                     f"Q {'미너비니' if tag == 'M' else '볼린저'} 진입", market, account="대형주")
+                                     f"Q {'추세돌파' if tag == 'M' else '되돌림'} 진입", market, account="대형주")
         if not err:
             mark_watch(w["code"], "bought")
             bought.append(w["code"])

@@ -399,7 +399,20 @@ def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
 
         try:
             if market == "US":
-                price, _ = _yf_price(code or symbol)
+                # TradingView TA 우선(레이트리밋 없음), 실패 시 yfinance 폴백
+                price = None
+                for exch in ("NASDAQ", "NYSE", "NYSE ARCA", "AMEX"):
+                    try:
+                        a = TA_Handler(symbol=code or symbol, screener="america",
+                                       exchange=exch, interval=Interval.INTERVAL_1_DAY).get_analysis()
+                        close = a.indicators.get("close") or a.indicators.get("Close")
+                        if close:
+                            price = float(close)
+                            break
+                    except Exception:
+                        pass
+                if not price:
+                    price, _ = _yf_price(code or symbol)
                 if price:
                     result[key] = price
             else:
