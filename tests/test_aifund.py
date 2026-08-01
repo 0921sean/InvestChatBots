@@ -223,27 +223,64 @@ def test_run_q_desk_noop_when_disabled():
 # ── 하루 사이클 오케스트레이션 ────────────────────────────
 def test_run_new_desk_cycle_noop_when_disabled():
     assert aifund.run_new_desk_cycle() == {
-        "briefing": "", "buys": [], "sells": [], "q": {"bought": [], "sold": []}}
+        "discovery": {}, "discovery_review": {}, "largecap_select": {}, "largecap_execute": {}}
 
 
-def test_run_new_desk_cycle_buys(monkeypatch):
+def test_run_discovery_desk_or_gate_buys(monkeypatch):
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(aifund, "analyze_candidate",
+                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "매수", "W": "관망", "S": "관망"},
+                                                                   "reasonings": {}, "brief": ("", "")})
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    calls = []
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (calls.append(k.get("account")), (1, None))[1])
+    r = aifund.run_discovery_desk()
+    assert r["buys"] == ["NVDA"]                  # P 매수 → 발굴주 즉시매수
+    assert calls == ["발굴주"]                     # 발굴주 계좌로 체결
+
+
+def test_run_largecap_select_watches_approved(monkeypatch):
     import db
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
-    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)   # 관전 피드 격리(DB 미접촉)
-    monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
-    monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": ["NVDA"], "catalyst": [],
-                                        "names": {"NVDA": "NVIDIA"}, "briefing": "브리핑"})
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_largecap", lambda m="US": {"codes": ["AAPL"], "names": {"AAPL": "애플"}})
     monkeypatch.setattr(aifund, "analyze_candidate",
-                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "매수", "W": "관망", "S": "매도"}})
-    monkeypatch.setattr(aifund, "execute_buys", lambda code, name, verdicts, m="US": ["P"])
-    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
-    monkeypatch.setattr(db, "record_fund_report", lambda *a, **k: None)           # 리포트 저장 격리
-    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])   # S 매도지만 미보유
-    monkeypatch.setattr(aifund, "run_q_desk", lambda m="US": {"bought": ["AMD"], "sold": []})
-    r = aifund.run_new_desk_cycle()
-    assert r["buys"] == [("P", "NVDA")] and r["sells"] == []   # S는 미보유라 청산 X
-    assert r["q"]["bought"] == ["AMD"] and r["briefing"] == "브리핑"
+                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "관망", "W": "매수", "H": "관망"},
+                                                                   "reasonings": {}, "brief": ("", "")})
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    watched = []
+    monkeypatch.setattr(db, "add_to_watch", lambda code, name, approved: watched.append((code, approved)))
+    r = aifund.run_largecap_select()
+    assert r["watched"] == ["AAPL"] and watched == [("AAPL", "W")]   # W 매수 → 관심종목 등록
+
+
+def test_run_largecap_execute_q_entry(monkeypatch):
+    import db, backtest
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [{"code": "AAPL", "name": "애플"}])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [1, 2, 3]}})
+    monkeypatch.setattr(aifund, "q_entry_signal", lambda closes, up: "M")
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    marks = []
+    monkeypatch.setattr(db, "mark_watch", lambda code, status: marks.append((code, status)))
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (1, None))
+    r = aifund.run_largecap_execute()
+    assert r["bought"] == ["AAPL"] and marks == [("AAPL", "bought")]   # Q 진입 타이밍 → 대형주 매수
 
 
 def test_desk_rosters_and_H_profile():
@@ -275,21 +312,18 @@ def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
     assert aifund.source_bottleneck("US")["codes"] == []    # 시드 없으면 비활성
 
 
-def test_run_new_desk_cycle_thesis_sell(monkeypatch):
-    import db, fetchers
+def test_run_largecap_execute_q_exit(monkeypatch):
+    import db, backtest
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
-    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)   # 관전 피드 격리(DB 미접촉)
-    monkeypatch.setattr(db, "ensure_fund_accounts", lambda: None)
-    monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": [], "catalyst": ["NVDA"],
-                                        "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
-    monkeypatch.setattr(aifund, "analyze_candidate", lambda *a, **k: {"verdicts": {"W": "매도"}})
-    monkeypatch.setattr(aifund, "execute_buys", lambda *a, **k: [])
-    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
-    monkeypatch.setattr(db, "record_fund_report", lambda *a, **k: None)
-    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [{"id": 9}])  # W 보유중
-    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
-    monkeypatch.setattr(aifund, "execute_thesis_sell", lambda bot, pos, v, price: True)
-    monkeypatch.setattr(aifund, "run_q_desk", lambda m="US": {"bought": [], "sold": []})
-    r = aifund.run_new_desk_cycle()
-    assert r["sells"] == [("W", "NVDA")]        # 보유 봇 매도 → 논지청산
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 볼린저 진입"}
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [3, 2, 1]}})
+    monkeypatch.setattr(aifund, "q_exit_signal", lambda closes, strat: True)
+    sells = []
+    monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append(pid), (0, None))[1])
+    r = aifund.run_largecap_execute()
+    assert r["sold"] == ["애플"] and sells == [9]   # Q B+M 청산(익절/손절)
