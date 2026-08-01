@@ -653,42 +653,30 @@ def api_fund():
     last = get_recent_messages(1, desk="fund")
     working = bool(last) and "퇴근" not in (last[0].get("content") or "")
     session = "working" if working else "off"
-    accounts = []
-    for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 2계좌
+    accounts = {}
+    for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 — v1 포트폴리오 패널 그대로 씀
         pf = get_shared_portfolio(acct)
-        cash = pf.get("balance") or 0
-        rows = _enrich_positions(get_all_positions(60, account=acct))
-        open_pos = [p for p in rows if p.get("status") == "open"]
-        closed = [p for p in rows if p.get("status") != "open"]
-        invested = sum((p.get("amount") or 0) for p in open_pos)
-        unrealized = sum((p.get("unrealized_pnl") or 0) for p in open_pos)  # _enrich_positions가 현재가로 계산
-        equity = cash + invested + unrealized            # 시가 평가(평가손익 반영)
-        hist = [round((r["equity"] / DESK_SEED - 1) * 100, 2)
-                for r in get_fund_nav_history(acct, days=30) if r.get("equity")]
-        if not hist:
-            hist = [round((equity / DESK_SEED - 1) * 100, 2)]
-        accounts.append({
-            "bot": acct, "color": acct_color.get(acct, "#8b949e"),
-            "cash": cash, "invested": invested, "equity": equity, "history": hist,
-            "return_pct": round((equity / DESK_SEED - 1) * 100, 2) if DESK_SEED else 0,
-            "n_positions": len(open_pos),
-            "positions": [{"symbol": p["symbol"], "code": p.get("code"),
-                           "amount": p.get("amount"), "entry_price": p.get("entry_price"),
-                           "current_price": p.get("current_price"),
-                           "pnl_pct": p.get("unrealized_pnl_pct")} for p in open_pos],
-            "recent": [{"symbol": p["symbol"], "direction": p.get("direction"),
-                        "status": p.get("status"), "pnl_pct": p.get("pnl_pct"),
-                        "at": p.get("closed_at") or p.get("opened_at")}
-                       for p in (open_pos + closed)[:8]],
-        })
-    # Members 로스터 — 봇 글자 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
+        rows = _enrich_positions(get_all_positions(30, account=acct))
+        accounts[acct] = {
+            "balance": pf.get("balance") or 0, "invested": pf.get("invested") or 0,
+            "total_pnl": pf.get("total_pnl") or 0,
+            "win_count": pf.get("win_count") or 0, "loss_count": pf.get("loss_count") or 0,
+            "initial_balance": DESK_SEED, "color": acct_color.get(acct, "#8b949e"),
+            "positions": [{"symbol": p["symbol"], "code": p.get("code"), "market": p.get("market"),
+                           "status": p.get("status"), "amount": p.get("amount"),
+                           "entry_price": p.get("entry_price"), "current_price": p.get("current_price"),
+                           "unrealized_pnl": p.get("unrealized_pnl"),
+                           "unrealized_pnl_pct": p.get("unrealized_pnl_pct"),
+                           "reasoning": p.get("reasoning", "")} for p in rows],
+        }
+    # Members 로스터 — 동물 한국어 이름 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
     roster = [
-        {"bot": "A", "color": "#8b949e", "model": "규칙"},
-        {"bot": "P", "color": "#5aa9e6", "model": "Claude Sonnet"},
-        {"bot": "W", "color": "#c9a227", "model": "Claude Sonnet"},
-        {"bot": "H", "color": "#a78bfa", "model": "Claude Sonnet"},
-        {"bot": "S", "color": "#e08a3c", "model": "Claude Sonnet"},
-        {"bot": "Q", "color": "#4bbf8a", "model": "규칙"},
+        {"bot": "A", "name": "올빼미", "color": "#8b949e", "model": "규칙"},
+        {"bot": "P", "name": "다람쥐", "color": "#5aa9e6", "model": "Claude Sonnet"},
+        {"bot": "W", "name": "거북이", "color": "#c9a227", "model": "Claude Sonnet"},
+        {"bot": "H", "name": "황소", "color": "#a78bfa", "model": "Claude Sonnet"},
+        {"bot": "S", "name": "두더지", "color": "#e08a3c", "model": "Claude Sonnet"},
+        {"bot": "Q", "name": "매", "color": "#4bbf8a", "model": "규칙"},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
