@@ -2710,15 +2710,21 @@ function renderFundSector(p) {
     if (ss) ss.innerHTML = '';
     return;
   }
+  const st = p.stock_total || 0, sd = p.stock_done || 0;
   if (sn) sn.textContent = p.sector || '대형주 데스크';
-  if (sc) sc.textContent = `${p.done}/${p.total}` + (p.done >= p.total ? ' ✓' : '');
-  if (sp) sp.textContent = p.working ? `대형주 데스크 진행 중 · ${p.sector || ''}`
-                                     : `오늘 ${p.done}개 섹터 분석 완료`;
-  if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round(p.done / (p.total || 1) * 100)) + '%'; }
-  if (ss) ss.innerHTML = (p.chips || []).map(x => {          // 티커 표시 · 호버 툴팁(풀네임 + 설명)
+  if (sc) sc.textContent = `섹터 ${p.done}/${p.total}` + (p.done >= p.total ? ' ✓' : '');
+  if (sp) {                                               // 진행 중이면 현재 섹터의 종목 진행, 아니면 완료 안내
+    const curChip = (p.chips || []).find(x => x && x.status === 'current');
+    sp.textContent = p.working
+      ? `${p.sector} · 종목 ${sd}/${st}` + (curChip ? ` · ${curChip.code} 분석 중` : '')
+      : `오늘 ${p.done}개 섹터 분석 완료`;
+  }
+  if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round((st ? sd / st : 0) * 100)) + '%'; }
+  if (ss) ss.innerHTML = (p.chips || []).map(x => {          // 티커 · 상태색(done 초록/current 파랑/pending) · 호버 툴팁
     const code = (typeof x === 'string') ? x : (x.code || '');
+    const cls = (typeof x === 'string') ? '' : (x.status === 'done' ? ' done' : x.status === 'current' ? ' current' : '');
     const tip = (typeof x === 'string') ? '' : ((x.name || '') + (x.desc ? ' — ' + x.desc : ''));
-    return `<span class="stock-badge" title="${esc(tip)}">${esc(code)}</span>`;
+    return `<span class="stock-badge${cls}" title="${esc(tip)}">${esc(code)}</span>`;
   }).join('');
 }
 function renderFundReport(reports) {
