@@ -246,6 +246,17 @@ def test_run_new_desk_cycle_buys(monkeypatch):
     assert r["q"]["bought"] == ["AMD"] and r["briefing"] == "브리핑"
 
 
+def test_desk_rosters_and_H_profile():
+    from prompts import AGENT_PROFILES
+    assert aifund.LARGECAP_BOTS == ["P", "W", "H"]      # 대형주 결정자
+    assert aifund.DISCOVERY_BOTS == ["P", "W", "S"]     # 발굴주 결정자
+    assert "H" in AGENT_PROFILES                        # H(실적왕 개명) 로드됨
+    # analyze_candidate가 대형주 봇들(P/W/H)로 돌 수 있어야
+    import random
+    r = aifund.analyze_candidate  # 존재 확인(시그니처 bots 인자)
+    assert "bots" in r.__code__.co_varnames
+
+
 def test_source_bottleneck_self_sources_seed_minus_cached(monkeypatch):
     monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR", "LITE", "AAOI"])
     monkeypatch.setattr(aifund, "get_cached_codes", lambda: ["LITE"])   # LITE는 이미 분석됨

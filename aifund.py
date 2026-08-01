@@ -160,7 +160,10 @@ def source_bottleneck(market="US", quota=None):
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
 import re                                          # noqa: E402
 
-NEW_DESK_ORDER = ["P", "W", "S"]                   # 발굴 순서(성장주(GARP)·가치·병목)
+NEW_DESK_ORDER = ["P", "W", "S"]                   # (레거시) 4봇 경쟁 발굴 순서
+# 통일 데스크 결정자 (설계 docs/AIFUND_PIVOT.md)
+LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 성장주·가치·실적왕(H) → 관심종목 캐시
+DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 성장주·가치·병목 → 즉시매수
 _VERDICT_RE = re.compile(r"\[결정\]\s*(매수|관망|매도)")
 
 
