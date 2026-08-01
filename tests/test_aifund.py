@@ -271,6 +271,7 @@ def test_run_largecap_execute_q_entry(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(aifund, "_q_explain", lambda *a, **k: "Q 설명")
     monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [{"code": "AAPL", "name": "애플"}])
     monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
     monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [1, 2, 3]}})
@@ -318,6 +319,7 @@ def test_run_largecap_execute_q_exit(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(aifund, "_q_explain", lambda *a, **k: "Q 설명")
     monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
     pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 볼린저 진입"}
     monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
