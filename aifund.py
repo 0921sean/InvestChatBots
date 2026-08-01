@@ -164,7 +164,19 @@ NEW_DESK_ORDER = ["P", "W", "S"]                   # (레거시) 4봇 경쟁 발
 # 통일 데스크 결정자 (설계 docs/AIFUND_PIVOT.md)
 LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 린치·버핏·실적왕(H) → 관심종목 캐시
 DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 린치·버핏·병목 → 즉시매수
+# 데스크별 사이징 — 대형주 집중(고확신), 발굴주 분산(리스크). 각 시드 DESK_SEED(5,000만) 기준.
+DESK_SIZING = {"대형주": {"weight": 0.08, "max": 12},   # 종목당 8%(400만) · 최대 12
+               "발굴주": {"weight": 0.04, "max": 20}}   # 종목당 4%(200만) · 최대 20
 _VERDICT_RE = re.compile(r"\[결정\]\s*(매수|관망|매도)")
+
+
+def _desk_amount(desk: str) -> float:
+    from db import DESK_SEED
+    return DESK_SEED * DESK_SIZING[desk]["weight"]
+
+
+def _desk_can_open(desk: str, open_count: int) -> bool:
+    return open_count < DESK_SIZING[desk]["max"]
 
 
 def _extra_fundamentals(data) -> str:
@@ -636,9 +648,8 @@ def run_discovery_desk(market="US"):
     if not NEW_DESK_ENABLED:
         return {"buys": []}
     from db import (ensure_desk_accounts, get_open_positions_by_symbol,
-                    buy_shared_position, get_open_positions, DESK_SEED)
+                    buy_shared_position, get_open_positions)
     from fetchers import fetch_stock_price
-    from trading_strategies import position_amount, can_open
     ensure_desk_accounts()
     _narrate("A", _line(_CLOCK_IN, "A"))
     src = source_today(market)
@@ -661,12 +672,12 @@ def run_discovery_desk(market="US"):
         approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
-        if not can_open(len(get_open_positions(account="발굴주"))):
+        if not _desk_can_open("발굴주", len(get_open_positions(account="발굴주"))):
             continue
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
         if not price:
             continue
-        _, err = buy_shared_position(name, code, price, position_amount(DESK_SEED),
+        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"),
                                      f"발굴주 매수 ({','.join(approvers)})", market, account="발굴주")
         if not err:
             buys.append(code)
@@ -769,8 +780,7 @@ def run_largecap_execute(market="US"):
         return {"bought": [], "sold": []}
     import backtest as bt
     from db import (ensure_desk_accounts, get_watchlist, mark_watch, buy_shared_position,
-                    sell_shared_position, get_open_positions, get_open_positions_by_symbol, DESK_SEED)
-    from trading_strategies import position_amount, can_open
+                    sell_shared_position, get_open_positions, get_open_positions_by_symbol)
     ensure_desk_accounts()
     _narrate("Q", "Q 출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
     up = _spy_uptrend()
@@ -789,7 +799,7 @@ def run_largecap_execute(market="US"):
             _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
     n = len(get_open_positions(account="대형주"))
     for w in watch:                                           # 진입: Q 타이밍
-        if not can_open(n):
+        if not _desk_can_open("대형주", n):
             break
         o = data.get(w["code"])
         if not o or get_open_positions_by_symbol(w["name"], account="대형주"):
@@ -799,7 +809,7 @@ def run_largecap_execute(market="US"):
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
         rz = f"Q {'추세돌파' if tag == 'M' else '되돌림'} 진입" + (f" · 관심 {appr}" if appr else "")
-        _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], position_amount(DESK_SEED),
+        _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], _desk_amount("대형주"),
                                      rz, market, account="대형주")
         if not err:
             mark_watch(w["code"], "bought")

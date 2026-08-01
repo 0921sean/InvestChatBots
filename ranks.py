@@ -45,16 +45,33 @@ def _rank_for(avg_return: float) -> str:
     return _BASE
 
 
-def compute_ranks(positions) -> dict:
-    """데스크 포지션 목록 → {bot: 직위}. A는 호출측에서 신입 고정."""
-    picks: dict = {}                 # bot -> [수익률%, ...]
+def _pick_returns(positions) -> dict:
+    """봇별 찬성 종목들의 수익률% 리스트. {bot: [ret, ...]}."""
+    picks: dict = {}
     for p in positions:
         ret = p.get("pnl_pct") if p.get("status") == "closed" else p.get("unrealized_pnl_pct")
         if ret is None:
             continue
         for b in _approvers(p.get("reasoning", "")):
             picks.setdefault(b, []).append(ret)
-    return {b: _rank_for(sum(v) / len(v)) for b, v in picks.items()}
+    return picks
+
+
+def compute_ranks(positions) -> dict:
+    """데스크 포지션 목록 → {bot: 직위}. A는 호출측에서 신입 고정."""
+    return {b: _rank_for(sum(v) / len(v)) for b, v in _pick_returns(positions).items()}
+
+
+def compute_returns(positions) -> dict:
+    """봇별 픽 평균 수익률%(관전 Members 배지용). 픽 없으면 키 없음."""
+    return {b: round(sum(v) / len(v), 1) for b, v in _pick_returns(positions).items()}
+
+
+def return_of(bot: str, returns: dict):
+    """봇 픽 평균 수익률%. A(비매매)·픽 없음이면 None."""
+    if bot == "A":
+        return None
+    return returns.get(bot)
 
 
 def rank_of(bot: str, ranks: dict) -> str:
