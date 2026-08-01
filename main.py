@@ -706,15 +706,26 @@ def api_fund():
     sec_today = [r for r in reports_today if r.get("desk") == "섹터합의"]
     desc_map = {r["code"]: (r.get("summary") or "") for r in reports_today if r.get("desk") != "섹터합의"}
     cur_sector = sec_today[0]["name"] if sec_today else None
+    cur_codes = sec_map.get(cur_sector, []) if cur_sector else []
+    done_set = set(desc_map.keys())                  # 오늘 리포트 있는 종목 = 분석 완료
+    working = session == "working"
 
-    def _chip(c):                                    # 티커 + 호버 툴팁(풀네임 + A 사업요약)
+    chips, _cur_done = [], False                      # 종목별 상태: done(완료)/current(분석중)/pending(대기)
+    for c in cur_codes:
+        if c in done_set:
+            st = "done"
+        elif working and not _cur_done:
+            st = "current"; _cur_done = True
+        else:
+            st = "pending"
         d = desc_map.get(c, "")
-        return {"code": c, "name": aifund.stock_name(c), "desc": d[:80] if d else ""}
+        chips.append({"code": c, "name": aifund.stock_name(c), "desc": d[:80] if d else "", "status": st})
     progress = {
         "sector": cur_sector,
         "done": len(sec_today), "total": len(sec_map),
-        "working": session == "working",
-        "chips": [_chip(c) for c in sec_map.get(cur_sector, [])] if cur_sector else [],
+        "stock_done": sum(1 for c in cur_codes if c in done_set), "stock_total": len(cur_codes),
+        "working": working,
+        "chips": chips,
     }
     return {"seed": DESK_SEED, "session": session, "accounts": accounts,
             "roster": roster, "progress": progress}
