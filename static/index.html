@@ -607,7 +607,6 @@
   .member-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
   /* fund 모드 Members = v1 촘촘한 행 그대로. 모델만은 .fm-model, 출근은 초록 좌측선 */
   .fm-model { font-size: 9px; color: #444c56; }
-  .fm-anim { display: inline-block; }
   body.fundmode #member-list .member.working { box-shadow: inset 2px 0 0 #3fb950; }
   body.fundmode #memo-panel .right-tab-btn, body.fundmode #portfolio-panel .right-tab-btn { display: none; }
   /* 리서치 보드 리포트 카드 */
@@ -2637,7 +2636,7 @@ function renderFundMembers(d) {
   if (!el) return;
   const working = d.session === 'working';                      // 출근이면 초록 좌측선
   el.innerHTML = '';
-  const add = (name, color, model, emoji, work) => {           // v1 촘촘한 행 + member-sub(모델만) + 동물 이모지(정적)
+  const add = (name, color, model, work) => {                  // v1 촘촘한 행 + member-sub(모델만)
     const row = document.createElement('div');
     row.className = 'member' + (work ? ' working' : '');
     row.innerHTML = `<span class="dot" style="background:${color}"></span>`
@@ -2645,12 +2644,11 @@ function renderFundMembers(d) {
     el.appendChild(row);
     const sub = document.createElement('div');
     sub.className = 'member-sub';
-    const anim = emoji ? `<span class="fm-anim">${emoji}</span> ` : '';
-    sub.innerHTML = anim + `<span class="fm-model">${esc(model)}</span>`;
+    sub.innerHTML = `<span class="fm-model">${esc(model)}</span>`;
     el.appendChild(sub);
   };
-  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.emoji || '', working));
-  add('나', '#fbbf24', '감독', '', false);                      // '나'(감독) 유지
+  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', working));
+  add('나', '#fbbf24', '감독', false);                          // '나'(감독) 유지
 }
 // 대형주/발굴주 = v1 포트폴리오 패널(_renderPfAccount) 그대로 재사용, 탭만 교체
 function renderFundPortfolio(d) {
