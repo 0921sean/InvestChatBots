@@ -129,7 +129,7 @@ ICB가 결국 내 계좌를 굴려 경제적 자유로. 그 험난한 여정 자
 ## 6. GitHub 업데이트 (컨벤션 — 상세는 [CONVENTION.md](CONVENTION.md))
 
 - **작업 단위 = Epic+Task 하이브리드** (상세 [CONVENTION.md](CONVENTION.md)):
-  - **큰 테마(피봇·실험·리팩터 묶음) = Epic 이슈** `[Epic] #N - 주제` + **투두 체크리스트 본문**(언제든 편집). 그 아래 각 투두 = **Task PR**.
+  - **하나의 응집 묶음(1a~1d처럼 함께 가는 몇 Task) = Epic 이슈** `[Epic] #N - 주제` + **투두 체크리스트 본문**(언제든 편집). 그 아래 각 투두 = **Task PR**. **테마 바뀌면 옛 Epic에 얹지 말고 새 Epic**(예: 데스크 빌드 #53 ≠ 관전 UX #89).
   - **Task = PR만, 이슈 안 만듦**(이슈는 Epic 하나뿐). 제목 `[Type] #N - 내용`(**에픽 번호 N**), 브랜치 `type/슬러그`(`feat/q-exec`), 커밋 `[Type/#N]`, 본문 `Part of #N`(**Closes 안 씀**). 머지 시 에픽 투두 `- [x]` 체크(수동).
   - **단발(에픽 밖) = 1이슈=1PR**. 본문 `Closes #자기번호`(자동종료).
   - 한 Task/단발의 브랜치·커밋·PR은 **자기 번호 공유**, Type만 바뀔 수 있다. 한국어 설명 OK. (Type = Epic/Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore)
