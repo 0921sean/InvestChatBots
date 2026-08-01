@@ -980,8 +980,7 @@ function avatar(name, color) {
   return `<div class="avatar" style="color:${color};background:${color}18;border-color:${color}55">${name[0]}</div>`;
 }
 
-const FUND_ANIMALS = {A:'올빼미', P:'다람쥐', W:'거북이', H:'황소', S:'두더지', Q:'매'};
-const _botDisplay = n => (window.__FUND_MODE__ && FUND_ANIMALS[n]) ? FUND_ANIMALS[n] : n;
+const _botDisplay = n => n;   // fund 봇 닉네임 = 단일 알파벳(A·P·W·H·S·Q) — 코드·내레이션·UI 통일
 
 function renderMessage(msg) {
   const el = document.createElement('div');

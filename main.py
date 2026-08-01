@@ -667,16 +667,19 @@ def api_fund():
                            "entry_price": p.get("entry_price"), "current_price": p.get("current_price"),
                            "unrealized_pnl": p.get("unrealized_pnl"),
                            "unrealized_pnl_pct": p.get("unrealized_pnl_pct"),
+                           "pnl": p.get("pnl"), "pnl_pct": p.get("pnl_pct"),
+                           "exit_price": p.get("exit_price"), "exit_reasoning": p.get("exit_reasoning"),
+                           "opened_at": p.get("opened_at"), "closed_at": p.get("closed_at"),
                            "reasoning": p.get("reasoning", "")} for p in rows],
         }
     # Members 로스터 — 동물 한국어 이름 + 모델만(투자스타일 미노출). A/Q=규칙, P/W/S/H=LLM
     roster = [
-        {"bot": "A", "name": "올빼미", "color": "#8b949e", "model": "Claude Haiku",  "role": "애널리스트 · 발굴·리서치"},
-        {"bot": "P", "name": "다람쥐", "color": "#5aa9e6", "model": "Claude Sonnet", "role": "대형주·발굴주 성장주 매수판단"},
-        {"bot": "W", "name": "거북이", "color": "#c9a227", "model": "Claude Sonnet", "role": "대형주·발굴주 가치 매수판단"},
-        {"bot": "H", "name": "황소",  "color": "#a78bfa", "model": "Claude Sonnet", "role": "대형주 실적·성장 게이트"},
-        {"bot": "S", "name": "두더지", "color": "#e08a3c", "model": "Claude Sonnet", "role": "발굴주 자체 소싱(병목)"},
-        {"bot": "Q", "name": "매",    "color": "#4bbf8a", "model": "Claude Haiku",  "role": "퀀트 · 대형주 진입 타이밍"},
+        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "role": "애널리스트 · 발굴·리서치"},
+        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "role": "대형주·발굴주 성장주 매수판단"},
+        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "role": "대형주·발굴주 가치 매수판단"},
+        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "role": "대형주 실적·성장 게이트"},
+        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "role": "발굴주 자체 소싱(병목)"},
+        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "role": "퀀트 · 대형주 진입 타이밍"},
     ]
     return {"seed": DESK_SEED, "session": session, "accounts": accounts, "roster": roster}
 
