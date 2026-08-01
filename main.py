@@ -682,17 +682,20 @@ def api_fund():
                            "opened_at": p.get("opened_at"), "closed_at": p.get("closed_at"),
                            "reasoning": p.get("reasoning", "")} for p in rows],
         }
-    # Members 로스터 — 단일 알파벳 + 직위(픽 성과 승진) + 모델. A=신입 고정.
+    # Members 로스터 — 단일 알파벳 + 역할 + 모델 + 픽 평균 수익률%(성과 배지). A=비매매.
     import ranks
     all_pos = [p for a in accounts.values() for p in a["positions"]]
-    rk = ranks.compute_ranks(all_pos)
+    ret = ranks.compute_returns(all_pos)
+    _R = {"A": "애널리스트 · 발굴·리서치", "P": "성장주 매수판단", "W": "가치주 매수판단",
+          "H": "대형주 실적 게이트", "S": "병목 발굴(자체 소싱)", "Q": "퀀트 진입 타이밍"}
     roster = [
-        {"bot": "A", "name": "A", "color": "#8b949e", "model": "Claude Haiku",  "rank": ranks.rank_of("A", rk), "working": _bot_working("A")},
-        {"bot": "P", "name": "P", "color": "#5aa9e6", "model": "Claude Sonnet", "rank": ranks.rank_of("P", rk), "working": _bot_working("P")},
-        {"bot": "W", "name": "W", "color": "#c9a227", "model": "Claude Sonnet", "rank": ranks.rank_of("W", rk), "working": _bot_working("W")},
-        {"bot": "H", "name": "H", "color": "#a78bfa", "model": "Claude Sonnet", "rank": ranks.rank_of("H", rk), "working": _bot_working("H")},
-        {"bot": "S", "name": "S", "color": "#e08a3c", "model": "Claude Sonnet", "rank": ranks.rank_of("S", rk), "working": _bot_working("S")},
-        {"bot": "Q", "name": "Q", "color": "#4bbf8a", "model": "Claude Haiku",  "rank": ranks.rank_of("Q", rk), "working": _bot_working("Q")},
+        {"bot": b, "name": b, "color": c, "model": m, "role": _R[b],
+         "ret": ranks.return_of(b, ret), "working": _bot_working(b)}
+        for b, c, m in [
+            ("A", "#8b949e", "Claude Haiku"), ("P", "#5aa9e6", "Claude Sonnet"),
+            ("W", "#c9a227", "Claude Sonnet"), ("H", "#a78bfa", "Claude Sonnet"),
+            ("S", "#e08a3c", "Claude Sonnet"), ("Q", "#4bbf8a", "Claude Haiku"),
+        ]
     ]
     # 현재 섹터 박스 = 대형주 데스크 진행형(오늘 섹터 합의 리포트에서 도출 — 스케줄러 무배선에도 활동이 진실원천)
     import aifund

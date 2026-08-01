@@ -338,3 +338,11 @@ def test_run_largecap_execute_q_exit(monkeypatch):
     monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append(pid), (0, None))[1])
     r = aifund.run_largecap_execute()
     assert r["sold"] == ["애플"] and sells == [9]   # Q B+M 청산(익절/손절)
+
+
+def test_desk_sizing_largecap_concentrated_discovery_diversified():
+    # 대형주 집중(8%×12) / 발굴주 분산(4%×20)
+    assert aifund._desk_amount("대형주") == 4_000_000
+    assert aifund._desk_amount("발굴주") == 2_000_000
+    assert aifund._desk_can_open("대형주", 11) and not aifund._desk_can_open("대형주", 12)
+    assert aifund._desk_can_open("발굴주", 19) and not aifund._desk_can_open("발굴주", 20)

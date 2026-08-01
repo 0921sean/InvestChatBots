@@ -30,3 +30,15 @@ def test_compute_and_A_fixed():
     # A는 픽이 있어도 신입 고정
     assert ranks.rank_of("A", {"A": "부장"}) == "신입"
     assert ranks.rank_of("W", rk) == "신입"   # 픽 없으면 신입
+
+
+def test_compute_returns_and_return_of():
+    positions = [
+        {"status": "closed", "pnl_pct": 20.0, "reasoning": "Q 되돌림 진입 · 관심 H"},
+        {"status": "open", "unrealized_pnl_pct": 40.0, "reasoning": "발굴주 매수 (P)"},
+    ]
+    r = ranks.compute_returns(positions)
+    assert r["H"] == 20.0 and r["Q"] == 20.0 and r["P"] == 40.0
+    assert ranks.return_of("P", r) == 40.0
+    assert ranks.return_of("A", r) is None      # A 비매매
+    assert ranks.return_of("W", r) is None      # 픽 없음
