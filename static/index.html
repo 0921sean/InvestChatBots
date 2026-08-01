@@ -606,7 +606,8 @@
   /* ── AI펀드 fund 모드 (window.__FUND_MODE__ 일 때만 활성) ── */
   .member-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
   /* fund 모드 Members = v1 촘촘한 행 그대로. 모델만은 .fm-model, 출근은 초록 좌측선 */
-  .fm-role { display: block; font-size: 10px; color: #8b949e; }
+  .fm-role-inline { font-size: 10.5px; color: #8b949e; margin-left: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fm-ret { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; flex-shrink: 0; padding-left: 6px; }
   .fm-model { display: block; font-size: 9px; color: #444c56; margin-top: 1px; }
   /* fund Members = 멤버 박스(닉+직위+모델) 하나. 출근 시 박스 전체 초록 테두리 */
   body.fundmode #member-list .fm-box { margin: 3px 8px; border: 1px solid transparent; border-radius: 7px; padding: 3px 0; transition: border-color .2s, background .2s; }
@@ -2644,23 +2645,29 @@ function renderFundMembers(d) {
   if (!el) return;
   const working = d.session === 'working';                      // 출근이면 초록 좌측선
   el.innerHTML = '';
-  const add = (name, color, model, rank, work) => {            // 멤버 박스 하나(닉+직위+모델), 출근 시 박스 초록테두리
+  const add = (name, color, model, role, ret, work) => {       // 멤버 박스(닉+역할+수익률 / 모델), 출근 시 박스 초록테두리
     const box = document.createElement('div');
     box.className = 'fm-box' + (work ? ' working' : '');
     const row = document.createElement('div');
     row.className = 'member';
+    let retHtml = '';
+    if (ret !== null && ret !== undefined) {                    // 픽 수익률% — 한국식 색(이익 빨강/손실 파랑)
+      const col = ret > 0 ? '#f85149' : (ret < 0 ? '#58a6ff' : '#8b949e');
+      retHtml = `<span class="fm-ret" style="color:${col}">${ret > 0 ? '+' : ''}${ret}%</span>`;
+    }
     row.innerHTML = `<span class="dot" style="background:${color}"></span>`
-      + `<span class="member-name" style="color:${color}">${esc(name)}</span>`;
+      + `<span class="member-name" style="color:${color}">${esc(name)}</span>`
+      + (role ? `<span class="fm-role-inline">${esc(role)}</span>` : '')
+      + retHtml;
     box.appendChild(row);
     const sub = document.createElement('div');
     sub.className = 'member-sub';
-    sub.innerHTML = (rank ? `<span class="fm-role">${esc(rank)}</span>` : '')
-      + `<span class="fm-model">${esc(model)}</span>`;
+    sub.innerHTML = `<span class="fm-model">${esc(model)}</span>`;
     box.appendChild(sub);
     el.appendChild(box);
   };
-  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.rank || '', b.working));
-  add('나', '#fbbf24', '감독', '', false);                      // '나'(감독) 유지
+  (d.roster||[]).forEach(b => add(b.name || b.bot, b.color, b.model || '', b.role || '', b.ret, b.working));
+  add('나', '#fbbf24', '감독', '', null, false);                // '나'(감독) 유지
 }
 // 대형주/발굴주 = v1 포트폴리오 패널(_renderPfAccount) 그대로 재사용, 탭만 교체
 function renderFundPortfolio(d) {
