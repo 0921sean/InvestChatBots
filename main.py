@@ -638,7 +638,7 @@ def api_positions():
 
 
 @app.get("/api/fund-report")
-def api_fund_report(limit: int = 30):
+def api_fund_report(limit: int = 60):
     """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
     from db import get_fund_reports
     return get_fund_reports(limit)
