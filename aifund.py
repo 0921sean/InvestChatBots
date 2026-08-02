@@ -16,7 +16,8 @@ logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
 NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
-DAILY_QUOTA = 15           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 운영값 — 조정 쉬움.
+DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
+                           # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
 def _narrate(bot, content, model="rule"):
     """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
