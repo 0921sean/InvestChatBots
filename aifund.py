@@ -638,8 +638,8 @@ def _summarize_ko(name, business_summary):
         sys = ("너는 기업을 처음 보는 사람에게 소개하는 애널리스트다. 평가·전망·추천 없이, "
                "이 회사가 ①뭘 팔아서 어떻게 버는지 쉬운 말로 + ②'아 이런 회사구나' 싶은 포인트"
                "(대표 제품·서비스, 업계 위상·규모, 어디에 쓰이는지 등 처음 보는 사람이 궁금해할 것)를 "
-               "담백하게 2~3문장 한국어로. 투자판단·주가 얘기는 하지 마라.")
-        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n처음 보는 사람용 소개 2~3문장:"
+               "담백하게 2~3문장 한국어로. 제목·머리말·불릿 없이 바로 소개 문장만. 투자판단·주가 얘기 금지.")
+        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n바로 소개 문장(제목 없이):"
         return _clean_md((_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip())
     except Exception as e:
         logger.warning(f"한글 요약 실패 {name}: {e}")
@@ -742,13 +742,12 @@ _STOCK_HANDOFF = ["세 분 판단 부탁해요.", "다들 어떻게 보시는지
 
 
 def _first_sentence(text) -> str:
-    """소개 첫 문장(A 채팅용 짧은 '뭐하는 회사')."""
+    """소개 첫 문장(A 채팅용 '뭐하는 회사') — 첫 마침표까지."""
     text = (text or "").strip().replace("\n", " ")
-    for sep in ("다. ", ". "):
-        i = text.find(sep)
-        if 0 < i < 90:
-            return text[:i + len(sep) - 1]
-    return text[:70]
+    if not text:
+        return ""
+    m = re.search(r"[.!?]\s", text) or re.search(r"[.!?]$", text)
+    return text[:m.end()].strip() if m else text[:90].strip()
 
 
 def _stock_data_msg(name, code, brief, intro_desc="") -> str:
