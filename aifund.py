@@ -763,10 +763,11 @@ def source_largecap(market="US", quota=None):
 
 
 def _store_report(today, code, name, brief, desk_tag):
-    """A 리포트 저장(한글요약+재무). 실패해도 무시."""
+    """A 리포트 저장(재무 + 발굴주는 '처음 보는 사람용' 소개). 실패해도 무시.
+    대형주는 다 아는 메가캡이라 사업 소개 생략(재무만) — 토큰도 아낌."""
     from db import record_fund_report
-    packet, summary = brief or ("", "")
-    summary = _summarize_ko(name, summary) or summary
+    packet, biz = brief or ("", "")
+    summary = (_summarize_ko(name, biz) or biz) if desk_tag == "발굴주" else ""
     try:
         record_fund_report(today, code, name, summary, packet, desk_tag)
     except Exception as e:
