@@ -187,8 +187,8 @@ NEW_DESK_ORDER = ["P", "W", "S"]                   # (레거시) 4봇 경쟁 발
 LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 린치·버핏·실적왕(H) → 관심종목 캐시
 DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 린치·버핏·병목 → 즉시매수
 # 데스크별 사이징 — 대형주 집중(고확신), 발굴주 분산(리스크). 각 시드 DESK_SEED(5,000만) 기준.
-DESK_SIZING = {"대형주": {"weight": 0.08, "max": 12},   # 종목당 8%(400만) · 최대 12
-               "발굴주": {"weight": 0.04, "max": 20}}   # 종목당 4%(200만) · 최대 20
+DESK_SIZING = {"대형주": {"weight": 0.10, "max": 10},   # 종목당 10%(500만) · 최대 10
+               "발굴주": {"weight": 0.05, "max": 20}}   # 종목당 5%(250만) · 최대 20
 _VERDICT_RE = re.compile(r"\[결정\]\s*(매수|관망|매도)")
 
 
@@ -640,7 +640,7 @@ def _summarize_ko(name, business_summary):
                "(대표 제품·서비스, 업계 위상·규모, 어디에 쓰이는지 등 처음 보는 사람이 궁금해할 것)를 "
                "담백하게 2~3문장 한국어로. 투자판단·주가 얘기는 하지 마라.")
         prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n처음 보는 사람용 소개 2~3문장:"
-        return (_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip()
+        return _clean_md((_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip())
     except Exception as e:
         logger.warning(f"한글 요약 실패 {name}: {e}")
         return ""
@@ -741,14 +741,25 @@ _STOCK_INTRO = [
 _STOCK_HANDOFF = ["세 분 판단 부탁해요.", "다들 어떻게 보시는지?", "의견 주세요!", "판단 넘길게요."]
 
 
-def _stock_data_msg(name, code, brief) -> str:
-    """A가 종목 차례를 알리며 핵심 재무(=TradingView 데이터)를 올리고 P/W/H에게 넘기는 멘트."""
+def _first_sentence(text) -> str:
+    """소개 첫 문장(A 채팅용 짧은 '뭐하는 회사')."""
+    text = (text or "").strip().replace("\n", " ")
+    for sep in ("다. ", ". "):
+        i = text.find(sep)
+        if 0 < i < 90:
+            return text[:i + len(sep) - 1]
+    return text[:70]
+
+
+def _stock_data_msg(name, code, brief, intro_desc="") -> str:
+    """A가 종목 차례를 알리며 (발굴주면 한 줄 소개 +) 핵심 재무를 올리고 P/W/H에게 넘기는 멘트."""
     packet = (brief or ("", ""))[0] or ""
     keys = ("현재가", "PER", "PEG", "EPS", "ROE", "마진", "성장", "매출", "잉여현금")
     keep = [ln.strip() for ln in packet.splitlines() if any(k in ln for k in keys)][:6]
     body = " · ".join(keep) if keep else "핵심 재무 데이터가 잘 안 잡히네요"
     intro = random.choice(_STOCK_INTRO).format(tk=_tk(code, name))
-    return f"{intro} 📊  {body}\n{random.choice(_STOCK_HANDOFF)}"
+    desc = f" — {intro_desc}" if intro_desc else ""              # 발굴주: 뭐하는 회사 한 줄
+    return f"{intro}{desc}\n📊  {body}\n{random.choice(_STOCK_HANDOFF)}"
 
 
 def source_largecap(market="US", quota=None):
@@ -762,12 +773,14 @@ def source_largecap(market="US", quota=None):
     return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
 
 
-def _store_report(today, code, name, brief, desk_tag):
+def _store_report(today, code, name, brief, desk_tag, summary=None):
     """A 리포트 저장(재무 + 발굴주는 '처음 보는 사람용' 소개). 실패해도 무시.
-    대형주는 다 아는 메가캡이라 사업 소개 생략(재무만) — 토큰도 아낌."""
+    대형주는 다 아는 메가캡이라 사업 소개 생략(재무만) — 토큰도 아낌.
+    summary 주면 재계산 안 함(루프에서 A 채팅용으로 한 번 만든 걸 재사용)."""
     from db import record_fund_report
     packet, biz = brief or ("", "")
-    summary = (_summarize_ko(name, biz) or biz) if desk_tag == "발굴주" else ""
+    if summary is None:
+        summary = (_summarize_ko(name, biz) or biz) if desk_tag == "발굴주" else ""
     try:
         record_fund_report(today, code, name, summary, packet, desk_tag)
     except Exception as e:
@@ -816,12 +829,20 @@ def run_discovery_desk(market="US"):
     today = _today_kst()
     buys = []
     for code, name in cands:
-        r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
-        _store_report(today, code, name, r.get("brief"), "발굴주")
-        _narrate("A", _stock_data_msg(name, code, r.get("brief")))   # A가 종목+재무 제시(대형주와 일관)
-        for bot in DISCOVERY_BOTS:
-            _narrate(bot, verdict_message(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
-        approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
+        brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
+        biz_ko = _summarize_ko(name, (brief or ("", ""))[1])         # 발굴주 소개(리서치보드용 풀)
+        _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
+        _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
+        verdicts, reasonings = {}, {}
+        for bot in DISCOVERY_BOTS:                                   # P/W/S 순차 — 각자 끝나는 대로 하나씩
+            try:
+                v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
+            except Exception as e:
+                logger.warning(f"발굴 분석 실패 {code}@{bot}: {e}")
+                v, rz = "관망", ""
+            verdicts[bot], reasonings[bot] = v, rz
+            _narrate(bot, verdict_message(rz, v, name), model="sonnet")
+        approvers = [b for b in DISCOVERY_BOTS if verdicts.get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
         if not _desk_can_open("발굴주", len(get_open_positions(account="발굴주"))):
@@ -829,7 +850,7 @@ def run_discovery_desk(market="US"):
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
         if not price:
             continue
-        reason = _verdict_reason(r["reasonings"].get(approvers[0], ""))   # 대표 승인봇의 매수 이유
+        reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유
         rz = f"발굴주 매수 ({','.join(approvers)})" + (f" — {approvers[0]}: {reason}" if reason else "")
         _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
         if not err:
@@ -913,22 +934,29 @@ def run_largecap_select(market="US"):
                     _narrate(bot, op, model="sonnet")
             _store_sector_consensus(today, sector, opinions)
         done.append(sector)
-        for code in codes:                                          # 2단계: 종목별 A가 데이터 올림 → P/W/H 판단
+        for code in codes:                                          # 2단계: A가 데이터 먼저 → P/W/H 순차 판단
             if code in done_codes:                                  # 이미 분석한 종목 스킵(resume)
                 continue
             name = names.get(code, code)
-            r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
-            _store_report(today, code, name, r.get("brief"), "대형주")
-            _narrate("A", _stock_data_msg(name, code, r.get("brief")))   # A가 종목+재무 제시
-            for bot in LARGECAP_BOTS:
-                _narrate(bot, verdict_message(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
-            approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
+            brief = build_research_brief(code, name, code, market)   # A가 데이터 준비
+            _store_report(today, code, name, brief, "대형주")        # 대형주는 소개 생략(재무만)
+            _narrate("A", _stock_data_msg(name, code, brief))       # A가 먼저 올림
+            verdicts, reasonings = {}, {}
+            for bot in LARGECAP_BOTS:                               # P/W/H 순차 — 각자 끝나는 대로 하나씩
+                try:
+                    v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
+                except Exception as e:
+                    logger.warning(f"대형주 분석 실패 {code}@{bot}: {e}")
+                    v, rz = "관망", ""
+                verdicts[bot], reasonings[bot] = v, rz
+                _narrate(bot, verdict_message(rz, v, name), model="sonnet")
+            approvers = [b for b in LARGECAP_BOTS if verdicts.get(b) == "매수"]
             if approvers:
                 add_to_watch(code, name, ",".join(approvers))
                 watched.append(code)
                 _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 핸드오프 → Q
             held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
-            sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
+            sellers = [b for b in LARGECAP_BOTS if verdicts.get(b) == "매도"]
             if held and len(sellers) >= 2:
                 price = fetch_stock_price(code if market == "US" else f"{code}.KS")
                 if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
