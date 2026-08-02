@@ -916,33 +916,26 @@ def run_largecap_execute(market="US"):
     watch = get_watchlist("watching")
     held = get_open_positions(account="대형주")
     held_codes = {(p.get("code") or p["symbol"]) for p in held}
+    cand = [w for w in watch if w["code"] not in held_codes]  # 신규 후보 = 관심종목 중 아직 미보유(재승인 보유분은 추가매수 X)
     codes = list({w["code"] for w in watch} | held_codes)
-    look = sorted(held_codes | {w["code"] for w in watch})    # 오늘 Q가 볼 종목(티커)
-    if look:                                                  # 출근 다음 — 오늘 볼 종목 브리핑
-        _narrate("Q", f"오늘 볼 종목은 {', '.join(look)}네요. 하나씩 타이밍 봅니다.")
+    brief = []
+    if cand:
+        brief.append(f"관심종목 {', '.join(w['code'] for w in cand)}")
+    if held_codes:
+        brief.append(f"보유분 {', '.join(sorted(held_codes))}")
+    if brief:
+        _narrate("Q", "오늘 볼 종목 — " + " · ".join(brief) + ". 후보 타이밍부터 봅니다.")
     data = bt._fetch(codes, period="2y") if codes else {}
     sold, bought = [], []
-    for p in held:                                            # 청산 점검: Q가 홀드/청산을 근거와 함께 코멘트(티커)
-        code = p.get("code") or p["symbol"]
-        o = data.get(code)
-        if not o:
-            continue
-        strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
-        exiting = bool(q_exit_signal(o["close"], strat))
-        _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
-        if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
-            sold.append(p["symbol"])
-    n = len(get_open_positions(account="대형주"))
-    for w in watch:                                           # 진입: Q 타이밍
+    n = len(held)
+    for w in cand:                                            # ① 신규 후보 진입 타이밍
         if not _desk_can_open("대형주", n):
             break
-        if w["code"] in held_codes:                           # 이미 보유(티커 기준) → 진입 코멘트 스킵(중복 방지)
-            continue
         o = data.get(w["code"])
         if not o:
             continue
         tag = q_entry_signal(o["close"], up)
-        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "진입" if tag else "대기"))   # 티커(상세명) · 이유(사도 안 사도)
+        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "진입" if tag else "대기"))   # 티커(상세명)·이유
         if not tag:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
@@ -954,6 +947,19 @@ def run_largecap_execute(market="US"):
             bought.append(w["code"])
             n += 1
             _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
+    if held:                                                  # ② 보유 종목 점검(추가매수 없음 — 홀드/청산만)
+        _narrate("Q", "이제 갖고 있는 종목들 점검할게요.")
+        for p in held:
+            code = p.get("code") or p["symbol"]
+            o = data.get(code)
+            if not o:
+                continue
+            strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
+            exiting = bool(q_exit_signal(o["close"], strat))
+            _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
+            if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
+                sold.append(p["symbol"])
+    _narrate("Q", "오늘 대형주 타이밍 점검 끝 — Q 퇴근합니다. 🫡")   # ③ 퇴근
     return {"bought": bought, "sold": sold}
 
 
