@@ -2738,15 +2738,13 @@ function renderFundReport(reports) {
     list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 섹터·종목별로 채웁니다.</div>`;
     return;
   }
-  const secs = reports.filter(r => r.desk === '섹터합의');           // 섹터 합의 먼저
-  const stocks = reports.filter(r => r.desk !== '섹터합의');
-  const secCards = secs.map(r => {
-    const sum = (r.summary || '').trim();
-    const body = sum ? `<div class="fr-op">${esc(sum)}</div>` : '';
-    return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${body}</div>`;
-  }).join('');
-  const stockCards = stocks.map(r => {
-    const tag = r.desk === '발굴주'
+  const cards = reports.map(r => {                              // 최신순 그대로 렌더(발굴 사이클 중엔 발굴 카드가 위로)
+    if (r.desk === '섹터합의') {                                 // 섹터 합의 카드
+      const sum = (r.summary || '').trim();
+      const body = sum ? `<div class="fr-op">${esc(sum)}</div>` : '';
+      return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${body}</div>`;
+    }
+    const tag = r.desk === '발굴주'                              // 종목 카드(발굴/대형 태그)
       ? `<span class="fr-tag s">발굴</span>` : `<span class="fr-tag pw">대형주</span>`;
     const nm = (r.name && r.name !== r.code) ? `<span class="fr-nm">${esc(r.name)}</span>` : '';
     let s = r.summary || '';
@@ -2755,7 +2753,7 @@ function renderFundReport(reports) {
     const fin = r.packet ? `<div class="fr-fin">${esc(r.packet)}</div>` : '';
     return `<div class="fr-card"><div class="fr-top"><span class="fr-tk">${esc(r.code)}</span>${nm}${tag}</div>${sum}${fin}</div>`;
   }).join('');
-  list.innerHTML = `<div id="fund-report">` + secCards + stockCards + `</div>`;
+  list.innerHTML = `<div id="fund-report">` + cards + `</div>`;
 }
 async function loadFundReport() {
   try { renderFundReport(await (await fetch('/api/fund-report')).json()); } catch (e) {}
