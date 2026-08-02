@@ -785,6 +785,7 @@ def run_discovery_desk(market="US"):
     for code, name in cands:
         r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
         _store_report(today, code, name, r.get("brief"), "발굴주")
+        _narrate("A", _stock_data_msg(name, code, r.get("brief")))   # A가 종목+재무 제시(대형주와 일관)
         for bot in DISCOVERY_BOTS:
             _narrate(bot, verdict_message(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
         approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
@@ -799,7 +800,7 @@ def run_discovery_desk(market="US"):
                                      f"발굴주 매수 ({','.join(approvers)})", market, account="발굴주")
         if not err:
             buys.append(code)
-            _narrate(approvers[0], random.choice(_BUY_LINES).format(name=name))
+            _narrate(approvers[0], random.choice(_BUY_LINES).format(name=_tk(code, name)))
     _narrate("A", random.choice(_A_DONE).format(desk="발굴", n=len(cands)))
     for bot in DISCOVERY_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
