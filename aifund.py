@@ -635,9 +635,11 @@ def _summarize_ko(name, business_summary):
         return ""
     try:
         from agents import _call_claude_cli
-        sys = ("너는 기업을 한 줄로 요약하는 애널리스트다. 평가·전망·추천 없이 "
-               "'이 회사가 뭘 팔아서 어떻게 버는지'만 담백하게 1~2문장 한국어로.")
-        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n한국어 1~2문장으로만 요약."
+        sys = ("너는 기업을 처음 보는 사람에게 소개하는 애널리스트다. 평가·전망·추천 없이, "
+               "이 회사가 ①뭘 팔아서 어떻게 버는지 쉬운 말로 + ②'아 이런 회사구나' 싶은 포인트"
+               "(대표 제품·서비스, 업계 위상·규모, 어디에 쓰이는지 등 처음 보는 사람이 궁금해할 것)를 "
+               "담백하게 2~3문장 한국어로. 투자판단·주가 얘기는 하지 마라.")
+        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n처음 보는 사람용 소개 2~3문장:"
         return (_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip()
     except Exception as e:
         logger.warning(f"한글 요약 실패 {name}: {e}")
