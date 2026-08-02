@@ -542,7 +542,7 @@ def _q_snapshot(closes) -> str:
         parts.append(f"볼밴 %b {pctb:.2f}")
     hi = max(closes[-252:]) if len(closes) >= 20 else max(closes)
     if hi:
-        parts.append(f"52주고점比 {(px / hi - 1) * 100:+.1f}%")
+        parts.append(f"52주 고점 대비 {(px / hi - 1) * 100:+.1f}%")
     return " · ".join(parts)
 
 
@@ -568,7 +568,11 @@ def _q_say(name, closes, verdict) -> str:
         refuse = any(x in out.lower() for x in (
             "can't", "cannot", "확인할 수 없", "필요합니다", "roleplay", "실시간",
             "제공할 수 없", "할 수 없습니다", "죄송", "조언", "금융 자문", "거래 신호를"))
-        return fb if (not out or refuse) else out
+        if not out or refuse:
+            return fb
+        if not out.startswith(name):                          # 무슨 종목인지 앞에 명시
+            out = f"{name} — {out}"
+        return out
     except Exception as e:
         logger.warning(f"Q 코멘트 실패 {name}: {e}")
         return fb
