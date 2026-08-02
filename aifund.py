@@ -7,6 +7,7 @@ AI 펀드 팀룸 — 설계 docs/AIFUND_PIVOT.md.
 네트워크(_recent_earnings_date)는 격리.
 """
 import logging
+import os
 import random
 from datetime import datetime, timezone, timedelta
 
@@ -15,7 +16,7 @@ from db import get_cached_codes, get_thesis, invalidate_thesis
 logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
-NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
+NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "yes")  # 컷오버 게이트(.env). off면 fund 잡 no-op.
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -1040,6 +1041,35 @@ def run_new_desk_cycle(market="US"):
     le = run_largecap_execute(market)
     _snapshot_fund_nav()
     return {"discovery": d, "discovery_review": dr, "largecap_select": ls, "largecap_execute": le}
+
+
+# ── 스케줄러 슬롯 (컷오버) — 06 대형주 / 12·18·24 발굴. NEW_DESK_ENABLED=False면 각 내부 함수가 no-op ──
+def run_largecap_cycle(market="US"):
+    """06시 대형주 슬롯 — 섹터 토론+종목 [결정] 선정 → Q 진입 타이밍 집행 → NAV 스냅샷."""
+    if not NEW_DESK_ENABLED:
+        return {}
+    try:
+        sel = run_largecap_select(market)
+        exe = run_largecap_execute(market)
+        _snapshot_fund_nav()
+        return {"select": sel, "execute": exe}
+    except Exception as e:
+        logger.error(f"대형주 사이클 실패: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+def run_discovery_cycle(market="US"):
+    """12·18·24 발굴 슬롯 — A/S 발굴 → P/W/S OR게이트 즉시매수 + 보유 점검 → NAV 스냅샷."""
+    if not NEW_DESK_ENABLED:
+        return {}
+    try:
+        desk = run_discovery_desk(market)
+        review = run_discovery_review(market)
+        _snapshot_fund_nav()
+        return {"desk": desk, "review": review}
+    except Exception as e:
+        logger.error(f"발굴 사이클 실패: {e}", exc_info=True)
+        return {"error": str(e)}
 
 
 def _snapshot_fund_nav():
