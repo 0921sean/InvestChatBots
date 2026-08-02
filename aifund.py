@@ -158,6 +158,27 @@ def source_bottleneck(market="US", quota=None):
     return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
 
 
+def _s_sourcing_note(codes, names) -> str:
+    """S가 자체 소싱한 병목 종목을 '어떤 초크포인트 맥락에서 물어왔는지' 종목별 한 줄로 설명(haiku). 폴백."""
+    fallback = ("제가 오늘 물어온 병목 종목은 "
+                + ", ".join(_tk(c, names.get(c)) for c in codes) + "입니다. 사슬 뒤를 봅니다.")
+    try:
+        from agents import _call_claude_cli
+        lst = "\n".join(f"- {c} ({names.get(c, c)})" for c in codes)
+        # 사실 위주(회사가 공급망에서 뭘 만드는지)로 프레이밍 → 조언 거부 회피
+        sysp = ("너는 반도체·AI 인프라 공급망에 밝은 기술 설명가다. 아래 회사들이 AI 인프라 사슬"
+                "(광통신·인터커넥트·이더넷 스위칭·HBM·전력/냉각·화합물 기판 등)에서 각각 무슨 부품을 만들고 "
+                "어느 초크포인트에 위치하는지 한 줄씩 'TICKER — 역할' 형식으로 사실 위주 설명해라. "
+                "매수·투자판단·권유 아니고 '이 회사가 사슬에서 뭘 하는지'만. 반말, 간결히.")
+        prompt = f"회사 목록:\n{lst}\n\n각 회사의 공급망 내 부품·역할 한 줄씩:"
+        out = (_call_claude_cli(sysp, prompt, timeout=30, model="haiku") or "").strip()
+        refuse = any(x in out.lower() for x in ("제공할 수 없", "할 수 없습니다", "죄송", "cannot", "can't", "financial analysis"))
+        return fallback if (not out or refuse) else "오늘 제가 물어온 병목 종목입니다 (사슬 뒤를 봅니다):\n" + _clean_md(out)
+    except Exception as e:
+        logger.warning(f"S 소싱 노트 실패: {e}")
+        return fallback
+
+
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
 import re                                          # noqa: E402
 
@@ -780,9 +801,8 @@ def run_discovery_desk(market="US"):
     src = source_today(market)
     _narrate("A", src["briefing"])
     s_src = source_bottleneck(market)
-    if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목을 직접 알림(엣지 가시화)
-        _s_list = ", ".join(_tk(c, s_src["names"].get(c)) for c in s_src["codes"])
-        _narrate("S", f"제가 오늘 물어온 병목 종목은 {_s_list}입니다. 사슬 뒤를 봅니다.")
+    if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목 + 맥락(왜 병목인지)을 직접 알림
+        _narrate("S", _s_sourcing_note(s_src["codes"], s_src["names"]))
     cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
         + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
     if not cands:
