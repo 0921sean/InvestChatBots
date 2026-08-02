@@ -525,6 +525,51 @@ def _line(pool, bot):
     return random.choice(pool.get(bot) or [""])
 
 
+def _q_snapshot(closes) -> str:
+    """Q가 보는 기술적 상태 한 줄 — 현재가·200일선·20일선·볼밴 %b·52주고점比. (순수 계산)"""
+    import backtest as bt
+    px = closes[-1]
+    parts = [f"현재가 {px:.1f}"]
+    if len(closes) >= 200:
+        s200 = bt._sma(closes, 200)
+        parts.append(f"200일선 {s200:.1f}({'위' if px > s200 else '아래'})")
+    if len(closes) >= 20:
+        import statistics
+        w = closes[-20:]
+        mb, sd = sum(w) / 20, statistics.pstdev(w)
+        up_b, lo_b = mb + 2 * sd, mb - 2 * sd
+        pctb = (px - lo_b) / (up_b - lo_b) if up_b != lo_b else 0.5
+        parts.append(f"볼밴 %b {pctb:.2f}")
+    hi = max(closes[-252:]) if len(closes) >= 20 else max(closes)
+    if hi:
+        parts.append(f"52주고점比 {(px / hi - 1) * 100:+.1f}%")
+    return " · ".join(parts)
+
+
+def _q_say(name, closes, verdict) -> str:
+    """Q가 기술적 스냅샷을 근거로 판단(진입/대기/홀드/청산)과 이유를 1~2문장 설명(haiku). 폴백 규칙.
+    ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
+    snap = _q_snapshot(closes)
+    fb = {
+        "진입": f"{name} — {snap}. 진입 신호 떠서 담습니다.",
+        "대기": f"{name} — {snap}. 아직 진입 자리가 아니라 지켜봅니다.",
+        "홀드": f"{name} — {snap}. 청산 신호 없어 계속 보유.",
+        "청산": f"{name} — {snap}. 청산 신호 떠서 정리합니다.",
+    }.get(verdict, f"{name} — {snap}.")
+    try:
+        from agents import _call_claude_cli
+        sysp = ("너는 추세추종·평균회귀 블렌드 규칙으로 대형주 진입/청산 타이밍만 보는 퀀트봇 Q다. "
+                "아래 기술적 상태를 근거로 지금 이 종목을 어떻게 할지(진입/대기/홀드/청산)와 그 이유를 "
+                "팀 채팅에 반말로 1~2문장. 숫자 근거를 들되 미래보장·권유·인사·면책 금지, 내 가상계좌 관점.")
+        prompt = f"{name} 기술적 상태: {snap}\n내 규칙 판단: {verdict}\n팀에 코멘트로:"
+        out = (_call_claude_cli(sysp, prompt, timeout=25, model="haiku") or "").strip().split("\n\n")[0].strip().lstrip("> ").strip('"')
+        refuse = any(x in out.lower() for x in ("can't", "cannot", "확인할 수 없", "필요합니다", "roleplay", "실시간"))
+        return fb if (not out or refuse) else out
+    except Exception as e:
+        logger.warning(f"Q 코멘트 실패 {name}: {e}")
+        return fb
+
+
 def _q_explain(name, action, tag, approvers=None):
     """Q가 매매 이유를 대화체로 설명(haiku, 저비용). 실패 시 규칙 기반 폴백.
     ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
@@ -618,14 +663,14 @@ def _summarize_consensus(sector, opinions) -> str:
     valid = {b: o for b, o in opinions.items() if o}
     if not valid:
         return ""
-    joined = "\n".join(f"{b}: {o}" for b, o in valid.items())
+    joined = "\n".join(f"{b}: {(o or '')[:250]}" for b, o in valid.items())   # 의견 트리밍 — 요약 프롬프트 비대·타임아웃 방지
     fallback = f"{sector} — 세 애널리스트 모두 개별 종목 밸류에이션 확인 전 판단 유보 기조."
     try:
         from agents import _call_claude_cli
         sysp = ("너는 애널리스트 A다. 세 동료의 섹터 의견을 팀 게시판에 올릴 2~3문장 '합의 요약'으로 정리한다. "
                 "공통 시각과 갈리는 지점을 중립적으로. 특정 종목명·[결정]·매수권유 금지, 섹터 큰 그림만.")
         prompt = f"'{sector}' 섹터 동료 의견:\n{joined}\n\n합의 요약 2~3문장:"
-        out = _strip_decision((_call_claude_cli(sysp, prompt, timeout=30, model="haiku") or "").strip())
+        out = _strip_decision((_call_claude_cli(sysp, prompt, timeout=60, model="haiku") or "").strip())
         return out or fallback
     except Exception as e:
         logger.warning(f"섹터 합의 요약 실패 {sector}: {e}")
@@ -859,14 +904,15 @@ def run_largecap_execute(market="US"):
     codes = list({w["code"] for w in watch} | {(p.get("code") or p["symbol"]) for p in held})
     data = bt._fetch(codes, period="2y") if codes else {}
     sold, bought = [], []
-    for p in held:                                            # 청산: Q B+M 익절/손절
+    for p in held:                                            # 청산 점검: Q가 홀드/청산을 근거와 함께 코멘트
         o = data.get(p.get("code") or p["symbol"])
         if not o:
             continue
         strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
-        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
+        exiting = bool(q_exit_signal(o["close"], strat))
+        _narrate("Q", _q_say(p["symbol"], o["close"], "청산" if exiting else "홀드"))
+        if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
             sold.append(p["symbol"])
-            _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
     n = len(get_open_positions(account="대형주"))
     for w in watch:                                           # 진입: Q 타이밍
         if not _desk_can_open("대형주", n):
@@ -875,6 +921,7 @@ def run_largecap_execute(market="US"):
         if not o or get_open_positions_by_symbol(w["name"], account="대형주"):
             continue
         tag = q_entry_signal(o["close"], up)
+        _narrate("Q", _q_say(w["name"], o["close"], "진입" if tag else "대기"))   # 뭘 보는지 + 판단 이유(사도 안 사도)
         if not tag:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
@@ -885,7 +932,7 @@ def run_largecap_execute(market="US"):
             mark_watch(w["code"], "bought")
             bought.append(w["code"])
             n += 1
-            _narrate("Q", "⏱️ " + _q_explain(w["name"], "진입", tag, w.get("approved_by")))
+            _narrate("Q", f"⏱️ {w['name']} 매수 체결 — 내 계좌에 담았습니다.")
     return {"bought": bought, "sold": sold}
 
 
