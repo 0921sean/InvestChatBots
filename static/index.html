@@ -2710,12 +2710,22 @@ function renderFundSector(p) {
     if (ss) ss.innerHTML = '';
     return;
   }
+  const st = p.stock_total || 0, sd = p.stock_done || 0;
   if (sn) sn.textContent = p.sector || '대형주 데스크';
-  if (sc) sc.textContent = `${p.done}/${p.total}` + (p.done >= p.total ? ' ✓' : '');
-  if (sp) sp.textContent = p.working ? `대형주 데스크 진행 중 · ${p.sector || ''}`
-                                     : `오늘 ${p.done}개 섹터 분석 완료`;
-  if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round(p.done / (p.total || 1) * 100)) + '%'; }
-  if (ss) ss.innerHTML = (p.chips || []).map(n => `<span class="stock-badge">${esc(n)}</span>`).join('');
+  if (sc) sc.textContent = `섹터 ${p.done}/${p.total}` + (p.done >= p.total ? ' ✓' : '');
+  if (sp) {                                               // 진행 중이면 현재 섹터의 종목 진행, 아니면 완료 안내
+    const curChip = (p.chips || []).find(x => x && x.status === 'current');
+    sp.textContent = p.working
+      ? `${p.sector} · 종목 ${sd}/${st}` + (curChip ? ` · ${curChip.code} 분석 중` : '')
+      : `오늘 ${p.done}개 섹터 분석 완료`;
+  }
+  if (sf) { sf.style.display = ''; sf.style.width = Math.min(100, Math.round((st ? sd / st : 0) * 100)) + '%'; }
+  if (ss) ss.innerHTML = (p.chips || []).map(x => {          // 티커 · 상태색(done 초록/current 파랑/pending) · 호버 툴팁
+    const code = (typeof x === 'string') ? x : (x.code || '');
+    const cls = (typeof x === 'string') ? '' : (x.status === 'done' ? ' done' : x.status === 'current' ? ' current' : '');
+    const tip = (typeof x === 'string') ? '' : ((x.name || '') + (x.desc ? ' — ' + x.desc : ''));
+    return `<span class="stock-badge${cls}" title="${esc(tip)}">${esc(code)}</span>`;
+  }).join('');
 }
 function renderFundReport(reports) {
   const hdr = document.querySelector('#memo-panel .panel-header h3');
@@ -2728,19 +2738,13 @@ function renderFundReport(reports) {
     list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 섹터·종목별로 채웁니다.</div>`;
     return;
   }
-  const secs = reports.filter(r => r.desk === '섹터합의');           // 섹터 합의 먼저
-  const stocks = reports.filter(r => r.desk !== '섹터합의');
-  const secCards = secs.map(r => {
-    const rows = (r.summary || '').split('\n').filter(Boolean).map(ln => {
-      const i = ln.indexOf('—');
-      const who = i > 0 ? ln.slice(0, i).trim() : '';
-      const op = i > 0 ? ln.slice(i + 1).trim() : ln;
-      return `<div class="fr-op"><span class="fr-op-b">${esc(who)}</span>${esc(op)}</div>`;
-    }).join('');
-    return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${rows}</div>`;
-  }).join('');
-  const stockCards = stocks.map(r => {
-    const tag = r.desk === '발굴주'
+  const cards = reports.map(r => {                              // 최신순 그대로 렌더(발굴 사이클 중엔 발굴 카드가 위로)
+    if (r.desk === '섹터합의') {                                 // 섹터 합의 카드
+      const sum = (r.summary || '').trim();
+      const body = sum ? `<div class="fr-op">${esc(sum)}</div>` : '';
+      return `<div class="fr-card fr-sec"><div class="fr-top"><span class="fr-tk">${esc(r.name || r.code)}</span><span class="fr-tag sec">섹터 합의</span></div>${body}</div>`;
+    }
+    const tag = r.desk === '발굴주'                              // 종목 카드(발굴/대형 태그)
       ? `<span class="fr-tag s">발굴</span>` : `<span class="fr-tag pw">대형주</span>`;
     const nm = (r.name && r.name !== r.code) ? `<span class="fr-nm">${esc(r.name)}</span>` : '';
     let s = r.summary || '';
@@ -2749,7 +2753,7 @@ function renderFundReport(reports) {
     const fin = r.packet ? `<div class="fr-fin">${esc(r.packet)}</div>` : '';
     return `<div class="fr-card"><div class="fr-top"><span class="fr-tk">${esc(r.code)}</span>${nm}${tag}</div>${sum}${fin}</div>`;
   }).join('');
-  list.innerHTML = `<div id="fund-report">` + secCards + stockCards + `</div>`;
+  list.innerHTML = `<div id="fund-report">` + cards + `</div>`;
 }
 async function loadFundReport() {
   try { renderFundReport(await (await fetch('/api/fund-report')).json()); } catch (e) {}

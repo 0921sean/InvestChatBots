@@ -34,3 +34,16 @@ def test_format_stock_verdict_synthesizes_when_missing():
 
 def test_format_stock_verdict_empty_reasoning():
     assert aifund.format_stock_verdict("", "관망") == "[결정] 관망 | 이유: 근거 미확보"
+
+
+def test_verdict_message_keeps_full_body_and_cleans_md():
+    rz = "## 헤더\n**핵심**: PER 30x 비쌈.\n성장 둔화.\n[결정] 관망 | 이유: 고평가"
+    out = aifund.verdict_message(rz, "관망")
+    assert "##" not in out and "**" not in out          # 마크다운 제거
+    assert "PER 30x" in out and "성장 둔화" in out        # 본문 전체 유지
+    assert out.rstrip().endswith("고평가")               # [결정] 끝줄 보존
+
+
+def test_verdict_message_appends_decision_if_missing():
+    out = aifund.verdict_message("좋은 회사지만 비싸다.", "관망")
+    assert "좋은 회사지만" in out and "[결정] 관망" in out

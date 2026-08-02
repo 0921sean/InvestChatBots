@@ -234,9 +234,10 @@ def test_run_discovery_desk_or_gate_buys(monkeypatch):
     monkeypatch.setattr(aifund, "source_today",
                         lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
-    monkeypatch.setattr(aifund, "analyze_candidate",
-                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "매수", "W": "관망", "S": "관망"},
-                                                                   "reasonings": {}, "brief": ("", "")})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_summarize_ko", lambda name, biz: "")
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, m="US", brief=None: ({"P": "매수", "W": "관망", "S": "관망"}.get(bot, "관망"), ""))
     monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
     monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
     monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
@@ -255,14 +256,15 @@ def test_run_largecap_select_2stage_daily(monkeypatch):
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "_largecap_sectors", lambda: {"반도체": ["AAPL"]})   # 섹터 단위
     monkeypatch.setattr(aifund, "stock_name", lambda c: "애플")
+    monkeypatch.setattr(db, "get_fund_reports", lambda n=300: [])                     # 오늘 첫 실행(스킵 없음)
     cleared = []
     monkeypatch.setattr(db, "clear_watchlist", lambda: cleared.append(True))          # 매일 재분석
     opin = []
     monkeypatch.setattr(aifund, "_sector_opinion", lambda bot, sec, names, m="US": f"{bot} 섹터의견")
     monkeypatch.setattr(aifund, "_store_sector_consensus", lambda t, sec, ops: opin.append((sec, dict(ops))))
-    monkeypatch.setattr(aifund, "analyze_candidate",
-                        lambda code, name, tk, m="US", bots=None: {"verdicts": {"P": "관망", "W": "매수", "H": "관망"},
-                                                                   "reasonings": {}, "brief": ("", "")})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, m="US", brief=None: ({"P": "관망", "W": "매수", "H": "관망"}.get(bot, "관망"), ""))
     monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
     monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
     watched = []
@@ -342,7 +344,41 @@ def test_run_largecap_execute_q_exit(monkeypatch):
 
 def test_desk_sizing_largecap_concentrated_discovery_diversified():
     # 대형주 집중(8%×12) / 발굴주 분산(4%×20)
-    assert aifund._desk_amount("대형주") == 4_000_000
-    assert aifund._desk_amount("발굴주") == 2_000_000
-    assert aifund._desk_can_open("대형주", 11) and not aifund._desk_can_open("대형주", 12)
+    assert aifund._desk_amount("대형주") == 5_000_000
+    assert aifund._desk_amount("발굴주") == 2_500_000
+    assert aifund._desk_can_open("대형주", 9) and not aifund._desk_can_open("대형주", 10)
     assert aifund._desk_can_open("발굴주", 19) and not aifund._desk_can_open("발굴주", 20)
+
+
+def test_run_largecap_select_resume_skips_done(monkeypatch):
+    import db
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_largecap_sectors", lambda: {"A섹터": ["X"], "B섹터": ["Y", "Z"]})
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(aifund, "_today_kst", lambda: "2026-08-02")
+    # A섹터 완전완료, B섹터 합의됨+Y완료 → Z만 새로 분석해야(resume)
+    monkeypatch.setattr(db, "get_fund_reports", lambda n=300: [
+        {"date": "2026-08-02", "desk": "섹터합의", "name": "A섹터", "code": "섹터:A섹터"},
+        {"date": "2026-08-02", "desk": "섹터합의", "name": "B섹터", "code": "섹터:B섹터"},
+        {"date": "2026-08-02", "desk": "대형주", "name": "X", "code": "X"},
+        {"date": "2026-08-02", "desk": "대형주", "name": "Y", "code": "Y"},
+    ])
+    cleared = []
+    monkeypatch.setattr(db, "clear_watchlist", lambda: cleared.append(1))
+    monkeypatch.setattr(aifund, "_sector_opinion", lambda *a, **k: "op")
+    monkeypatch.setattr(aifund, "_store_sector_consensus", lambda *a, **k: None)
+    analyzed = []
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    def _as(code, name, tk, bot, m="US", brief=None):
+        if code not in analyzed:
+            analyzed.append(code)
+        return ("관망", "")
+    monkeypatch.setattr(aifund, "analyze_stock", _as)
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "add_to_watch", lambda *a, **k: None)
+    aifund.run_largecap_select()
+    assert analyzed == ["Z"]      # X(완료섹터)·Y(완료종목) 스킵, Z만
+    assert cleared == []          # 합의 있으니 watchlist 안 비움(resume)
