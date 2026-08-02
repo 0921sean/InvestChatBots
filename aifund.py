@@ -16,7 +16,7 @@ logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
 NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
-DAILY_QUOTA = 10           # A가 하루에 올리는 종목 수(=P/W/S 분량). 운영값 — 조정 쉬움.
+DAILY_QUOTA = 15           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 운영값 — 조정 쉬움.
 
 def _narrate(bot, content, model="rule"):
     """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
@@ -307,6 +307,12 @@ def format_stock_verdict(reasoning: str, verdict: str, name: str = "") -> str:
     if body:
         reason = [s for s in re.split(r"[.\n]", body) if s.strip()][-1].strip()[:80] if body else ""
     return _decision_line(verdict, reason)
+
+
+def _verdict_reason(reasoning: str) -> str:
+    """봇 [결정] 줄에서 '이유:' 뒤 텍스트만 추출(매수 이유 요약용). 없으면 ''."""
+    m = re.search(r"\[결정\]\s*(?:매수|관망|매도)\s*\|\s*이유\s*[:：]\s*(.+)", reasoning or "")
+    return m.group(1).strip() if m else ""
 
 
 def _clean_md(text: str) -> str:
@@ -773,6 +779,9 @@ def run_discovery_desk(market="US"):
     src = source_today(market)
     _narrate("A", src["briefing"])
     s_src = source_bottleneck(market)
+    if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목을 직접 알림(엣지 가시화)
+        _s_list = ", ".join(_tk(c, s_src["names"].get(c)) for c in s_src["codes"])
+        _narrate("S", f"제가 오늘 물어온 병목 종목은 {_s_list}입니다. 사슬 뒤를 봅니다.")
     cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
         + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
     if not cands:
@@ -796,11 +805,15 @@ def run_discovery_desk(market="US"):
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
         if not price:
             continue
-        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"),
-                                     f"발굴주 매수 ({','.join(approvers)})", market, account="발굴주")
+        reason = _verdict_reason(r["reasonings"].get(approvers[0], ""))   # 대표 승인봇의 매수 이유
+        rz = f"발굴주 매수 ({','.join(approvers)})" + (f" — {approvers[0]}: {reason}" if reason else "")
+        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
         if not err:
             buys.append(code)
-            _narrate(approvers[0], random.choice(_BUY_LINES).format(name=_tk(code, name)))
+            buy_msg = random.choice(_BUY_LINES).format(name=_tk(code, name))
+            if reason:
+                buy_msg += f" ({approvers[0]} 판단: {reason})"
+            _narrate(approvers[0], buy_msg)
     _narrate("A", random.choice(_A_DONE).format(desk="발굴", n=len(cands)))
     for bot in DISCOVERY_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
