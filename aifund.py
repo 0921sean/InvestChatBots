@@ -16,7 +16,8 @@ logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
 NEW_DESK_ENABLED = False   # 새 데스크 전체 토글(컷오버 전까지 off). 재개: True + 재시작.
-DAILY_QUOTA = 10           # A가 하루에 올리는 종목 수(=P/W/S 분량). 운영값 — 조정 쉬움.
+DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
+                           # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
 def _narrate(bot, content, model="rule"):
     """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
@@ -157,6 +158,27 @@ def source_bottleneck(market="US", quota=None):
     return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
 
 
+def _s_sourcing_note(codes, names) -> str:
+    """S가 자체 소싱한 병목 종목을 '어떤 초크포인트 맥락에서 물어왔는지' 종목별 한 줄로 설명(haiku). 폴백."""
+    fallback = ("제가 오늘 물어온 병목 종목은 "
+                + ", ".join(_tk(c, names.get(c)) for c in codes) + "입니다. 사슬 뒤를 봅니다.")
+    try:
+        from agents import _call_claude_cli
+        lst = "\n".join(f"- {c} ({names.get(c, c)})" for c in codes)
+        # 사실 위주(회사가 공급망에서 뭘 만드는지)로 프레이밍 → 조언 거부 회피
+        sysp = ("너는 반도체·AI 인프라 공급망에 밝은 기술 설명가다. 아래 회사들이 AI 인프라 사슬"
+                "(광통신·인터커넥트·이더넷 스위칭·HBM·전력/냉각·화합물 기판 등)에서 각각 무슨 부품을 만들고 "
+                "어느 초크포인트에 위치하는지 한 줄씩 'TICKER — 역할' 형식으로 사실 위주 설명해라. "
+                "매수·투자판단·권유 아니고 '이 회사가 사슬에서 뭘 하는지'만. 반말, 간결히.")
+        prompt = f"회사 목록:\n{lst}\n\n각 회사의 공급망 내 부품·역할 한 줄씩:"
+        out = (_call_claude_cli(sysp, prompt, timeout=30, model="haiku") or "").strip()
+        refuse = any(x in out.lower() for x in ("제공할 수 없", "할 수 없습니다", "죄송", "cannot", "can't", "financial analysis"))
+        return fallback if (not out or refuse) else "오늘 제가 물어온 병목 종목입니다 (사슬 뒤를 봅니다):\n" + _clean_md(out)
+    except Exception as e:
+        logger.warning(f"S 소싱 노트 실패: {e}")
+        return fallback
+
+
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
 import re                                          # noqa: E402
 
@@ -165,8 +187,8 @@ NEW_DESK_ORDER = ["P", "W", "S"]                   # (레거시) 4봇 경쟁 발
 LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 린치·버핏·실적왕(H) → 관심종목 캐시
 DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 린치·버핏·병목 → 즉시매수
 # 데스크별 사이징 — 대형주 집중(고확신), 발굴주 분산(리스크). 각 시드 DESK_SEED(5,000만) 기준.
-DESK_SIZING = {"대형주": {"weight": 0.08, "max": 12},   # 종목당 8%(400만) · 최대 12
-               "발굴주": {"weight": 0.04, "max": 20}}   # 종목당 4%(200만) · 최대 20
+DESK_SIZING = {"대형주": {"weight": 0.10, "max": 10},   # 종목당 10%(500만) · 최대 10
+               "발굴주": {"weight": 0.05, "max": 20}}   # 종목당 5%(250만) · 최대 20
 _VERDICT_RE = re.compile(r"\[결정\]\s*(매수|관망|매도)")
 
 
@@ -277,9 +299,9 @@ def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
         parts += ["", f"[사업 개요] {business_summary}"]
     parts += [
         "",
-        "위 종목을 네 투자 원칙으로 판단해줘. 네 프레임워크에 비춰 왜 그런지 근거를 대고,",
-        "마지막 줄은 반드시 `[결정] 관망 | 이유: (한 줄 근거)` 형식으로 끝내라.",
-        "결정은 매수/관망/매도 중 하나. 예: `[결정] 관망 | 이유: PEG 4.6로 고평가, 마진 정체로 성장 신뢰도 낮음`",
+        "위 종목을 네 투자 원칙으로 평가해줘. 팀 채팅에 올리는 것처럼 **마크다운·소제목(##·**) 없이 자연스러운 3~4문장**으로,",
+        "네 관점의 핵심 근거(밸류에이션·성장·해자·리스크 등)를 구체 수치와 함께 풀어서 말해줘.",
+        "그리고 **마지막 줄만** 반드시 `[결정] 관망 | 이유: (한 줄 요약)` 형식으로 끝내라. 결정은 매수/관망/매도 중 하나.",
     ]
     return "\n".join(parts)
 
@@ -297,18 +319,38 @@ def _decision_line(verdict: str, reason: str = "") -> str:
 
 
 def format_stock_verdict(reasoning: str, verdict: str, name: str = "") -> str:
-    """봇 종목 판단을 `[결정] X | 이유: …` 포맷으로 정규화(관전 피드용).
-    reasoning에 이미 `[결정] X | 이유: …`가 있으면 그 줄을, 없으면 본문 요약으로 이유를 만든다."""
+    """봇 종목 판단을 `[결정] X | 이유: …` 한 줄로 정규화(요약 필요할 때)."""
     txt = (reasoning or "").strip()
     m = re.search(r"\[결정\]\s*(?:매수|관망|매도)\s*\|\s*이유\s*[:：]\s*(.+)", txt)
     if m:
         return _decision_line(verdict, m.group(1).strip())
-    # [결정] 줄 앞의 본문 마지막 문장을 이유로
     body = _VERDICT_RE.split(txt)[0].strip()
     reason = ""
     if body:
         reason = [s for s in re.split(r"[.\n]", body) if s.strip()][-1].strip()[:80] if body else ""
     return _decision_line(verdict, reason)
+
+
+def _verdict_reason(reasoning: str) -> str:
+    """봇 [결정] 줄에서 '이유:' 뒤 텍스트만 추출(매수 이유 요약용). 없으면 ''."""
+    m = re.search(r"\[결정\]\s*(?:매수|관망|매도)\s*\|\s*이유\s*[:：]\s*(.+)", reasoning or "")
+    return m.group(1).strip() if m else ""
+
+
+def _clean_md(text: str) -> str:
+    """피드 노출용 — 마크다운 소제목(##)·볼드(**) 제거, 빈 줄 정리."""
+    text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text or "")
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def verdict_message(reasoning: str, verdict: str, name: str = "") -> str:
+    """봇 종목 판단 피드 메시지 — 근거 본문 전체 + 끝줄 [결정]. 마크다운 정리, [결정] 없으면 붙임."""
+    txt = _clean_md(reasoning)
+    if re.search(r"\[결정\]\s*(?:매수|관망|매도)", txt):
+        return txt
+    return (txt + "\n\n" + _decision_line(verdict)) if txt else _decision_line(verdict)
 
 
 def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
@@ -511,6 +553,59 @@ def _line(pool, bot):
     return random.choice(pool.get(bot) or [""])
 
 
+def _q_snapshot(closes) -> str:
+    """Q가 보는 기술적 상태 한 줄 — 현재가·200일선·20일선·볼밴 %b·52주고점比. (순수 계산)"""
+    import backtest as bt
+    px = closes[-1]
+    parts = [f"현재가 {px:.1f}"]
+    if len(closes) >= 200:
+        s200 = bt._sma(closes, 200)
+        parts.append(f"200일선 {s200:.1f}({'위' if px > s200 else '아래'})")
+    if len(closes) >= 20:
+        import statistics
+        w = closes[-20:]
+        mb, sd = sum(w) / 20, statistics.pstdev(w)
+        up_b, lo_b = mb + 2 * sd, mb - 2 * sd
+        pctb = (px - lo_b) / (up_b - lo_b) if up_b != lo_b else 0.5
+        parts.append(f"볼밴 %b {pctb:.2f}")
+    hi = max(closes[-252:]) if len(closes) >= 20 else max(closes)
+    if hi:
+        parts.append(f"52주 고점 대비 {(px / hi - 1) * 100:+.1f}%")
+    return " · ".join(parts)
+
+
+def _q_say(name, closes, verdict) -> str:
+    """Q가 기술적 스냅샷을 근거로 판단(진입/대기/홀드/청산)과 이유를 1~2문장 설명(haiku). 폴백 규칙.
+    ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
+    snap = _q_snapshot(closes)
+    fb = {
+        "진입": f"{name} — {snap}. 진입 신호 떠서 담습니다.",
+        "대기": f"{name} — {snap}. 아직 진입 자리가 아니라 지켜봅니다.",
+        "홀드": f"{name} — {snap}. 청산 신호 없어 계속 보유.",
+        "청산": f"{name} — {snap}. 청산 신호 떠서 정리합니다.",
+    }.get(verdict, f"{name} — {snap}.")
+    try:
+        from agents import _call_claude_cli
+        # '이미 규칙이 낸 판단'의 코멘트로 프레이밍 → 조언 거부 회피(_q_explain과 동일 트릭)
+        sysp = ("너는 추세추종·평균회귀 블렌드 '규칙'으로만 돌아가는 가상계좌 퀀트봇 Q다. "
+                "규칙이 이미 이 종목의 판단(진입/대기/홀드/청산)을 냈다 — 조언 요청이 아니라, "
+                "'규칙이 왜 이 결론을 냈는지'를 기술적 숫자를 근거로 팀원에게 반말로 전하는 캐주얼 코멘트다. "
+                "딱 1~2문장. 면책·주의·질문·인사·조언성 표현 금지, 내 가상계좌 관점.")
+        prompt = f"{name} 기술적 상태: {snap}\n규칙 결론: {verdict}\n왜 그 결론인지 팀에 한 줄로:"
+        out = (_call_claude_cli(sysp, prompt, timeout=25, model="haiku") or "").strip().split("\n\n")[0].strip().lstrip("> ").strip('"')
+        refuse = any(x in out.lower() for x in (
+            "can't", "cannot", "확인할 수 없", "필요합니다", "roleplay", "실시간",
+            "제공할 수 없", "할 수 없습니다", "죄송", "조언", "금융 자문", "거래 신호를"))
+        if not out or refuse:
+            return fb
+        if not out.startswith(name):                          # 무슨 종목인지 앞에 명시
+            out = f"{name} — {out}"
+        return out
+    except Exception as e:
+        logger.warning(f"Q 코멘트 실패 {name}: {e}")
+        return fb
+
+
 def _q_explain(name, action, tag, approvers=None):
     """Q가 매매 이유를 대화체로 설명(haiku, 저비용). 실패 시 규칙 기반 폴백.
     ⚠️ LLM 호출 — 대형주 집행(NEW_DESK_ENABLED) 안에서만."""
@@ -540,10 +635,12 @@ def _summarize_ko(name, business_summary):
         return ""
     try:
         from agents import _call_claude_cli
-        sys = ("너는 기업을 한 줄로 요약하는 애널리스트다. 평가·전망·추천 없이 "
-               "'이 회사가 뭘 팔아서 어떻게 버는지'만 담백하게 1~2문장 한국어로.")
-        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n한국어 1~2문장으로만 요약."
-        return (_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip()
+        sys = ("너는 기업을 처음 보는 사람에게 소개하는 애널리스트다. 평가·전망·추천 없이, "
+               "이 회사가 ①뭘 팔아서 어떻게 버는지 쉬운 말로 + ②'아 이런 회사구나' 싶은 포인트"
+               "(대표 제품·서비스, 업계 위상·규모, 어디에 쓰이는지 등 처음 보는 사람이 궁금해할 것)를 "
+               "담백하게 2~3문장 한국어로. 제목·머리말·불릿 없이 바로 소개 문장만. 투자판단·주가 얘기 금지.")
+        prompt = f"[회사] {name}\n[영문 개요]\n{business_summary}\n\n바로 소개 문장(제목 없이):"
+        return _clean_md((_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip())
     except Exception as e:
         logger.warning(f"한글 요약 실패 {name}: {e}")
         return ""
@@ -582,25 +679,86 @@ def sector_of(code: str) -> str:
     return "기타"
 
 
+def _strip_decision(text: str) -> str:
+    """[결정] 줄 제거 — 섹터 의견·합의엔 종목 결정이 새지 않게."""
+    lines = [ln for ln in (text or "").splitlines() if "[결정]" not in ln]
+    return "\n".join(lines).strip()
+
+
 def _sector_opinion(bot, sector, names, market="US"):
-    """봇 1인의 섹터 관점(자유 형식, 짧게) — 종목 [결정] 아님. LLM."""
+    """봇 1인의 섹터 관점(자유 형식, 짧게) — 종목 [결정] 아님. LLM. [결정]이 새면 제거."""
     from agents import call_agent
     from prompts import AGENT_PROFILES
     lst = ", ".join(names[:6])
     prompt = (f"'{sector}' 섹터를 네 투자 원칙으로 지금 어떻게 보는지 2~3문장으로 코멘트해줘. "
-              f"이 섹터 대표주: {lst}. 특정 종목 [결정]은 하지 말고 섹터 전반의 큰 그림만. "
+              f"이 섹터 대표주: {lst}. 특정 종목 판단·[결정] 표기는 절대 하지 말고 섹터 전반의 큰 그림만. "
               "미래 수익 보장·매수 권유 금지, 내 가상계좌 관점으로만.")
-    return call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet")
+    return _strip_decision(call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet"))
+
+
+def _summarize_consensus(sector, opinions) -> str:
+    """A가 P/W/H 섹터 의견을 2~3문장 합의로 요약(리서치 보드용). [결정]·종목 언급 없음. 실패 시 폴백."""
+    valid = {b: o for b, o in opinions.items() if o}
+    if not valid:
+        return ""
+    joined = "\n".join(f"{b}: {(o or '')[:250]}" for b, o in valid.items())   # 의견 트리밍 — 요약 프롬프트 비대·타임아웃 방지
+    fallback = f"{sector} — 세 애널리스트 모두 개별 종목 밸류에이션 확인 전 판단 유보 기조."
+    try:
+        from agents import _call_claude_cli
+        sysp = ("너는 애널리스트 A다. 세 동료의 섹터 의견을 팀 게시판에 올릴 2~3문장 '합의 요약'으로 정리한다. "
+                "공통 시각과 갈리는 지점을 중립적으로. 특정 종목명·[결정]·매수권유 금지, 섹터 큰 그림만.")
+        prompt = f"'{sector}' 섹터 동료 의견:\n{joined}\n\n합의 요약 2~3문장:"
+        out = _strip_decision((_call_claude_cli(sysp, prompt, timeout=60, model="haiku") or "").strip())
+        return out or fallback
+    except Exception as e:
+        logger.warning(f"섹터 합의 요약 실패 {sector}: {e}")
+        return fallback
 
 
 def _store_sector_consensus(today, sector, opinions):
-    """섹터 합의(P/W/H 관점) → 리서치 보드 저장. 실패해도 무시."""
+    """섹터 합의(A 요약) → 리서치 보드 저장. 실패해도 무시."""
     from db import record_fund_report
-    summary = "\n".join(f"{b} — {(op or '').strip()}" for b, op in opinions.items() if op)
+    summary = _summarize_consensus(sector, opinions)
     try:
         record_fund_report(today, f"섹터:{sector}", sector, summary, "", "섹터합의")
     except Exception as e:
         logger.warning(f"섹터 합의 저장 실패 {sector}: {e}")
+
+
+# 대화용 종목 표기 = 티커 (상세종목명). 현재 섹터 박스는 티커만(별도).
+def _tk(code, name=None) -> str:
+    nm = name or stock_name(code)
+    return f"{code} ({nm})" if nm and nm != code else code
+
+
+# A가 종목 차례를 알리는 인트로(varied) — P/W/H에게 자연스럽게 넘긴다. {tk}=티커(상세명).
+_STOCK_INTRO = [
+    "자, 다음은 {tk} 볼 차례네요.",
+    "이번엔 {tk} 올려봅니다.",
+    "다음 종목은 {tk}입니다.",
+    "{tk}, 이건 어떻게들 보세요?",
+]
+_STOCK_HANDOFF = ["세 분 판단 부탁해요.", "다들 어떻게 보시는지?", "의견 주세요!", "판단 넘길게요."]
+
+
+def _first_sentence(text) -> str:
+    """소개 첫 문장(A 채팅용 '뭐하는 회사') — 첫 마침표까지."""
+    text = (text or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+    m = re.search(r"[.!?]\s", text) or re.search(r"[.!?]$", text)
+    return text[:m.end()].strip() if m else text[:90].strip()
+
+
+def _stock_data_msg(name, code, brief, intro_desc="") -> str:
+    """A가 종목 차례를 알리며 (발굴주면 한 줄 소개 +) 핵심 재무를 올리고 P/W/H에게 넘기는 멘트."""
+    packet = (brief or ("", ""))[0] or ""
+    keys = ("현재가", "PER", "PEG", "EPS", "ROE", "마진", "성장", "매출", "잉여현금")
+    keep = [ln.strip() for ln in packet.splitlines() if any(k in ln for k in keys)][:6]
+    body = " · ".join(keep) if keep else "핵심 재무 데이터가 잘 안 잡히네요"
+    intro = random.choice(_STOCK_INTRO).format(tk=_tk(code, name))
+    desc = f" — {intro_desc}" if intro_desc else ""              # 발굴주: 뭐하는 회사 한 줄
+    return f"{intro}{desc}\n📊  {body}\n{random.choice(_STOCK_HANDOFF)}"
 
 
 def source_largecap(market="US", quota=None):
@@ -614,11 +772,14 @@ def source_largecap(market="US", quota=None):
     return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
 
 
-def _store_report(today, code, name, brief, desk_tag):
-    """A 리포트 저장(한글요약+재무). 실패해도 무시."""
+def _store_report(today, code, name, brief, desk_tag, summary=None):
+    """A 리포트 저장(재무 + 발굴주는 '처음 보는 사람용' 소개). 실패해도 무시.
+    대형주는 다 아는 메가캡이라 사업 소개 생략(재무만) — 토큰도 아낌.
+    summary 주면 재계산 안 함(루프에서 A 채팅용으로 한 번 만든 걸 재사용)."""
     from db import record_fund_report
-    packet, summary = brief or ("", "")
-    summary = _summarize_ko(name, summary) or summary
+    packet, biz = brief or ("", "")
+    if summary is None:
+        summary = (_summarize_ko(name, biz) or biz) if desk_tag == "발굴주" else ""
     try:
         record_fund_report(today, code, name, summary, packet, desk_tag)
     except Exception as e:
@@ -655,6 +816,8 @@ def run_discovery_desk(market="US"):
     src = source_today(market)
     _narrate("A", src["briefing"])
     s_src = source_bottleneck(market)
+    if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목 + 맥락(왜 병목인지)을 직접 알림
+        _narrate("S", _s_sourcing_note(s_src["codes"], s_src["names"]))
     cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
         + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
     if not cands:
@@ -665,11 +828,20 @@ def run_discovery_desk(market="US"):
     today = _today_kst()
     buys = []
     for code, name in cands:
-        r = analyze_candidate(code, name, code, market, bots=DISCOVERY_BOTS)
-        _store_report(today, code, name, r.get("brief"), "발굴주")
-        for bot in DISCOVERY_BOTS:
-            _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
-        approvers = [b for b in DISCOVERY_BOTS if r["verdicts"].get(b) == "매수"]
+        brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
+        biz_ko = _summarize_ko(name, (brief or ("", ""))[1])         # 발굴주 소개(리서치보드용 풀)
+        _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
+        _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
+        verdicts, reasonings = {}, {}
+        for bot in DISCOVERY_BOTS:                                   # P/W/S 순차 — 각자 끝나는 대로 하나씩
+            try:
+                v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
+            except Exception as e:
+                logger.warning(f"발굴 분석 실패 {code}@{bot}: {e}")
+                v, rz = "관망", ""
+            verdicts[bot], reasonings[bot] = v, rz
+            _narrate(bot, verdict_message(rz, v, name), model="sonnet")
+        approvers = [b for b in DISCOVERY_BOTS if verdicts.get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
         if not _desk_can_open("발굴주", len(get_open_positions(account="발굴주"))):
@@ -677,11 +849,15 @@ def run_discovery_desk(market="US"):
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
         if not price:
             continue
-        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"),
-                                     f"발굴주 매수 ({','.join(approvers)})", market, account="발굴주")
+        reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유
+        rz = f"발굴주 매수 ({','.join(approvers)})" + (f" — {approvers[0]}: {reason}" if reason else "")
+        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
         if not err:
             buys.append(code)
-            _narrate(approvers[0], random.choice(_BUY_LINES).format(name=name))
+            buy_msg = random.choice(_BUY_LINES).format(name=_tk(code, name))
+            if reason:
+                buy_msg += f" ({approvers[0]} 판단: {reason})"
+            _narrate(approvers[0], buy_msg)
     _narrate("A", random.choice(_A_DONE).format(desk="발굴", n=len(cands)))
     for bot in DISCOVERY_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
@@ -722,46 +898,64 @@ def run_largecap_select(market="US"):
     if not NEW_DESK_ENABLED:
         return {"watched": [], "sold": [], "sectors": []}
     from db import (ensure_desk_accounts, add_to_watch, clear_watchlist,
-                    get_open_positions_by_symbol, sell_shared_position)
+                    get_open_positions_by_symbol, sell_shared_position, get_fund_reports)
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
     sectors = _largecap_sectors()
     if market != "US" or not sectors:
         return {"watched": [], "sold": [], "sectors": []}
-    clear_watchlist()                                    # 매일 재분석 — 어제 진입대기 비움(보유 유지)
+    today = _today_kst()
+    # 오늘 이미 끝낸 것 파악 → 재시작 시 처음부터 안 하고 이어감(idempotent resume, 토큰 절약).
+    reps = [r for r in get_fund_reports(300) if r.get("date") == today]
+    done_codes = {r["code"] for r in reps if r.get("desk") != "섹터합의"}
+    done_secs = {r["name"] for r in reps if r.get("desk") == "섹터합의"}
+    if not done_secs:                                    # 오늘 첫 실행일 때만 어제 관심종목 비움
+        clear_watchlist()
     _narrate("A", _line(_CLOCK_IN, "A"))
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_IN, bot))
-    today = _today_kst()
     watched, sold, done = [], [], []
     for sector, codes in sectors.items():
+        if sector in done_secs and all(c in done_codes for c in codes):
+            continue                                     # 섹터 완전 완료 → 스킵(resume)
         names = {c: stock_name(c) for c in codes}
-        _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")            # 1단계: 섹터 토론
-        opinions = {}
-        for bot in LARGECAP_BOTS:
-            try:
-                op = _sector_opinion(bot, sector, list(names.values()), market)
-            except Exception as e:
-                logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
-                op = ""
-            opinions[bot] = op
-            if op:
-                _narrate(bot, op, model="sonnet")
-        _store_sector_consensus(today, sector, opinions)
-        done.append(sector)
-        for code in codes:                                          # 2단계: 종목 [결정]
-            name = names.get(code, code)
-            r = analyze_candidate(code, name, code, market, bots=LARGECAP_BOTS)
-            _store_report(today, code, name, r.get("brief"), "대형주")
+        if sector not in done_secs:                      # 1단계: 섹터 토론(합의 없을 때만 — 재분석 스킵)
+            _narrate("A", f"{sector} 섹터, 오늘 어떻게 보세요?")
+            opinions = {}
             for bot in LARGECAP_BOTS:
-                _narrate(bot, format_stock_verdict(r.get("reasonings", {}).get(bot, ""), r["verdicts"].get(bot, "관망"), name), model="sonnet")
-            approvers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매수"]
+                try:
+                    op = _sector_opinion(bot, sector, list(names.values()), market)
+                except Exception as e:
+                    logger.warning(f"섹터 의견 실패 {sector}@{bot}: {e}")
+                    op = ""
+                opinions[bot] = op
+                if op:
+                    _narrate(bot, op, model="sonnet")
+            _store_sector_consensus(today, sector, opinions)
+        done.append(sector)
+        for code in codes:                                          # 2단계: A가 데이터 먼저 → P/W/H 순차 판단
+            if code in done_codes:                                  # 이미 분석한 종목 스킵(resume)
+                continue
+            name = names.get(code, code)
+            brief = build_research_brief(code, name, code, market)   # A가 데이터 준비
+            _store_report(today, code, name, brief, "대형주")        # 대형주는 소개 생략(재무만)
+            _narrate("A", _stock_data_msg(name, code, brief))       # A가 먼저 올림
+            verdicts, reasonings = {}, {}
+            for bot in LARGECAP_BOTS:                               # P/W/H 순차 — 각자 끝나는 대로 하나씩
+                try:
+                    v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
+                except Exception as e:
+                    logger.warning(f"대형주 분석 실패 {code}@{bot}: {e}")
+                    v, rz = "관망", ""
+                verdicts[bot], reasonings[bot] = v, rz
+                _narrate(bot, verdict_message(rz, v, name), model="sonnet")
+            approvers = [b for b in LARGECAP_BOTS if verdicts.get(b) == "매수"]
             if approvers:
                 add_to_watch(code, name, ",".join(approvers))
                 watched.append(code)
                 _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 핸드오프 → Q
             held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
-            sellers = [b for b in LARGECAP_BOTS if r["verdicts"].get(b) == "매도"]
+            sellers = [b for b in LARGECAP_BOTS if verdicts.get(b) == "매도"]
             if held and len(sellers) >= 2:
                 price = fetch_stock_price(code if market == "US" else f"{code}.KS")
                 if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
@@ -780,31 +974,33 @@ def run_largecap_execute(market="US"):
         return {"bought": [], "sold": []}
     import backtest as bt
     from db import (ensure_desk_accounts, get_watchlist, mark_watch, buy_shared_position,
-                    sell_shared_position, get_open_positions, get_open_positions_by_symbol)
+                    sell_shared_position, get_open_positions)
     ensure_desk_accounts()
     _narrate("Q", "Q 출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
     up = _spy_uptrend()
     watch = get_watchlist("watching")
     held = get_open_positions(account="대형주")
-    codes = list({w["code"] for w in watch} | {(p.get("code") or p["symbol"]) for p in held})
+    held_codes = {(p.get("code") or p["symbol"]) for p in held}
+    cand = [w for w in watch if w["code"] not in held_codes]  # 신규 후보 = 관심종목 중 아직 미보유(재승인 보유분은 추가매수 X)
+    codes = list({w["code"] for w in watch} | held_codes)
+    brief = []
+    if cand:
+        brief.append(f"관심종목 {', '.join(w['code'] for w in cand)}")
+    if held_codes:
+        brief.append(f"보유분 {', '.join(sorted(held_codes))}")
+    if brief:
+        _narrate("Q", "오늘 볼 종목 — " + " · ".join(brief) + ". 후보 타이밍부터 봅니다.")
     data = bt._fetch(codes, period="2y") if codes else {}
     sold, bought = [], []
-    for p in held:                                            # 청산: Q B+M 익절/손절
-        o = data.get(p.get("code") or p["symbol"])
-        if not o:
-            continue
-        strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
-        if q_exit_signal(o["close"], strat) and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
-            sold.append(p["symbol"])
-            _narrate("Q", "✅ " + _q_explain(p["symbol"], "청산", strat))
-    n = len(get_open_positions(account="대형주"))
-    for w in watch:                                           # 진입: Q 타이밍
+    n = len(held)
+    for w in cand:                                            # ① 신규 후보 진입 타이밍
         if not _desk_can_open("대형주", n):
             break
         o = data.get(w["code"])
-        if not o or get_open_positions_by_symbol(w["name"], account="대형주"):
+        if not o:
             continue
         tag = q_entry_signal(o["close"], up)
+        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "진입" if tag else "대기"))   # 티커(상세명)·이유
         if not tag:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
@@ -815,7 +1011,20 @@ def run_largecap_execute(market="US"):
             mark_watch(w["code"], "bought")
             bought.append(w["code"])
             n += 1
-            _narrate("Q", "⏱️ " + _q_explain(w["name"], "진입", tag, w.get("approved_by")))
+            _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
+    if held:                                                  # ② 보유 종목 점검(추가매수 없음 — 홀드/청산만)
+        _narrate("Q", "이제 갖고 있는 종목들 점검할게요.")
+        for p in held:
+            code = p.get("code") or p["symbol"]
+            o = data.get(code)
+            if not o:
+                continue
+            strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
+            exiting = bool(q_exit_signal(o["close"], strat))
+            _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
+            if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
+                sold.append(p["symbol"])
+    _narrate("Q", "오늘 대형주 타이밍 점검 끝 — Q 퇴근합니다. 🫡")   # ③ 퇴근
     return {"bought": bought, "sold": sold}
 
 

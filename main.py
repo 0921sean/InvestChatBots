@@ -638,7 +638,7 @@ def api_positions():
 
 
 @app.get("/api/fund-report")
-def api_fund_report(limit: int = 30):
+def api_fund_report(limit: int = 60):
     """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
     from db import get_fund_reports
     return get_fund_reports(limit)
@@ -686,8 +686,8 @@ def api_fund():
     import ranks
     all_pos = [p for a in accounts.values() for p in a["positions"]]
     ret = ranks.compute_returns(all_pos)
-    _R = {"A": "애널리스트 · 발굴·리서치", "P": "성장주 매수판단", "W": "가치주 매수판단",
-          "H": "대형주 실적 게이트", "S": "병목 발굴(자체 소싱)", "Q": "퀀트 진입 타이밍"}
+    _R = {"A": "애널리스트·종목발굴", "P": "성장주 판단", "W": "가치주 판단",
+          "H": "실적 게이트", "S": "병목 발굴", "Q": "퀀트 타이밍"}
     roster = [
         {"bot": b, "name": b, "color": c, "model": m, "role": _R[b],
          "ret": ranks.return_of(b, ret), "working": _bot_working(b)}
@@ -702,13 +702,41 @@ def api_fund():
     from db import get_fund_reports
     today = aifund._today_kst()
     sec_map = aifund._largecap_sectors()
-    sec_today = [r for r in get_fund_reports(60) if r.get("desk") == "섹터합의" and r.get("date") == today]
-    cur_sector = sec_today[0]["name"] if sec_today else None
+    reports_today = [r for r in get_fund_reports(90) if r.get("date") == today]
+    sec_today = [r for r in reports_today if r.get("desk") == "섹터합의"]
+    desc_map = {r["code"]: (r.get("summary") or "") for r in reports_today if r.get("desk") != "섹터합의"}
+    # 현재 섹터 = A가 "○○ 섹터 어떻게 보세요?" 물은 최신 섹터(섹터 시작 시점 = 즉시 반영).
+    # 합의 저장은 의견 끝난 뒤라 늦음 → 피드의 A 질문으로 앞당긴다. 없으면 합의 폴백.
+    import re as _re
+    cur_sector = None
+    for _m in reversed(recent):
+        if _m.get("agent_name") == "A":
+            _mm = _re.match(r"(.+?) 섹터, 오늘 어떻게", _m.get("content") or "")
+            if _mm:
+                cur_sector = _mm.group(1).strip()
+                break
+    if not cur_sector:
+        cur_sector = sec_today[0]["name"] if sec_today else None
+    cur_codes = sec_map.get(cur_sector, []) if cur_sector else []
+    done_set = set(desc_map.keys())                  # 오늘 리포트 있는 종목 = 분석 완료
+    working = session == "working"
+
+    chips, _cur_done = [], False                      # 종목별 상태: done(완료)/current(분석중)/pending(대기)
+    for c in cur_codes:
+        if c in done_set:
+            st = "done"
+        elif working and not _cur_done:
+            st = "current"; _cur_done = True
+        else:
+            st = "pending"
+        d = desc_map.get(c, "")
+        chips.append({"code": c, "name": aifund.stock_name(c), "desc": d[:80] if d else "", "status": st})
     progress = {
         "sector": cur_sector,
         "done": len(sec_today), "total": len(sec_map),
-        "working": session == "working",
-        "chips": [aifund.stock_name(c) for c in sec_map.get(cur_sector, [])] if cur_sector else [],
+        "stock_done": sum(1 for c in cur_codes if c in done_set), "stock_total": len(cur_codes),
+        "working": working,
+        "chips": chips,
     }
     return {"seed": DESK_SEED, "session": session, "accounts": accounts,
             "roster": roster, "progress": progress}
