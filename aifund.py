@@ -695,12 +695,18 @@ def _store_sector_consensus(today, sector, opinions):
         logger.warning(f"섹터 합의 저장 실패 {sector}: {e}")
 
 
-# A가 종목 차례를 알리는 인트로(varied) — P/W/H에게 자연스럽게 넘긴다.
+# 대화용 종목 표기 = 티커 (상세종목명). 현재 섹터 박스는 티커만(별도).
+def _tk(code, name=None) -> str:
+    nm = name or stock_name(code)
+    return f"{code} ({nm})" if nm and nm != code else code
+
+
+# A가 종목 차례를 알리는 인트로(varied) — P/W/H에게 자연스럽게 넘긴다. {tk}=티커(상세명).
 _STOCK_INTRO = [
-    "자, 다음은 {name} ({code}) 볼 차례네요.",
-    "이번엔 {name} ({code}) 올려봅니다.",
-    "다음 종목은 {name} ({code})입니다.",
-    "{name} ({code}), 이건 어떻게들 보세요?",
+    "자, 다음은 {tk} 볼 차례네요.",
+    "이번엔 {tk} 올려봅니다.",
+    "다음 종목은 {tk}입니다.",
+    "{tk}, 이건 어떻게들 보세요?",
 ]
 _STOCK_HANDOFF = ["세 분 판단 부탁해요.", "다들 어떻게 보시는지?", "의견 주세요!", "판단 넘길게요."]
 
@@ -711,7 +717,7 @@ def _stock_data_msg(name, code, brief) -> str:
     keys = ("현재가", "PER", "PEG", "EPS", "ROE", "마진", "성장", "매출", "잉여현금")
     keep = [ln.strip() for ln in packet.splitlines() if any(k in ln for k in keys)][:6]
     body = " · ".join(keep) if keep else "핵심 재무 데이터가 잘 안 잡히네요"
-    intro = random.choice(_STOCK_INTRO).format(name=name, code=code)
+    intro = random.choice(_STOCK_INTRO).format(tk=_tk(code, name))
     return f"{intro} 📊  {body}\n{random.choice(_STOCK_HANDOFF)}"
 
 
@@ -923,7 +929,7 @@ def run_largecap_execute(market="US"):
             continue
         strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
         exiting = bool(q_exit_signal(o["close"], strat))
-        _narrate("Q", _q_say(code, o["close"], "청산" if exiting else "홀드"))
+        _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
         if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
             sold.append(p["symbol"])
     n = len(get_open_positions(account="대형주"))
@@ -936,7 +942,7 @@ def run_largecap_execute(market="US"):
         if not o:
             continue
         tag = q_entry_signal(o["close"], up)
-        _narrate("Q", _q_say(w["code"], o["close"], "진입" if tag else "대기"))   # 티커로 · 뭘 보는지 + 이유(사도 안 사도)
+        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "진입" if tag else "대기"))   # 티커(상세명) · 이유(사도 안 사도)
         if not tag:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
@@ -947,7 +953,7 @@ def run_largecap_execute(market="US"):
             mark_watch(w["code"], "bought")
             bought.append(w["code"])
             n += 1
-            _narrate("Q", f"⏱️ {w['code']} 매수 체결 — 내 계좌에 담았습니다.")
+            _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
     return {"bought": bought, "sold": sold}
 
 
