@@ -98,6 +98,23 @@ def get_fundamentals_cache(code: str) -> dict | None:
         return None
 
 
+def save_stock_name(code: str, name: str):
+    """회사명 영속 캐시 저장(이름은 안 변함). yfinance .info 반복 호출 제거용."""
+    if not name or name == code:
+        return
+    with _conn() as con:
+        con.execute("INSERT INTO stock_names (code, name) VALUES (?,?) "
+                    "ON CONFLICT(code) DO UPDATE SET name=excluded.name, updated_at=CURRENT_TIMESTAMP",
+                    (code, name))
+
+
+def get_stock_name(code: str) -> str | None:
+    """회사명 영속 캐시 조회. 없으면 None."""
+    with _conn() as con:
+        row = con.execute("SELECT name FROM stock_names WHERE code=?", (code,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def _conn():
     path = os.getenv("DB_PATH", "investchat.db")
     return sqlite3.connect(path)
@@ -346,6 +363,11 @@ def init_db():
             code TEXT PRIMARY KEY,                     -- 종목 재무 last-good 캐시(API 리밋 폴백용)
             date TEXT,                                 -- 마지막 갱신일(KST)
             data TEXT,                                 -- JSON: 재무 키만
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS stock_names (
+            code TEXT PRIMARY KEY,                     -- 종목 회사명 영속 캐시(이름은 안 변함 → yfinance .info 반복 제거)
+            name TEXT,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS agent_state (

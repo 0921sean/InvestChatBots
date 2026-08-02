@@ -74,9 +74,14 @@ _name_cache = {}
 
 
 def stock_name(code) -> str:
-    """티커 → 회사명(yfinance shortName). 실패 시 티커. 이름은 안 변하니 캐시."""
+    """티커 → 회사명. 이름은 안 변하니 프로세스 캐시 → DB 영속 캐시 → yfinance 순. DB에 있으면 .info 안 침(병목 제거)."""
     if code in _name_cache:
         return _name_cache[code]
+    from db import get_stock_name, save_stock_name
+    cached = get_stock_name(code)
+    if cached:
+        _name_cache[code] = cached
+        return cached
     nm = code
     try:
         import yfinance as yf
@@ -84,6 +89,8 @@ def stock_name(code) -> str:
         nm = (info.get("shortName") or info.get("displayName") or info.get("longName") or code).strip()
     except Exception as e:
         logger.debug(f"이름 조회 실패 {code}: {e}")
+    if nm and nm != code:
+        save_stock_name(code, nm)                    # 성공 조회만 영속 저장(다음 사이클부턴 .info 스킵)
     _name_cache[code] = nm
     return nm
 
