@@ -1,37 +1,21 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-from orchestrator import (
-    run_round,
-    reset_kr_cycle, reset_us_cycle,
-    run_watchlist_kr, run_watchlist_us,
-)
-from member_analyzer import run_member_analysis
+
+from aifund import run_largecap_cycle, run_discovery_cycle
 
 
 def start_scheduler():
+    """통일 데스크(대형주/발굴주) 자동 스케줄 — 컷오버(#98).
+    committee 스케줄러는 은퇴(잡 제거). committee 코드·DB는 보존, 필요시 복구.
+    각 슬롯은 NEW_DESK_ENABLED=False면 no-op(안전)."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
-    # ── 메인 사이클 (KST) ──────────────────────────────
-    # 06시: 국장(KRX) 메인 사이클
-    scheduler.add_job(reset_kr_cycle,
+    # 06시: 대형주 데스크 (섹터 토론 → 종목 [결정] → Q 진입 타이밍). US 종가 직후 신선 일봉.
+    scheduler.add_job(run_largecap_cycle,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),
-                      id="main_cycle_kr", misfire_grace_time=300)
-    # 18시: 미장(US) 메인 사이클 (미국장 22:30 개장 직전)
-    scheduler.add_job(reset_us_cycle,
-                      CronTrigger(hour=18, minute=0, day_of_week='mon-fri'),
-                      id="main_cycle_us", misfire_grace_time=300)
-    # ── 서브 사이클 (트레이딩 규칙엔진) — '개장 직후' (§6-B: 전일 완성 일봉 신호·당일 시가 체결) ──
-    # 국장 개장 직후: 09:05 KST (개장 09:00)
-    scheduler.add_job(run_watchlist_kr,
-                      CronTrigger(hour=9, minute=5, day_of_week='mon-fri'),
-                      id="sub_cycle_kr", misfire_grace_time=600)
-    # 미장 개장 직후: 09:35 America/New_York (개장 09:30 ET) — 서머타임 자동(=22:35~23:35 KST)
-    scheduler.add_job(run_watchlist_us,
-                      CronTrigger(hour=9, minute=35, day_of_week='mon-fri', timezone='America/New_York'),
-                      id="sub_cycle_us", misfire_grace_time=600)
-    # 18시 워치리스트는 폐지 (18시는 미장 메인 사이클이 차지).
-    # 손절 체크(-20% 자동 매도)·보유 종목 점검은 각 메인 사이클 완료 직후 해당 시장만 자동 트리거
-    # (_advance_stock → cycle_rest 진입 시 _post_cycle_checks(market) 실행).
-    # 별도 cron job 없음. 수동 실행은 POST /api/holdings/review (force=True).
+                      id="largecap_cycle", misfire_grace_time=600)
+    # 12·18·24시: 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 + 보유 점검). 하루 3회.
+    scheduler.add_job(run_discovery_cycle,
+                      CronTrigger(hour="0,12,18", minute=0, day_of_week='mon-fri'),
+                      id="discovery_cycle", misfire_grace_time=600)
     scheduler.start()
     return scheduler
