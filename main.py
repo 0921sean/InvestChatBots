@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+load_dotenv()  # 프로젝트 모듈 import 전에 .env 로드 — aifund.NEW_DESK_ENABLED 등 import-시점 게이트가 값을 읽게.
 from db import (
     INITIAL_BALANCE, TRADING_BALANCE,
     init_db, get_messages_since, get_latest_market_snapshot,
@@ -29,7 +31,6 @@ import orchestrator as _orch
 from prompts import AGENT_ORDER, AGENT_PROFILES, TRADING_AGENT_ORDER
 from scheduler import start_scheduler
 
-load_dotenv()
 init_db()
 
 # ── 권한 (owner 토큰 기반) ──────────────────────────────────
