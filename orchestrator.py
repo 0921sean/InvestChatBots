@@ -575,8 +575,8 @@ def _do_summarize(msg_id: int, agent_name: str, content: str):
         pass
 
 
-def _save_msg(round_id, agent_name, content):
-    msg_id = save_message(round_id, agent_name, None, content)
+def _save_msg(round_id, agent_name, content, desk=None):
+    msg_id = save_message(round_id, agent_name, None, content, desk=desk)
     if content and not content.startswith("["):
         threading.Thread(target=_do_summarize, args=(msg_id, agent_name, content), daemon=True).start()
     return msg_id
@@ -2222,16 +2222,19 @@ FUND_CHAT_ORDER = ["P", "W", "H", "S"]
 def handle_user_message(user_text: str):
     global _user_active_until
     _user_active_until = time.time() + USER_IDLE_SECONDS
+    # 라이브(fund)면 채팅도 fund 피드(desk='fund')에 저장 — 안 그러면 fund UI 필터(&desk=fund)에서 걸러져 안 보임.
+    _fund_mode = os.getenv("ROOT_IS_FUND", "").lower() in ("1", "true", "yes")
+    _desk = "fund" if _fund_mode else None
 
     round_id = create_round("user-message")
-    save_message(round_id, "User", None, user_text)
+    save_message(round_id, "User", None, user_text, desk=_desk)
 
     # 메시지에서 종목 감지 → TradingView 데이터 자동 페치
     stock_data_text = ""
     try:
         stock_data_text = detect_and_fetch_stocks(user_text)
         if stock_data_text:
-            _save_msg(round_id, "System", f"📊 종목 데이터 자동 조회\n{stock_data_text}")
+            _save_msg(round_id, "System", f"📊 종목 데이터 자동 조회\n{stock_data_text}", desk=_desk)
     except Exception as e:
         logger.debug(f"종목 감지 오류: {e}")
 
@@ -2240,7 +2243,7 @@ def handle_user_message(user_text: str):
     if not stock_data_text and _is_holdings_q(user_text):
         try:
             prompt_ctx = _holdings_context()
-            _save_msg(round_id, "System", f"📌 봇 실제 보유 현황(사실 기준)\n{prompt_ctx}")
+            _save_msg(round_id, "System", f"📌 봇 실제 보유 현황(사실 기준)\n{prompt_ctx}", desk=_desk)
         except Exception as e:
             logger.debug(f"보유 컨텍스트 오류: {e}")
 
@@ -2252,7 +2255,6 @@ def handle_user_message(user_text: str):
 
     # 응답 봇 — 라이브(ROOT_IS_FUND)면 현재 데스크 봇(P·W·H·S), 아니면 committee(v1 보존).
     # 단, 메타질문(휴장·장시간)은 1봇만 간결히.
-    _fund_mode = os.getenv("ROOT_IS_FUND", "").lower() in ("1", "true", "yes")
     responders = list(FUND_CHAT_ORDER) if _fund_mode else list(AGENT_ORDER)
     random.shuffle(responders)
     _META_KW = ("장 쉬", "장 열", "휴장", "개장", "장 시간", "장 마감", "장 시작", "거래일", "몇 시")
@@ -2273,7 +2275,7 @@ def handle_user_message(user_text: str):
             resp = f"[{agent_name} 응답 오류]"
         if "응답 오류" not in resp:
             resp = _strip_name_prefix(agent_name, resp)   # 이름 프리픽스 제거(전 봇 공통)
-        _save_msg(round_id, agent_name, resp)
+        _save_msg(round_id, agent_name, resp, desk=_desk)
         bot_responses.append((agent_name, resp))
         spoken_names.append(agent_name)
         time.sleep(random.uniform(0.2, 0.5))
@@ -2319,7 +2321,7 @@ def handle_user_message(user_text: str):
             logger.debug(f"채팅 요약 오류: {e}")
 
     if summary_msg:
-        _save_msg(round_id, "System", summary_msg + "\n※ 가상 계좌 기준 의견이며 투자 권유가 아닙니다.")
+        _save_msg(round_id, "System", summary_msg + "\n※ 가상 계좌 기준 의견이며 투자 권유가 아닙니다.", desk=_desk)
 
     complete_round(round_id)
 
