@@ -4,6 +4,7 @@ AI 투자 토론 그룹 — 섹터 라운드 시스템
 """
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -2213,6 +2214,11 @@ def chat_queue_worker():
             time.sleep(2.0)
 
 
+# 라이브(fund)에서 유저 채팅에 답하는 봇 — 현재 데스크 판단봇(P·린치/W·버핏/H·실적/S·병목).
+# A(애널리스트)·Q(룰 타이밍봇)는 대화 페르소나가 없어 제외.
+FUND_CHAT_ORDER = ["P", "W", "H", "S"]
+
+
 def handle_user_message(user_text: str):
     global _user_active_until
     _user_active_until = time.time() + USER_IDLE_SECONDS
@@ -2244,8 +2250,10 @@ def handle_user_message(user_text: str):
     # 질문 의도 — '왜/이유'면 설명(결정 강제 X), '살까/팔까·어때'면 스탠스+[결정]
     intent = _classify_chat_intent(user_text)
 
-    # 위원회 전원(5봇) 응답 — 단, 메타질문(휴장·장시간)은 1봇만 간결히
-    responders = list(AGENT_ORDER)
+    # 응답 봇 — 라이브(ROOT_IS_FUND)면 현재 데스크 봇(P·W·H·S), 아니면 committee(v1 보존).
+    # 단, 메타질문(휴장·장시간)은 1봇만 간결히.
+    _fund_mode = os.getenv("ROOT_IS_FUND", "").lower() in ("1", "true", "yes")
+    responders = list(FUND_CHAT_ORDER) if _fund_mode else list(AGENT_ORDER)
     random.shuffle(responders)
     _META_KW = ("장 쉬", "장 열", "휴장", "개장", "장 시간", "장 마감", "장 시작", "거래일", "몇 시")
     if not stock_data_text and any(k in user_text for k in _META_KW):
@@ -2300,7 +2308,7 @@ def handle_user_message(user_text: str):
                                      if "응답 오류" not in r)
             if answers_text:
                 sp = build_chat_summary_prompt(user_text, answers_text)
-                raw = call_agent("드가자", CHAT_SUMMARY_SYSTEM, sp, timeout=60, model="haiku")
+                raw = call_agent("P" if _fund_mode else "드가자", CHAT_SUMMARY_SYSTEM, sp, timeout=60, model="haiku")
                 raw = (raw or "").strip()
                 # 거부/캐릭터 이탈(Claude Code 정체 등) 감지 → 사용자에게 안 보이게 폐기
                 _refusal = ("claude code", "투자 봇이 아니", "어시스턴트", "소프트웨어 엔지니어",
