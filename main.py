@@ -813,6 +813,16 @@ def api_watchlist_run():
     return {"ok": True, "triggered": True}
 
 
+@app.post("/api/largecap/run")
+def api_largecap_run(request: Request):
+    """대형주 사이클 수동 트리거(owner 전용) — 서버 내부(in-process) 실행이라 별도 파이썬 없이 메모리 안전.
+    run_largecap_select이 오늘 완료분(fund_report)을 자동 스킵 → 중단 지점부터 재개."""
+    require_owner(request)
+    import aifund
+    threading.Thread(target=lambda: aifund.run_largecap_cycle("US"), daemon=True).start()
+    return {"ok": True, "triggered": True}
+
+
 @app.post("/api/main-cycle/measure")
 def api_main_cycle_measure():
     """측정용 — weekday/시간 체크 우회해서 메인 사이클 강제 1회 실행.
