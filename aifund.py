@@ -647,6 +647,32 @@ def _summarize_ko(name, business_summary):
         return ""
 
 
+def _business_brief(name, code, business_summary):
+    """A의 '사업 이해 게이트' — 실제로 뭘 만들어 어떻게 버는지 소개 + 명확/불명확 판정(한 콜).
+    반환 (소개_한글, clear). clear=False면 발굴주 매수 차단(P·W·S가 홍보 문구만 보고 사는 것 방지).
+    사업 개요 자체가 없거나 호출 실패면 보수적으로 불명확(False).
+    ⚠️ LLM 호출(haiku) — NEW_DESK 발굴 사이클 안에서만."""
+    if not business_summary:
+        return "", False
+    try:
+        from agents import _call_claude_cli
+        sys = ("너는 기업을 처음 보는 사람에게 소개하는 애널리스트다. 평가·전망·추천 없이 "
+               "이 회사가 ①뭘 팔아서 어떻게 버는지 + ②대표 제품·고객·업계 위상을 담백하게 2~3문장 한국어로. "
+               "제목·머리말·불릿 없이 소개 문장만. "
+               "그다음 판정: 제공된 정보로 '이 회사가 실제로 뭘 만들어 어떻게 매출을 내는지' 구체적으로 설명 가능하면 명확, "
+               "홍보성 버즈워드뿐이거나 사업 실체가 모호하면 불명확. "
+               "맨 마지막 줄에 반드시 `[명확도] 명확` 또는 `[명확도] 불명확`만.")
+        prompt = f"[회사] {name} ({code})\n[영문 개요]\n{business_summary}\n\n소개 문장(제목 없이) 후 마지막 줄에 [명확도]:"
+        out = (_call_claude_cli(sys, prompt, timeout=30, model="haiku") or "").strip()
+        m = re.search(r"\[명확도\]\s*(불명확|명확)", out)
+        clear = not (m and m.group(1) == "불명확")            # 명시적 '불명확'만 차단(소개는 썼는데 태그 누락 시엔 통과)
+        summary = _clean_md(re.sub(r"\[명확도\].*$", "", out, flags=re.S).strip())
+        return summary, clear
+    except Exception as e:
+        logger.warning(f"사업 이해 판정 실패 {name}: {e}")
+        return "", False
+
+
 # ── 하루 사이클 오케스트레이션 (A → P/W/S → Q) ──────────────
 # ── 통일 데스크 파이프라인 (대형주 / 발굴주) — 설계 docs/AIFUND_PIVOT.md ──
 def _largecap_universe():
@@ -830,9 +856,12 @@ def run_discovery_desk(market="US"):
     buys = []
     for code, name in cands:
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
-        biz_ko = _summarize_ko(name, (brief or ("", ""))[1])         # 발굴주 소개(리서치보드용 풀)
+        biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
+        if not clear:                                                # 이해 게이트: 사업 불명확 → P/W/S 안 붙이고 매수 차단
+            _narrate("A", f"{_tk(code, name)} — 이 회사가 실제로 뭘 해서 버는지 명확히 설명하기 어렵네요(홍보 문구 위주/정보 부족). 이해 못 하는 종목은 안 삽니다, 패스할게요. 🙅")
+            continue
         verdicts, reasonings = {}, {}
         for bot in DISCOVERY_BOTS:                                   # P/W/S 순차 — 각자 끝나는 대로 하나씩
             try:
