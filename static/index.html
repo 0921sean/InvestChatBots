@@ -1606,6 +1606,31 @@ async function requestSummary() {
   } catch(e) { btn.textContent = '📋 요약'; btn.disabled = false; }
 }
 
+// 저장된 매수 이유(랭크 크레딧용 원본)를 초보 친화 문장으로 렌더. 원본은 그대로 두고 화면만 친절하게.
+function friendlyReason(raw) {
+  const r = (raw || '').trim();
+  if (!r) return '매수 이유 정보 없음';
+  if (/^committee\s*승계/.test(r)) {
+    return "이전 데스크(committee)에서 '실적왕'과 '역추세봇' 봇이 함께 매수를 승인했던, 성과가 좋았던 종목이에요. 새 대형주 계좌로 그대로 이어받아(승계) 계속 보유 중입니다.";
+  }
+  let m = r.match(/^Q\s*(추세돌파|되돌림)\s*진입(?:\s*·\s*관심\s*([A-Z,\s]+))?/);
+  if (m) {
+    const strat = m[1] === '추세돌파'
+      ? "주가가 그동안의 고점(저항선)을 힘있게 뚫고 올라서는 '추세 돌파' 신호가 나와서, 퀀트 타이밍 봇 Q가 매수했어요. 상승 흐름 초입에 올라타는 전략이에요."
+      : "강하게 오른 뒤 잠깐 눌린(되돌림) 자리에서 다시 오를 힘이 남았다고 보고, 퀀트 타이밍 봇 Q가 매수했어요. 짧게 눌렸을 때 담는 전략이에요.";
+    const bots = (m[2] || '').replace(/\s/g, '');
+    const credit = bots ? ` (${bots.split(',').filter(Boolean).join('·')} 봇이 미리 관심 종목으로 점찍어둔 곳이에요.)` : '';
+    return strat + credit;
+  }
+  m = r.match(/^발굴주\s*매수\s*\(([^)]*)\)(?:\s*—\s*([A-Z])\s*:\s*([\s\S]+))?/);
+  if (m) {
+    const bots = (m[1] || '').replace(/\s/g, '').split(',').filter(Boolean).join('·');
+    const lead = `발굴 담당 봇들이 새로 찾아낸 종목이에요.${bots ? ` ${bots} 봇이 매수에 동의했어요.` : ''}`;
+    const detail = m[3] ? ` ${m[2]} 봇의 판단: ${m[3].trim()}` : '';
+    return lead + detail;
+  }
+  return r;   // 알 수 없는 형식은 원본 그대로
+}
 function showPositionReason(idx) {
   const p = (window._posData || [])[idx];
   if (!p) return;
@@ -1635,10 +1660,16 @@ function showPositionReason(idx) {
   }
   document.getElementById('r-meta').innerHTML = metaLines.join('<br>');
 
-  // 본문 — 매수 이유 + (있으면) 매도 이유
-  const buyReason = (p.reasoning || '').trim() || '매수 이유 정보 없음';
-  let bodyHtml = `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:6px;letter-spacing:.04em">🟢 매수 이유</div>
-                  <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
+  // 본문 — (발굴주면) A 종목소개 + 친절한 매수 이유 + (있으면) 매도 이유
+  let bodyHtml = '';
+  const rep = (window._fundReportByCode || {})[p.code];        // 대형주는 summary 비어 자연 skip
+  if (rep && (rep.summary || '').trim()) {
+    bodyHtml += `<div style="font-size:11px;font-weight:700;color:#8b949e;margin-bottom:6px;letter-spacing:.04em">🏢 이런 회사예요</div>
+                 <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9;margin-bottom:14px">${esc(rep.summary.trim())}</div>`;
+  }
+  const buyReason = friendlyReason(p.reasoning);
+  bodyHtml += `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:6px;letter-spacing:.04em">🟢 매수 이유</div>
+               <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
   if (p.status === 'closed') {
     const sellReason = (p.exit_reasoning || '').trim();
     bodyHtml += `<div style="height:14px"></div>
@@ -2738,6 +2769,9 @@ function renderFundReport(reports) {
     list.innerHTML = `<div class="fr-empty">아직 리포트가 없어요. 사이클이 돌면 A가 섹터·종목별로 채웁니다.</div>`;
     return;
   }
+  // 매수이유 모달의 'A 종목소개'용 — code별 최신 리포트 캐시(최신순이라 첫 등장이 최신)
+  window._fundReportByCode = {};
+  reports.forEach(r => { if (r.code && (r.summary || '').trim() && !window._fundReportByCode[r.code]) window._fundReportByCode[r.code] = r; });
   const cards = reports.map(r => {                              // 최신순 그대로 렌더(발굴 사이클 중엔 발굴 카드가 위로)
     if (r.desk === '섹터합의') {                                 // 섹터 합의 카드
       const sum = (r.summary || '').trim();
