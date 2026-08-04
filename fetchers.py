@@ -214,15 +214,15 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
     try:
         t = yf.Ticker(yf_ticker)
         info = {}
-        for _attempt in range(3):
+        for _attempt in range(2):                     # 3→2 fail-fast: 리밋 시 재무 last-good 캐시가 폴백(속도 병목 완화)
             try:
                 info = t.info or {}
                 if info:
                     break
             except Exception as _e:
-                if _attempt == 2:
+                if _attempt == 1:
                     raise
-                time.sleep(1.5 * (_attempt + 1))
+                time.sleep(0.8)
         # TV 가격 없으면 yfinance에서 보완
         if "price" not in result:
             try:
