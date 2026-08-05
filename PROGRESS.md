@@ -4,19 +4,20 @@
 > (CLAUDE.md = *고정 지침·가드레일* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
 > ⚠️ **ICB는 라이브 사이트다.** 코드 변경 전 Think Before Coding + Surgical Changes 준수(CLAUDE.md §A).
-> updated: 2026-08-05 (밤 세션 — S 시드 큐레이션 인프라 ②a/②b/②c/②e 구현. 브랜치 `feat/bottleneck-seed-db`, 미push. **남은 건 ②d(6시 에이전트)뿐 — API비용/cron이라 명시 승인 필요.**)
+> updated: 2026-08-05 (밤 세션 2 — S 시드 큐레이션 로드맵 ② **전부 완료**. ②a/②b/②c/②e는 PR #110 머지(main), ②d(6시 웹서치 에이전트)는 브랜치 `feat/bottleneck-curation` PR 대기. **활성화만 남음: `.env`에 `BOTTLENECK_CURATION_ENABLED=true` + 서버 재시작.**)
 
 ## 🚧 다음 세션 — S/Q 재설계 로드맵 (2026-08-05 확정)
-> 방향 확정 후 인프라 구현 중. ②a/②b/②c/②e ✅완료(브랜치 `feat/bottleneck-seed-db`). 남은 건 ②d.
-- **① S 시드 = 사람 큐레이션** (봇이 초크포인트 발굴은 불가 — haiku+yfinance로 못 함). 역할분담: **발굴·조사=Claude(웹서치)** / **승인=사용자** / **평가·매매=라이브 S봇**.
-- **② 6시 큐레이션 흐름**:
-  - a. ✅ 병목 시드 **DB 테이블화**(`bottleneck_seed`: ticker·rationale·status pending/approved/rejected·source). db 헬퍼 add/get/decide/backfill.
-  - b. ✅ `source_bottleneck`이 **DB approved 시드** 읽음. 빈 테이블은 최초 1회 하드코딩 14시드를 approved 백필(라이브 동작 보존). 하드코딩 원천은 `_hardcoded_bottleneck_seed`로 분리.
-  - c. ✅ **Admin 승인 UI**: `GET /owner/seeds`(static/seeds.html, 폰 결재) + 오너 엔드포인트 `/api/bottleneck/seeds`(목록)·`/decide`(승인/반려)·`/add`(수동 pending). ⚠️ 동적 `/owner/{token}`보다 먼저 선언해 선점.
-  - d. ⏳ **아침 6시 스케줄 에이전트**(Claude Code 루틴, 웹서치로 초크포인트 후보 조사 → `aifund.submit_bottleneck_candidates()` 호출로 DB pending 삽입). ⚠️ Mac mini 로컬 DB 접근 필요 → 로컬 cron(launchd) 유력. **매일 API비용 — 가드레일 §3상 명시 승인 후 착수.** submit 훅은 ②e에서 이미 구현됨.
-  - e. ✅ **S 피드 "결재 올림" + ntfy 알림**: `aifund.submit_bottleneck_candidates()`가 pending 등록 + S 내레이션 + 오너 ntfy(링크=`/owner/seeds`, `SITE_URL` env 있으면 절대링크). ②d가 이 훅을 부르면 됨.
+> ② 큐레이션 흐름 **전부 구현 완료**. 다음은 활성화(아래 ⚠️) + ③~⑥.
+- **① S 시드 = 사람 큐레이션** ✅ 구조 완성. 역할분담: **발굴·조사=Claude(웹서치)** / **승인=사용자(/owner/seeds)** / **평가·매매=라이브 S봇**.
+- **② 6시 큐레이션 흐름 — 전부 ✅ (로직 완성, 활성화 대기)**:
+  - a. ✅ 병목 시드 **DB 테이블화**(`bottleneck_seed`). db 헬퍼 add/get/decide/backfill. (#110 머지)
+  - b. ✅ `source_bottleneck`이 **DB approved 시드** 읽음. 빈 테이블은 하드코딩 14시드 approved 백필. (#110 머지)
+  - c. ✅ **Admin 승인 UI**: `GET /owner/seeds` + 오너 API `/api/bottleneck/seeds`·`/decide`·`/add`. (#110 머지)
+  - d. ✅ **6시 웹서치 에이전트**(브랜치 `feat/bottleneck-curation`): `aifund.run_bottleneck_curation()` = Claude 웹서치로 무명 상류 초크포인트 조사 → pending. `_call_claude_cli(allowed_tools=['WebSearch'])`. scheduler 05:50 mon-fri(06 대형주 전에 pending 준비). 게이트 `BOTTLENECK_CURATION_ENABLED`(기본 off). 수동트리거 `POST /api/bottleneck/curate`. **결정: launchd 아니라 in-app 스케줄러**(서버가 Mac mini 로컬 DB 접근 이미 있음 → 더 단순). **비용=별도 크레딧 아님, 구독 토큰 버킷**(하루 1콜). E2E검증(AXTI·KLIC·MOD 발굴).
+  - e. ✅ **S 피드 "결재 올림" + ntfy**: `submit_bottleneck_candidates()`가 pending+S내레이션+오너ntfy(링크=`/owner/seeds`). (#110 머지)
+  - **⚠️ 남은 활성화**: `feat/bottleneck-curation` 머지 → `.env`에 `BOTTLENECK_CURATION_ENABLED=true`(원하면 `SITE_URL`도) → §1 절차로 재시작. 안 켜면 05:50 잡 no-op.
 - **③ S 렌즈 추가 심화**: 오늘 페르소나에 "저마진·적자여도 논지로, 시총vsTAM·희석 본다" 한 줄 넣음(라이브). GitHub `W-Y-P/공급망병목-aleabitoreddit-skill`의 SKILL.md 프레임으로 더 정교화 가능(선택).
-- **④ 시드 정비**: 현 14개에 AVGO·ANET·MRVL(유명 '참치') 섞임 → 공급망병목 실제 픽(AXTI·SIVE·NBIS·RPI 등 무명 상류)으로 큐레이션. Claude가 웹서치로 후보 조사→사용자 승인.
+- **④ 시드 정비**: 현 14개에 AVGO·ANET·MRVL(유명 '참치') 섞임 → 무명 상류로 교체. **이제 도구 완비**: 6시 에이전트가 매일 무명 상류 후보를 pending에 올리고(②d), `/owner/seeds`에서 참치 시드 반려·신규 승인. 남은 건 운영(며칠 결재하며 참치 정리).
 - **⑤ 거시자문 봇 = 비투표 매크로 자문**(트레이딩봇 X). blog_posts(blog1, 277편) 원문 보유. `병목자문` 패턴처럼 AGENT_PROFILES 자문 봇으로 — "거시적으로 지금 사면 안 된다" 시장레벨 경고. (KR/서사형이라 트레이딩 룰로는 안 맞음.)
 - **⑥ 유니버스 큐레이션 일반화**: 섹터·시드 다 "사람이 정비→봇이 굴림". 오늘 섹터 잡탕 1건 고침(아래), V·MA 정합은 미결.
 
@@ -51,7 +52,13 @@
 - 릴스 자동 파이프라인 삭제 → 당분간 수동 업로드(파급력 우선).
 
 ## 최근 세션 로그 (최신이 위)
-- **2026-08-05 (밤 — S 시드 큐레이션 인프라 ②a/②b/②c/②e)** — 브랜치 `feat/bottleneck-seed-db`(feat/q-veto-largecap 위, 미push). 커밋 2개(#98).
+- **2026-08-05 (밤 2 — 6시 큐레이션 에이전트 ②d + #108/#109/#110 머지)** — 로드맵 ② 완성.
+  - **#108·#109 머지**(merge-commit, 스택 공유커밋 보존) → main. **#110 머지**(②a/②b/②c/②e) → main.
+  - **②d(브랜치 `feat/bottleneck-curation`, 커밋 d935969)**: `run_bottleneck_curation()` — Claude 웹서치로 무명 상류 초크포인트 조사(하루 1콜) → pending 결재 큐. `_call_claude_cli`에 `allowed_tools` 추가(하위호환)로 헤드리스 웹서치. scheduler 05:50 mon-fri. 게이트 `BOTTLENECK_CURATION_ENABLED`(기본 off). 수동 `POST /api/bottleneck/curate`.
+  - **설계 결정**: launchd 대신 **in-app 스케줄러**(서버 이미 Mac mini 로컬 DB 접근 → 단순). 비용은 **크레딧 아닌 구독 토큰 버킷**(agents가 ANTHROPIC_API_KEY 제거하고 CLI 구독토큰 사용) — 채팅·봇과 공유하는 그 5시간 버킷. 하루 1콜로 최소화.
+  - **검증**: 헤드리스 웹서치 실동작 확인(`--allowedTools WebSearch` → Bloomberg 헤드라인). 실제 큐레이션 1콜 E2E(임시 DB) — **AXTI(InP 기판 공급난)·KLIC(HBM4 TCB 본딩)·MOD(액체냉각 백로그)** 발굴, 제외·pending·S결재·ntfy 정상. 신규 테스트 4건, 전체 189통과(사전 실패 11 무관).
+  - **⚠️ 활성화 대기**: 이 브랜치 머지 → `.env` `BOTTLENECK_CURATION_ENABLED=true` → §1 재시작.
+- **2026-08-05 (밤 — S 시드 큐레이션 인프라 ②a/②b/②c/②e)** — 브랜치 `feat/bottleneck-seed-db` → PR #110 머지. 커밋 3개(#98).
   - **②a/②b(커밋 059a2bb)**: 병목 시드 `strategy_private` 하드코딩 → DB `bottleneck_seed` 테이블(ticker·rationale·status·source). `source_bottleneck`이 approved만 소싱. 빈 테이블은 최초 1회 하드코딩 14시드 approved 백필 → **라이브 무접촉 보존**. `trading_engine`의 `US_BOTTLENECK_SEED` 직접참조(committee 유니버스)는 무변경.
   - **②c/②e(커밋 85bce59)**: `GET /owner/seeds`(폰 결재 페이지) + 오너 API 3종(목록/decide/add). `aifund.submit_bottleneck_candidates()` = pending 등록+S '결재 올림' 내레이션+오너 ntfy(②d가 부를 훅). ⚠️ `/owner/seeds`를 동적 `/owner/{token}`보다 먼저 선언(선점).
   - **검증**: 신규 테스트 6건 통과·전체 회귀 0(기존 실패 11건은 사전 존재=옛 로스터/채팅라우팅 드리프트, stash로 확인). TestClient E2E로 엔드포인트 구동(anon 403·오너 결재·400·페이지 렌더 200).
