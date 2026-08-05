@@ -249,6 +249,54 @@ def test_run_discovery_desk_or_gate_buys(monkeypatch):
     assert calls == ["발굴주"]                     # 발굴주 계좌로 체결
 
 
+def test_run_discovery_desk_approval_mode_queues_not_buys(monkeypatch):
+    # BUY_APPROVAL_REQUIRED=True면 즉시 체결 대신 결재 상신, 사이클은 계속
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("수직 SaaS 회사", True))
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, m="US", brief=None: ({"P": "매수"}.get(bot, "관망"), "PEG 매력"))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    submitted, bought = [], []
+    monkeypatch.setattr(aifund, "_submit_buy_approval",
+                        lambda desk, acct, ticker, code, *a, **k: (submitted.append((desk, code, k.get("stock_desc"))), True)[1])
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (bought.append(1), (1, None))[1])
+    r = aifund.run_discovery_desk()
+    assert submitted == [("발굴주", "NVDA", "수직 SaaS 회사")]   # 결재 상신(설명 첨부)
+    assert bought == []                                          # 즉시 체결 안 함
+    assert r["buys"] == []                                       # 승인 대기 — 체결 목록 없음
+
+
+def test_submit_buy_approval_queues_narrates_notifies_and_dedups(tmp_path, monkeypatch):
+    import db, notifier
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "buy.db"))
+    db.init_db()
+    narr, noti = [], []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": narr.append((b, c)))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: noti.append(1))
+    ok = aifund._submit_buy_approval("대형주", "대형주", "NVIDIA", "NVDA", 120.5, 5_000_000,
+                                     ["P", "W", "H"], "US", stock_desc="AI 반도체", reason="확신",
+                                     q_comment="돌파 신호", speaker="Q")
+    assert ok is True
+    rows = db.get_pending_buys("pending")
+    assert len(rows) == 1 and rows[0]["q_comment"] == "돌파 신호" and rows[0]["decision_price"] == 120.5
+    assert narr and narr[0][0] == "Q" and "결재" in narr[0][1] and noti
+    # 같은 종목·데스크 중복 상신은 skip(내레이션·알림도 안 함)
+    narr.clear(); noti.clear()
+    assert aifund._submit_buy_approval("대형주", "대형주", "NVIDIA", "NVDA", 130, 5_000_000, ["P"], "US") is False
+    assert narr == [] and noti == []
+
+
 def test_run_discovery_desk_comprehension_gate_blocks(monkeypatch):
     """A가 사업 불명확 판정 → P/W/S 분석·매수 스킵(하드 차단)."""
     import db, fetchers

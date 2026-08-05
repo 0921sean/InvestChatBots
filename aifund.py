@@ -20,6 +20,9 @@ NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "y
 # 6시 병목 큐레이션 게이트(.env). off면 큐레이션 no-op — 웹서치=구독 토큰 추가 소모라 명시 활성화(로드맵 ②d).
 BOTTLENECK_CURATION_ENABLED = os.getenv("BOTTLENECK_CURATION_ENABLED", "").lower() in ("1", "true", "yes")
 BOTTLENECK_CURATION_QUOTA = 5   # 하루 1콜로 올리는 후보 상한(토큰 절약). 운영값.
+# 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/owner/approvals).
+# 사이클은 결재만 올리고 계속 진행(논블로킹). 청산·손절은 자동(매수만 결재). off면 기존처럼 자동 매수.
+BUY_APPROVAL_REQUIRED = os.getenv("BUY_APPROVAL_REQUIRED", "").lower() in ("1", "true", "yes")
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -978,6 +981,38 @@ def _approver_of(position):
     return "P"
 
 
+# ── 매수 결재 (봇 판단 → pending_buy → 오너 승인 시 체결) ──
+def _report_summary(code) -> str:
+    """해당 종목의 최신 A 사업 요약(있으면) — 대형주 결재에 '종목 설명'으로 첨부."""
+    from db import get_fund_reports
+    for r in get_fund_reports(200):
+        if r.get("code") == code and (r.get("summary") or "").strip():
+            return r["summary"].strip()
+    return ""
+
+
+def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, market,
+                         stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
+    """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + '결재 올림' 내레이션 + 오너 ntfy.
+    같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
+    from db import add_pending_buy
+    pid = add_pending_buy(ticker, code, desk, account, market, amount, price,
+                          ",".join(approvers) if approvers else "", stock_desc, reason, q_comment)
+    if not pid:
+        return False
+    _narrate(speaker or (approvers[0] if approvers else "A"),
+             f"📋 {_tk(code, ticker)} 매수하고 싶어요 — 사장님께 결재 올립니다. 승인해주시면 담을게요.")
+    try:
+        from notifier import notify
+        site = os.getenv("SITE_URL", "").rstrip("/")
+        link = (site + "/owner/approvals") if site else "/owner/approvals"
+        notify(f"🧾 매수 결재 — {ticker}", f"{desk} · {ticker} @ {price:,.2f}\n승인/거부: {link}",
+               priority="default", cooldown=0)
+    except Exception as e:
+        logger.warning(f"매수 결재 알림 실패: {e}")
+    return True
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
@@ -1028,6 +1063,10 @@ def run_discovery_desk(market="US"):
         if not price:
             continue
         reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유
+        if BUY_APPROVAL_REQUIRED:                                     # 즉시 체결 대신 오너 결재로(사이클은 계속)
+            _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
+                                 approvers, market, stock_desc=biz_ko, reason=reason, speaker=approvers[0])
+            continue
         rz = f"발굴주 매수 ({','.join(approvers)})" + (f" — {approvers[0]}: {reason}" if reason else "")
         _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
         if not err:
@@ -1207,10 +1246,17 @@ def run_largecap_execute(market="US"):
         if not o:
             continue
         veto, why = q_veto(o["close"], up)                    # 보조지표 veto: '사면 안 되는 자리'만 막고 나머진 P/W/H 확신 따름
-        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "대기" if veto else "진입"))   # 티커(상세명)·이유
+        q_note = _q_say(_tk(w["code"], w.get("name")), o["close"], "대기" if veto else "진입")
+        _narrate("Q", q_note)                                 # 티커(상세명)·이유 (결재에도 이 멘트 첨부)
         if veto:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
+        if BUY_APPROVAL_REQUIRED:                             # 즉시 체결 대신 오너 결재로(Q 멘트까지 전달)
+            _submit_buy_approval("대형주", "대형주", w["name"], w["code"], o["close"][-1],
+                                 _desk_amount("대형주"), [a for a in appr.split(",") if a], market,
+                                 stock_desc=_report_summary(w["code"]),
+                                 reason="P/W/H 확신 + Q 진입 타이밍 이상무", q_comment=q_note, speaker="Q")
+            continue
         rz = "Q 타이밍 승인 (P/W/H 확신·타이밍 이상무)" + (f" · 관심 {appr}" if appr else "")
         _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], _desk_amount("대형주"),
                                      rz, market, account="대형주")

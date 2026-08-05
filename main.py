@@ -231,6 +231,16 @@ def owner_seeds_page(request: Request):
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/owner/approvals")
+def owner_approvals_page(request: Request):
+    """매수 결재 페이지 (owner only) — 봇 매수 판단을 종목설명·이유·Q멘트와 함께 ✅승인/❌거부.
+    미인증 → /admin. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
+    if not is_owner(request):
+        return RedirectResponse("/admin")
+    return FileResponse("static/approvals.html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/owner/{token}")
 def owner_login(token: str):
     """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
@@ -1298,6 +1308,47 @@ def api_bottleneck_curate(request: Request):
         raise HTTPException(403, "owner only")
     from aifund import run_bottleneck_curation
     return run_bottleneck_curation()
+
+
+# ── 매수 결재 (봇 판단 → 오너 승인 시 체결) ──────────────────
+class BuyDecideBody(BaseModel):
+    id: int
+    status: str            # approved / rejected
+
+
+@app.get("/api/buy-approvals")
+def api_buy_approvals(request: Request, status: str = "pending"):
+    """매수 결재 큐 (owner only). 기본 pending."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_pending_buys
+    return {"items": get_pending_buys(None if status == "all" else status)}
+
+
+@app.post("/api/buy-approvals/decide")
+def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
+    """결재 승인/거부 (owner only). 승인 → 판단시점 가격으로 체결(청산은 자동이라 무관)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import (get_pending_buy, decide_pending_buy, buy_shared_position,
+                    get_open_positions_by_symbol)
+    if body.status == "rejected":
+        return {"ok": bool(decide_pending_buy(body.id, "rejected")), "bought": False}
+    if body.status != "approved":
+        raise HTTPException(400, "status는 approved/rejected")
+    row = get_pending_buy(body.id)
+    if not row or row["status"] != "pending":
+        raise HTTPException(400, "결재 없음 또는 이미 처리됨")
+    if get_open_positions_by_symbol(row["ticker"], account=row["account"]):
+        decide_pending_buy(body.id, "approved")                  # 이미 보유 → 결재만 닫음
+        return {"ok": True, "bought": False, "note": "이미 보유 중"}
+    rz = f"오너 승인 매수 ({row.get('approvers') or ''})" + (f" · {row['reason']}" if row.get("reason") else "")
+    _, err = buy_shared_position(row["ticker"], row["code"], row["decision_price"],
+                                 row["amount"], rz, row["market"], account=row["account"])
+    if err:
+        raise HTTPException(400, f"체결 실패: {err}")             # pending 유지 → 재시도 가능
+    decide_pending_buy(body.id, "approved")
+    return {"ok": True, "bought": True}
 
 
 @app.get("/api/_debug/state")
