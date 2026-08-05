@@ -962,7 +962,9 @@ const BOT_COLORS = {
   // 구 이름·비활성 (과거 메시지 호환)
   경력직:'#06b6d4', 원칙주의자:'#f97316', 감독:'#a855f7', 류:'#f43f5e', 알렉스:'#0ea5e9',
   User:'#fbbf24', System:'#6e7681',
-  // AI펀드 봇(전략 노출 방지 글자) — 채팅 피드에서도 색 유지. Members 로스터 색과 일치.
+  // AI펀드 봇(전략 노출 방지 — 공개 표기는 ROT13). 채팅 피드·Members 로스터 색 일치.
+  // 내부 A/P/W/H/S/Q/M → 공개 N/C/J/U/F/D/Z. (구 표기는 과거 메시지 호환용으로 남겨둠)
+  N:'#8b949e', C:'#5aa9e6', J:'#c9a227', U:'#a78bfa', F:'#e08a3c', D:'#4bbf8a', Z:'#8b8cf0',
   A:'#8b949e', P:'#5aa9e6', W:'#c9a227', H:'#a78bfa', S:'#e08a3c', Q:'#4bbf8a'
 };
 let lastId = 0, agents = {};
@@ -1606,6 +1608,11 @@ async function requestSummary() {
   } catch(e) { btn.textContent = '📋 요약'; btn.disabled = false; }
 }
 
+// 표시용 이니셜 치환(ROT13) — 내부/원본은 A/P/W/H/S/Q/M, 화면엔 N/C/J/U/F/D/Z. 단독 레터만(&·/·단어 인접 제외).
+const _PUB_LETTER = {A:'N', P:'C', W:'J', H:'U', S:'F', Q:'D', M:'Z'};
+function cipherLetters(s) {
+  return String(s || '').replace(/(?<![\w&/])([APWHSQM])(?![\w&/])/g, c => _PUB_LETTER[c] || c);
+}
 // 저장된 매수 이유(랭크 크레딧용 원본)를 초보 친화 문장으로 렌더. 원본은 그대로 두고 화면만 친절하게.
 function friendlyReason(raw) {
   const r = (raw || '').trim();
@@ -1667,11 +1674,11 @@ function showPositionReason(idx) {
     bodyHtml += `<div style="font-size:11px;font-weight:700;color:#8b949e;margin-bottom:6px;letter-spacing:.04em">🏢 이런 회사예요</div>
                  <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9;margin-bottom:14px">${esc(rep.summary.trim())}</div>`;
   }
-  const buyReason = friendlyReason(p.reasoning);
+  const buyReason = cipherLetters(friendlyReason(p.reasoning));
   bodyHtml += `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:6px;letter-spacing:.04em">🟢 매수 이유</div>
                <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
   if (p.status === 'closed') {
-    const sellReason = (p.exit_reasoning || '').trim();
+    const sellReason = cipherLetters((p.exit_reasoning || '').trim());
     bodyHtml += `<div style="height:14px"></div>
                  <div style="font-size:11px;font-weight:700;color:#f85149;margin-bottom:6px;letter-spacing:.04em">🔴 매도 이유</div>
                  <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(sellReason || '매도 이유 정보 없음 (옛 데이터)')}</div>`;

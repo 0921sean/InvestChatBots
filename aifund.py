@@ -23,6 +23,16 @@ BOTTLENECK_CURATION_QUOTA = 5   # 하루 1콜로 올리는 후보 상한(토큰 
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
+# 공개 표기용 이니셜 치환(ROT13) — 내부 코드/DB는 A/P/W/H/S/Q/M 그대로 두고 '출력·표시'에서만 치환해
+# 전략 유추 방지(오너는 ROT13으로 복호화). API 응답(main)·표시 콘텐츠에서만 사용. 미등록 이름은 그대로.
+_FUND_PUB = {"A": "N", "P": "C", "W": "J", "H": "U", "S": "F", "Q": "D", "M": "Z"}
+
+
+def pub_letter(name):
+    """펀드 봇 내부 이니셜 → 공개 표기(ROT13). 위원회 한글명 등은 그대로 통과."""
+    return _FUND_PUB.get(name, name)
+
+
 def _narrate(bot, content, model="rule"):
     """AI펀드 관전 피드에 한 줄 — desk='fund'로 저장해 committee 피드와 분리.
     발화자는 전략 노출 방지를 위해 알파벳 한 글자(A/P/W/S/Q)로만 표기.
@@ -641,33 +651,33 @@ _CLOCK_IN = {
     "A": ["다들 출근했습니다. 오늘 볼 종목부터 추려볼게요.",
           "좋은 아침. 밤사이 뭐 터졌나 훑고 리스트 뽑습니다.",
           "출근이요~ 오늘의 후보 정리해서 곧 올릴게요."],
-    "P": ["P 출근. 오늘도 생활 속에서 크게 자랄 놈 찾아봅니다.",
-          "P 왔어요. PEG 싼 성장주 뭐 없나 보죠.",
+    "P": ["출근. 오늘도 생활 속에서 크게 자랄 놈 찾아봅니다.",
+          "왔어요. PEG 싼 성장주 뭐 없나 보죠.",
           "출근! 스토리 살아있는 놈으로 골라봅니다."],
-    "W": ["W 출근했습니다. 좋은 회사를 적정가에.",
-          "W 도착. 능력범위 안, 해자 있는 것만 봅니다.",
+    "W": ["출근했습니다. 좋은 회사를 적정가에.",
+          "도착. 능력범위 안, 해자 있는 것만 봅니다.",
           "출근이요. 10년 들고 갈 만한지부터 봅니다."],
-    "H": ["H 출근. 실적으로 증명된 놈만 봅니다.",
-          "H 왔습니다. 성장률·마진부터 확인하죠.",
+    "H": ["출근. 실적으로 증명된 놈만 봅니다.",
+          "왔습니다. 성장률·마진부터 확인하죠.",
           "출근! 숫자 안 나오면 안 삽니다."],
-    "S": ["S 출근 — 오늘의 곡괭이 찾으러 갑니다.",
-          "S 왔습니다. 남들 완제품 볼 때 저는 사슬 뒤를 봐요.",
+    "S": ["출근 — 오늘의 곡괭이 찾으러 갑니다.",
+          "왔습니다. 남들 완제품 볼 때 저는 사슬 뒤를 봐요.",
           "출근! 공급망 초크포인트부터 직접 뒤져봅니다."],
 }
 _CLOCK_OUT = {
-    "A": ["오늘 리서치 끝 — A 퇴근합니다. 다들 수고했어요 🫡",
-          "정리 끝났습니다. A 퇴근할게요, 내일 또 좋은 종목으로.",
-          "계좌 성적은 우측에서 보세요. A 퇴근합니다."],
-    "P": ["P 퇴근. 오늘 고른 놈들 잘 자라라~",
-          "P 이만 퇴근합니다. 인내가 수익이죠.",
+    "A": ["오늘 리서치 끝 — 퇴근합니다. 다들 수고했어요 🫡",
+          "정리 끝났습니다. 퇴근할게요, 내일 또 좋은 종목으로.",
+          "계좌 성적은 우측에서 보세요. 퇴근합니다."],
+    "P": ["퇴근. 오늘 고른 놈들 잘 자라라~",
+          "이만 퇴근합니다. 인내가 수익이죠.",
           "먼저 퇴근할게요. 좋은 회사는 시간이 증명해요."],
-    "W": ["W 퇴근. 서두르지 않습니다, 늘 그렇듯.",
-          "W 관점 정리 끝, 퇴근합니다.",
+    "W": ["퇴근. 서두르지 않습니다, 늘 그렇듯.",
+          "관점 정리 끝, 퇴근합니다.",
           "이만 퇴근이요. 가격이 오면 그때 더 담죠."],
-    "H": ["H 퇴근. 결국 실적이 답이죠.",
-          "숫자 확인 끝, H 퇴근합니다.",
+    "H": ["퇴근. 결국 실적이 답이죠.",
+          "숫자 확인 끝, 퇴근합니다.",
           "먼저 퇴근이요. 다음 실적 시즌도 지켜보죠."],
-    "S": ["S 퇴근 — 곡괭이는 조용히 값을 합니다.",
+    "S": ["퇴근 — 곡괭이는 조용히 값을 합니다.",
           "병목 점검 끝. 사슬은 안 끊기니까요. 퇴근!",
           "먼저 퇴근합니다. 다음 초크포인트는 내일 또."],
 }
@@ -682,10 +692,10 @@ _BUY_LINES = ["💰 {name} 매수 체결 — 내 계좌에 담았어요.",
 _SELL_LINES = ["🔻 {name} 청산 — 논지가 훼손돼 뺐어요.",
                "{name} 던졌습니다. 얘기가 달라졌네요.",
                "{name} 정리 — 이유가 사라졌으니 홀드할 근거도 없죠."]
-# 대형주 핸드오프 — P/W/H가 선정 후 Q에게 타이밍 넘김("살펴봐주세요")
-_HANDOFF_LINES = ["{name} 괜찮아 보여요. Q, 진입 타이밍 봐주세요 🙏",
-                  "{name} 관심종목으로 올립니다 — Q, 언제 들어갈지 판단 부탁해요.",
-                  "{name} 펀더는 좋네요. 타이밍은 Q에게 맡길게요."]
+# 대형주 핸드오프 — P/W/H가 선정 후 타이밍 담당(Q)에게 넘김. 발신자 라벨이 정체를 보이므로 본문엔 레터 미기재.
+_HANDOFF_LINES = ["{name} 괜찮아 보여요. 진입 타이밍 봐주세요 🙏",
+                  "{name} 관심종목으로 올립니다 — 언제 들어갈지 판단 부탁해요.",
+                  "{name} 펀더는 좋네요. 타이밍은 담당에게 맡길게요."]
 
 
 def _line(pool, bot):
@@ -1059,6 +1069,31 @@ def run_discovery_review(market="US"):
 
 
 # ── 대형주 데스크 (매일 전 섹터 재분석: 섹터 토론 → 종목 [결정] → 그날 관심종목 / Q 진입·청산) ──
+def _merr_macro_note() -> str:
+    """M(거시 자문)의 오늘 시장 국면 코멘트 — '지금' 지수 데이터를 매크로 렌즈로 읽음(haiku 1콜).
+    ⚠️ 과거 시황이 아니라 현재 데이터 기준. 종목·매매 추천 아님. 실패/토큰소진 시 빈문자(스킵)."""
+    from db import get_benchmark_snapshots
+    snaps = get_benchmark_snapshots() or []
+    ctx = []
+    if len(snaps) >= 2:
+        prev, cur = snaps[-2], snaps[-1]
+        for key, lbl in (("spy", "S&P500"), ("qqq", "나스닥100"), ("kospi", "코스피")):
+            p, c = prev.get(key), cur.get(key)
+            if p and c:
+                ctx.append(f"{lbl} {c:.0f}({(c / p - 1) * 100:+.1f}%)")
+    ctx_str = " · ".join(ctx) if ctx else "지수 데이터 부족(판단은 보수적으로)"
+    try:
+        from agents import call_agent
+        from prompts import AGENT_PROFILES
+        prompt = (f"오늘({_today_kst()}) 현재 시장 데이터(전일 대비): {ctx_str}.\n"
+                  "이 '지금' 데이터 기준으로 시장 국면을 거시적으로 2~3문장 읽어줘. "
+                  "과거 특정 시황을 현재처럼 말하지 말 것. 종목·매매 추천 금지.")
+        return (call_agent("M", AGENT_PROFILES["M"]["system"], prompt, timeout=60, model="haiku") or "").strip()
+    except Exception as e:
+        logger.warning(f"M 매크로 노트 실패: {e}")
+        return ""
+
+
 def run_largecap_select(market="US"):
     """대형주 선정 슬롯(06시) — 전 섹터 매일 재분석. 섹터별 P/W/H 의견(섹터 합의) → 종목별 [결정] OR게이트 → 그날 관심종목.
     캐시 없이 매일 다시 합격을 낸다(그날 Q도 합격 신호면 매수). 보유중 강한 펀더매도(2인+)면 즉시청산.
@@ -1080,6 +1115,10 @@ def run_largecap_select(market="US"):
     if not done_secs:                                    # 오늘 첫 실행일 때만 어제 관심종목 비움
         clear_watchlist()
     _narrate("A", _line(_CLOCK_IN, "A"))
+    if not done_secs:                                    # 오늘 첫 실행에만 M 거시 시장 코멘트(하루 1콜)
+        _note = _merr_macro_note()
+        if _note:
+            _narrate("M", _note, model="haiku")
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_IN, bot))
     watched, sold, done = [], [], []
@@ -1144,7 +1183,7 @@ def run_largecap_execute(market="US"):
     from db import (ensure_desk_accounts, get_watchlist, mark_watch, buy_shared_position,
                     sell_shared_position, get_open_positions)
     ensure_desk_accounts()
-    _narrate("Q", "Q 출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
+    _narrate("Q", "출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
     up = _spy_uptrend()
     watch = get_watchlist("watching")
     held = get_open_positions(account="대형주")
@@ -1192,7 +1231,7 @@ def run_largecap_execute(market="US"):
             _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
             if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
                 sold.append(p["symbol"])
-    _narrate("Q", "오늘 대형주 타이밍 점검 끝 — Q 퇴근합니다. 🫡")   # ③ 퇴근
+    _narrate("Q", "오늘 대형주 타이밍 점검 끝 — 퇴근합니다. 🫡")   # ③ 퇴근
     return {"bought": bought, "sold": sold}
 
 
