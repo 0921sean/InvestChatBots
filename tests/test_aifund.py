@@ -389,6 +389,25 @@ def test_parse_candidates_json_extracts_and_filters():
     assert aifund._parse_candidates_json("설명만 있고 JSON 없음") == []
 
 
+def test_curation_backfills_before_research_preserving_watchlist(tmp_path, monkeypatch):
+    # 빈 DB 첫 실행: 큐레이션이 하드코딩 시드를 approved 백필 '먼저' → 워치리스트 보존 + 중복 방지
+    import db, agents, notifier
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "bf.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
+    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["COHR", "MU"])
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    # 조사 결과에 기존 시드(COHR)가 섞여도 제외돼야 함
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None:
+                        '[{"ticker":"COHR","rationale":"기존"},{"ticker":"NBIS","rationale":"신규"}]')
+    r = aifund.run_bottleneck_curation(limit=5)
+    assert set(db.get_bottleneck_seeds("approved")) == {"COHR", "MU"}   # 백필 보존
+    assert r["added"] == ["NBIS"]                                       # 기존 COHR 제외, 신규만
+    assert db.get_bottleneck_seeds("pending") == ["NBIS"]
+
+
 def test_run_bottleneck_curation_noop_when_disabled(monkeypatch):
     monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", False)
     assert aifund.run_bottleneck_curation()["skipped"] == "disabled"
