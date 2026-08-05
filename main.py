@@ -382,17 +382,26 @@ def api_visit(request: Request, s: str = ""):
     return {"ok": True}
 
 
+def _cipher_agent_names(rows):
+    """펀드 봇 이니셜(A/P/W/H/S/Q/M)을 공개 표기(ROT13)로 — 위원회 한글명 등은 그대로. 표시용."""
+    from aifund import pub_letter
+    for m in rows:
+        if m.get("agent_name"):
+            m["agent_name"] = pub_letter(m["agent_name"])
+    return rows
+
+
 @app.get("/api/messages")
 def api_messages(since: int = 0, limit: int = 100, desk: str = None):
-    # desk 없음 → committee(라이브) / 'fund' → AI펀드 4봇 관전 내레이션
-    return get_messages_since(since, limit=limit, desk=desk)
+    # desk 없음 → committee(라이브) / 'fund' → AI펀드 관전 내레이션. 이니셜은 출력에서 ROT13 치환.
+    return _cipher_agent_names(get_messages_since(since, limit=limit, desk=desk))
 
 
 @app.get("/api/messages/latest")
 def api_messages_latest(n: int = 200, desk: str = None):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
-    return get_recent_messages(n, desk=desk)
+    return _cipher_agent_names(get_recent_messages(n, desk=desk))
 
 
 @app.get("/api/market")
@@ -697,15 +706,18 @@ def api_fund():
     import ranks
     all_pos = [p for a in accounts.values() for p in a["positions"]]
     ret = ranks.compute_returns(all_pos)
+    from aifund import pub_letter
     _R = {"A": "애널리스트·종목발굴", "P": "성장주 판단", "W": "가치주 판단",
-          "H": "실적 게이트", "S": "병목 발굴", "Q": "퀀트 타이밍"}
+          "H": "실적 게이트", "S": "병목 발굴", "Q": "퀀트 타이밍", "M": "거시 시장 자문"}
+    # 내부 이니셜 b로 DB·랭크 조회, 표시(bot/name)는 ROT13 치환(전략 유추 방지). M=거시 자문(비매매).
     roster = [
-        {"bot": b, "name": b, "color": c, "model": m, "role": _R[b],
+        {"bot": pub_letter(b), "name": pub_letter(b), "color": c, "model": m, "role": _R[b],
          "ret": ranks.return_of(b, ret), "working": _bot_working(b)}
         for b, c, m in [
             ("A", "#8b949e", "Claude Haiku"), ("P", "#5aa9e6", "Claude Sonnet"),
             ("W", "#c9a227", "Claude Sonnet"), ("H", "#a78bfa", "Claude Sonnet"),
             ("S", "#e08a3c", "Claude Sonnet"), ("Q", "#4bbf8a", "Claude Haiku"),
+            ("M", "#8b8cf0", "Claude Haiku"),
         ]
     ]
     # 현재 섹터 박스 = 대형주 데스크 진행형(오늘 섹터 합의 리포트에서 도출 — 스케줄러 무배선에도 활동이 진실원천)
