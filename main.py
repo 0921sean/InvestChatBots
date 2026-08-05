@@ -221,6 +221,16 @@ async def owner_guard(request: Request, call_next):
 
 
 # ── owner 로그인 / 신원 확인 ────────────────────────────────
+@app.get("/owner/seeds")
+def owner_seeds_page(request: Request):
+    """S 병목 시드 결재 페이지 (owner only) — 폰에서 pending 후보 ✅/❌.
+    인증 안 됐으면 /admin 로그인으로 보낸다. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
+    if not is_owner(request):
+        return RedirectResponse("/admin")
+    return FileResponse("static/seeds.html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/owner/{token}")
 def owner_login(token: str):
     """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
@@ -1226,6 +1236,46 @@ def api_admin_visits(request: Request, days: int = 30):
         "verified": get_visit_stats(days=days, verified_only=True),   # JS 실방문
         "all": get_visit_stats(days=days, verified_only=False),       # 구 방식(UA필터)
     }
+
+
+# ── S 병목 시드 큐레이션 (로드맵 ②c) ─────────────────────────
+class SeedDecideBody(BaseModel):
+    ticker: str
+    status: str            # approved / rejected
+
+
+class SeedAddBody(BaseModel):
+    ticker: str
+    rationale: str = ""
+
+
+@app.get("/api/bottleneck/seeds")
+def api_bottleneck_seeds(request: Request, status: str = None):
+    """병목 시드 목록 (owner only). status 미지정=전체."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_bottleneck_seed_rows
+    return {"items": get_bottleneck_seed_rows(status)}
+
+
+@app.post("/api/bottleneck/seeds/decide")
+def api_bottleneck_decide(request: Request, body: SeedDecideBody):
+    """pending 시드 승인/반려 (owner only). approved면 S 워치리스트에 편입."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import decide_bottleneck_seed
+    if not decide_bottleneck_seed(body.ticker, body.status):
+        raise HTTPException(400, "해당 티커 없음 또는 잘못된 status")
+    return {"ok": True}
+
+
+@app.post("/api/bottleneck/seeds/add")
+def api_bottleneck_add(request: Request, body: SeedAddBody):
+    """수동 병목 후보 등록 → pending (owner only)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import add_bottleneck_seed
+    return {"ok": True, "added": add_bottleneck_seed(body.ticker, body.rationale, source="manual")}
 
 
 @app.get("/api/_debug/state")
