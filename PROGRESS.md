@@ -52,6 +52,11 @@
 - 릴스 자동 파이프라인 삭제 → 당분간 수동 업로드(파급력 우선).
 
 ## 최근 세션 로그 (최신이 위)
+- **2026-08-05 (밤 3 — ②d 활성화 배포 + 백필가드 픽스)** — 로드맵 ② 라이브 가동.
+  - **#111 머지** → main(c13125b). **배포**: `launchctl kickstart -k com.investchatbots.app`(launchd 관리)로 §1 재시작(phase=cycle_rest 유지). 새 PID·엔드포인트 라이브(/owner/seeds 307·/api/bottleneck/seeds 403).
+  - **활성화**: `.env`에 `BOTTLENECK_CURATION_ENABLED=true` + `SITE_URL=https://investchatbots.com`(ntfy 절대링크). → **내일 05:50부터 6시 큐레이션 실가동**(하루 1콜 구독토큰).
+  - **⚠️ 라이브 위험 발견·해소**: 백필은 `_bottleneck_seed()` 첫 호출 때만인데, 큐레이션이 그 전에 pending 넣으면 백필 영구 skip → **S 워치리스트 소실**. (1)라이브 DB에 14 approved 시드 **수동 백필로 즉시 보호** (2)픽스 `fix/curation-backfill-guard`: 큐레이션이 exclude 계산 전 `_bottleneck_seed()` 먼저 호출(향후 재발 방지). PR 대기.
+  - **관전 팁**: 즉시 첫 후보 원하면 오너쿠키로 `POST /api/bottleneck/curate`(토큰 소모+폰 ntfy). 결재는 `/owner/seeds`.
 - **2026-08-05 (밤 2 — 6시 큐레이션 에이전트 ②d + #108/#109/#110 머지)** — 로드맵 ② 완성.
   - **#108·#109 머지**(merge-commit, 스택 공유커밋 보존) → main. **#110 머지**(②a/②b/②c/②e) → main.
   - **②d(브랜치 `feat/bottleneck-curation`, 커밋 d935969)**: `run_bottleneck_curation()` — Claude 웹서치로 무명 상류 초크포인트 조사(하루 1콜) → pending 결재 큐. `_call_claude_cli`에 `allowed_tools` 추가(하위호환)로 헤드리스 웹서치. scheduler 05:50 mon-fri. 게이트 `BOTTLENECK_CURATION_ENABLED`(기본 off). 수동 `POST /api/bottleneck/curate`.
