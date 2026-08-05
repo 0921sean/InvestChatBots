@@ -342,6 +342,21 @@ def test_source_bottleneck_resources_seed_minus_done_and_held(monkeypatch):
     assert set(r["names"]) == {"COHR"}
 
 
+def test_bottleneck_seed_reads_db_approved_and_backfills_once(tmp_path, monkeypatch):
+    # DB approved 시드를 읽는다(로드맵 ②b). 빈 테이블은 하드코딩을 1회 approved 백필.
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "seed.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["COHR", "LITE"])
+    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # 최초 1회 백필 → approved
+    # 사람이 새 후보를 승인/반려하면 즉시 반영, 백필은 다시 안 함
+    db.add_bottleneck_seed("AXTI", "InP 상류")
+    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # pending은 아직 제외
+    db.decide_bottleneck_seed("AXTI", "approved")
+    db.decide_bottleneck_seed("COHR", "rejected")
+    assert set(aifund._bottleneck_seed()) == {"LITE", "AXTI"}      # 승인 반영 + 반려 제외
+
+
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
     monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR"])
     monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])

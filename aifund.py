@@ -142,8 +142,8 @@ def source_today(market="US", quota=None, rng=random):
             "briefing": build_briefing(new, cat, names)}
 
 
-def _bottleneck_seed():
-    """병목 시드 유니버스 — 비공개(strategy_private), 없으면 example(빈값) 폴백."""
+def _hardcoded_bottleneck_seed():
+    """하드코딩 병목 시드 — 비공개(strategy_private), 없으면 example(빈값) 폴백. DB 백필 원천."""
     try:
         from strategy_private import US_BOTTLENECK_SEED as seed
     except Exception:
@@ -152,6 +152,15 @@ def _bottleneck_seed():
         except Exception:
             seed = []
     return list(seed or [])
+
+
+def _bottleneck_seed():
+    """S 워치리스트 = DB에서 승인(approved)된 병목 시드(로드맵 ②b: 사람 큐레이션).
+    테이블이 비어 있으면 최초 1회 하드코딩 시드를 approved로 백필 → 라이브 동작 그대로 보존."""
+    from db import get_bottleneck_seed_rows, get_bottleneck_seeds, backfill_bottleneck_seeds
+    if not get_bottleneck_seed_rows():                   # 최초 1회만: 하드코딩 → approved
+        backfill_bottleneck_seeds(_hardcoded_bottleneck_seed())
+    return get_bottleneck_seeds("approved")
 
 
 def source_bottleneck(market="US", quota=None):
