@@ -1278,6 +1278,16 @@ def api_bottleneck_add(request: Request, body: SeedAddBody):
     return {"ok": True, "added": add_bottleneck_seed(body.ticker, body.rationale, source="manual")}
 
 
+@app.post("/api/bottleneck/curate")
+def api_bottleneck_curate(request: Request):
+    """6시 큐레이션을 지금 수동 실행 (owner only) — 웹서치 조사 → pending 결재 큐.
+    ⚠️ 구독 토큰 소모. BOTTLENECK_CURATION_ENABLED=False면 no-op."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from aifund import run_bottleneck_curation
+    return run_bottleneck_curation()
+
+
 @app.get("/api/_debug/state")
 def api_debug_state():
     """디버그 — 서버 프로세스 내부 상태."""

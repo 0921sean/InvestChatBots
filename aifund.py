@@ -17,6 +17,9 @@ logger = logging.getLogger("investchat.aifund")
 
 # ── 토글 · 상한 ──────────────────────────────────────────
 NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "yes")  # 컷오버 게이트(.env). off면 fund 잡 no-op.
+# 6시 병목 큐레이션 게이트(.env). off면 큐레이션 no-op — 웹서치=구독 토큰 추가 소모라 명시 활성화(로드맵 ②d).
+BOTTLENECK_CURATION_ENABLED = os.getenv("BOTTLENECK_CURATION_ENABLED", "").lower() in ("1", "true", "yes")
+BOTTLENECK_CURATION_QUOTA = 5   # 하루 1콜로 올리는 후보 상한(토큰 절약). 운영값.
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -225,6 +228,76 @@ def submit_bottleneck_candidates(candidates, source="agent") -> list:
     except Exception as e:
         logger.warning(f"병목 결재 알림 실패: {e}")
     return added
+
+
+_CURATION_SYS = (
+    "너는 AI 인프라 공급망의 '초크포인트(병목)' 리서처다. 유명 대형주(엔비디아·브로드컴 같은 '참치')가 "
+    "아니라, 그게 없으면 사슬 전체가 안 돌아가는 무명·상류 병목 기업('깻잎')을 찾는다. "
+    "관심 영역: 광통신·실리콘포토닉스, 인터커넥트·리타이머, InP/화합물 반도체 기판, 첨단 패키징(CoWoS·HBM 소부장), "
+    "데이터센터 전력·열관리, 특수 소재. "
+    "반드시 웹서치로 '지금'의 신호를 조사해라 — 최근 실적·capex·공급 부족·수주·특허/논문 등. "
+    "미국 상장 종목(티커)만. 아래 '제외 목록'에 있는 티커는 절대 내지 마라. "
+    "이건 투자 권유가 아니라 '공급망에서 어디가 병목인지' 후보 조사다. "
+    "출력은 오직 JSON 배열만: [{\"ticker\":\"...\",\"rationale\":\"왜 병목인지 한글 한 줄(근거)\"}]. "
+    "설명·머리말·코드펜스 없이 JSON 배열 하나만 출력."
+)
+
+
+def _parse_candidates_json(text: str) -> list:
+    """LLM 출력에서 JSON 배열만 추출 → [{'ticker','rationale'}]. 실패 시 빈 리스트."""
+    import json
+    s = (text or "").strip()
+    if "[" in s and "]" in s:
+        s = s[s.index("["): s.rindex("]") + 1]
+    try:
+        arr = json.loads(s)
+    except Exception:
+        return []
+    out = []
+    for it in arr if isinstance(arr, list) else []:
+        if isinstance(it, dict) and it.get("ticker"):
+            out.append({"ticker": str(it["ticker"]).strip().upper(),
+                        "rationale": str(it.get("rationale", "")).strip()})
+    return out
+
+
+def _research_bottleneck_candidates(exclude, limit):
+    """Claude 웹서치로 초크포인트 후보 조사(하루 1콜, 구독 토큰). 제외목록 준수. 반환 [{ticker,rationale}]."""
+    from agents import _call_claude_cli
+    ex = ", ".join(sorted(exclude)) or "(없음)"
+    user = (f"제외 목록(이미 다룬 티커, 절대 내지 말 것): {ex}\n\n"
+            f"위 영역에서 지금 주목할 만한 초크포인트 후보를 웹서치로 조사해 최대 {limit}개만 JSON 배열로 내라.")
+    out = _call_claude_cli(_CURATION_SYS, user, timeout=240, model="sonnet",
+                           allowed_tools=["WebSearch"])
+    cands = _parse_candidates_json(out)
+    seen, uniq = set(exclude), []
+    for c in cands:
+        t = c["ticker"]
+        if t and t not in seen and t.isalpha() and len(t) <= 5:   # 미국 보통주 티커 형태만
+            seen.add(t)
+            uniq.append(c)
+    return uniq[:limit]
+
+
+def run_bottleneck_curation(limit=None):
+    """②d 6시 큐레이션 — Claude 웹서치로 초크포인트 후보 조사 → pending 결재 큐(승인은 사람).
+    하루 1콜·구독 토큰. BOTTLENECK_CURATION_ENABLED=False면 no-op. 토큰 소진 시 조용히 skip(다음날 재개)."""
+    if not BOTTLENECK_CURATION_ENABLED:
+        return {"added": [], "skipped": "disabled"}
+    limit = limit or BOTTLENECK_CURATION_QUOTA
+    from db import get_bottleneck_seeds
+    exclude = set(get_bottleneck_seeds(None))                     # 이미 pending/approved/rejected인 건 재출현 금지
+    try:
+        cands = _research_bottleneck_candidates(exclude, limit)
+    except Exception as e:
+        from agents import ClaudeTokenExhausted
+        if isinstance(e, ClaudeTokenExhausted):
+            logger.warning("병목 큐레이션 토큰 소진 — 다음 스케줄에 재개")
+            return {"added": [], "skipped": "token_exhausted"}
+        logger.error(f"병목 큐레이션 실패: {e}", exc_info=True)
+        return {"added": [], "error": str(e)}
+    added = submit_bottleneck_candidates(cands, source="agent")   # pending + S 결재 올림 + 오너 ntfy
+    return {"added": added, "researched": [c["ticker"] for c in cands]}
 
 
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────

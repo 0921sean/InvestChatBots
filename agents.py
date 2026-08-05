@@ -45,16 +45,20 @@ def trim_at_sentence(text: str) -> str:
     return text
 
 
-def _call_claude_cli(system_prompt: str, user_prompt: str, timeout: int = 60, model: str = None) -> str:
+def _call_claude_cli(system_prompt: str, user_prompt: str, timeout: int = 60, model: str = None,
+                     allowed_tools: list = None) -> str:
     """claude CLI subprocess으로 호출 — Claude Code 구독 토큰 사용.
     `timeout`은 큰 prompt(섹터 합의 종합 등)에선 180~300초 권장.
-    `model='haiku'`로 강제하면 큰 prompt에서도 빠른 응답 (합의 추출 권장)."""
+    `model='haiku'`로 강제하면 큰 prompt에서도 빠른 응답 (합의 추출 권장).
+    `allowed_tools=['WebSearch']`면 헤드리스에서 웹서치 허용(병목 큐레이션용, 토큰 추가 소모)."""
     full_prompt = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)  # API 키 제거 → 구독 토큰 사용
     cmd = [CLAUDE_CLI, "--print", "--output-format", "json"]
     if model:
         cmd += ["--model", model]
+    if allowed_tools:
+        cmd += ["--allowedTools", ",".join(allowed_tools)]
     cmd += ["-p", full_prompt]
     result = subprocess.run(
         cmd,
