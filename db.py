@@ -239,6 +239,77 @@ def get_fund_reports(limit: int = 30) -> list:
         return [dict(r) for r in rows]
 
 
+# ── S 병목 시드 큐레이션 (로드맵 ②a/②b) ─────────────────────
+def add_bottleneck_seed(ticker: str, rationale: str = "", source: str = "agent") -> bool:
+    """병목 후보를 pending으로 등록. 이미 있으면(승인/반려/대기 무관) 무시 — 재승인 되돌림 방지.
+    반환: 새로 추가됐으면 True."""
+    ticker = (ticker or "").strip().upper()
+    if not ticker:
+        return False
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT OR IGNORE INTO bottleneck_seed (ticker, rationale, source) VALUES (?,?,?)",
+            (ticker, rationale, source))
+        return cur.rowcount > 0
+
+
+def get_bottleneck_seeds(status: str = "approved") -> list:
+    """해당 status의 티커 목록(등록순). status=None이면 전체 티커."""
+    with _conn() as con:
+        if status is None:
+            rows = con.execute("SELECT ticker FROM bottleneck_seed ORDER BY created_at").fetchall()
+        else:
+            rows = con.execute(
+                "SELECT ticker FROM bottleneck_seed WHERE status=? ORDER BY created_at",
+                (status,)).fetchall()
+        return [r[0] for r in rows]
+
+
+def get_bottleneck_seed_rows(status: str = None) -> list:
+    """전체(또는 status별) 시드 행 — Admin 승인 UI용. 최신 등록이 위."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if status is None:
+            rows = con.execute("SELECT * FROM bottleneck_seed ORDER BY created_at DESC").fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM bottleneck_seed WHERE status=? ORDER BY created_at DESC",
+                (status,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def decide_bottleneck_seed(ticker: str, status: str) -> bool:
+    """pending 시드를 approved/rejected로 확정(decided_at 기록). 반환: 갱신됐으면 True."""
+    ticker = (ticker or "").strip().upper()
+    if status not in ("approved", "rejected"):
+        return False
+    with _conn() as con:
+        cur = con.execute(
+            "UPDATE bottleneck_seed SET status=?, decided_at=CURRENT_TIMESTAMP WHERE ticker=?",
+            (status, ticker))
+        return cur.rowcount > 0
+
+
+def backfill_bottleneck_seeds(tickers: list, source: str = "seed") -> int:
+    """테이블이 비어 있을 때만 하드코딩 시드를 approved로 백필(라이브 동작 보존·1회성).
+    반환: 삽입한 개수(이미 시드가 있으면 0)."""
+    if not tickers:
+        return 0
+    with _conn() as con:
+        if con.execute("SELECT 1 FROM bottleneck_seed LIMIT 1").fetchone():
+            return 0                                   # 이미 큐레이션 시작됨 — 손대지 않음
+        n = 0
+        for t in tickers:
+            t = (t or "").strip().upper()
+            if not t:
+                continue
+            con.execute(
+                "INSERT OR IGNORE INTO bottleneck_seed (ticker, status, source, decided_at) "
+                "VALUES (?, 'approved', ?, CURRENT_TIMESTAMP)", (t, source))
+            n += 1
+        return n
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -351,6 +422,15 @@ def init_db():
             desk TEXT,                                 -- 'PW'(A 일반풀) / 'S'(병목 자체소싱)
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (date, code)
+        );
+        -- S 병목 시드 큐레이션(로드맵 ②): 발굴=Claude / 승인=사람 / 평가·매매=S봇. status 흐름 pending→approved/rejected.
+        CREATE TABLE IF NOT EXISTS bottleneck_seed (
+            ticker TEXT PRIMARY KEY,
+            rationale TEXT,                            -- 왜 병목인지(초크포인트 근거)
+            status TEXT DEFAULT 'pending',             -- pending(결재대기) / approved(S 워치리스트) / rejected
+            source TEXT,                               -- 'seed'(하드코딩 이관) / 'agent'(6시 큐레이션) / 'manual'
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME                        -- 승인/반려 시각
         );
         CREATE TABLE IF NOT EXISTS largecap_watch (
             code TEXT PRIMARY KEY,                     -- 대형주 관심종목 캐시(P/W/H가 선정 → Q가 진입 타이밍 감시)

@@ -342,6 +342,42 @@ def test_source_bottleneck_resources_seed_minus_done_and_held(monkeypatch):
     assert set(r["names"]) == {"COHR"}
 
 
+def test_bottleneck_seed_reads_db_approved_and_backfills_once(tmp_path, monkeypatch):
+    # DB approved 시드를 읽는다(로드맵 ②b). 빈 테이블은 하드코딩을 1회 approved 백필.
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "seed.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["COHR", "LITE"])
+    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # 최초 1회 백필 → approved
+    # 사람이 새 후보를 승인/반려하면 즉시 반영, 백필은 다시 안 함
+    db.add_bottleneck_seed("AXTI", "InP 상류")
+    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # pending은 아직 제외
+    db.decide_bottleneck_seed("AXTI", "approved")
+    db.decide_bottleneck_seed("COHR", "rejected")
+    assert set(aifund._bottleneck_seed()) == {"LITE", "AXTI"}      # 승인 반영 + 반려 제외
+
+
+def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeypatch):
+    # ②d 산출물 → pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy (승인은 사람)
+    import db, notifier
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "sub.db"))
+    db.init_db()
+    narrated, notified = [], []
+    monkeypatch.setattr(aifund, "_narrate", lambda bot, content, model="rule": narrated.append((bot, content)))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: notified.append((a, k)))
+    added = aifund.submit_bottleneck_candidates(
+        [{"ticker": "axti", "rationale": "InP 상류"}, "SIVE"], source="agent")
+    assert set(added) == {"AXTI", "SIVE"}
+    assert db.get_bottleneck_seeds("pending") == ["AXTI", "SIVE"]   # approved 아님 — 사람 결재 대기
+    assert db.get_bottleneck_seeds("approved") == []
+    assert narrated and narrated[0][0] == "S" and "AXTI" in narrated[0][1]
+    assert len(notified) == 1
+    # 중복 제출은 새로 안 올라가고 알림/내레이션도 안 함
+    narrated.clear(); notified.clear()
+    assert aifund.submit_bottleneck_candidates(["AXTI"]) == []
+    assert narrated == [] and notified == []
+
+
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
     monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR"])
     monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])
