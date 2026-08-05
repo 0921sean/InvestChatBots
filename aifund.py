@@ -155,14 +155,18 @@ def _bottleneck_seed():
 
 
 def source_bottleneck(market="US", quota=None):
-    """S 자체 소싱 — 병목 시드에서 오늘 안 본 곡괭이만 골라 반환('발굴'이 S의 엣지).
-    A 리스트를 안 받고 S가 자기 유니버스를 직접 뒤진다. 반환: {'codes','names'}."""
+    """S 자체 소싱 — 병목 시드를 '상시 워치리스트'로 매일 재평가('발굴'이 S의 엣지).
+    영구 thesis 캐시로 빼면 초기 소진 후 S가 영영 놀게 되므로(구 버그), 시드에서
+    '오늘 이미 분석함' + '이미 보유 중'만 제외하고 나머지를 재소싱. 반환: {'codes','names'}."""
     quota = quota or DAILY_QUOTA
     seed = _bottleneck_seed()
     if market != "US" or not seed:                   # 병목 시드는 미장 전용
         return {"codes": [], "names": {}}
-    cached = set(get_cached_codes())                 # 이미 분석된 건 제외(재분석은 카탈리스트가)
-    codes = [c for c in seed if c not in cached][:quota]
+    from db import get_fund_reports, get_open_positions
+    today = _today_kst()
+    done_today = {r["code"] for r in get_fund_reports(300) if r.get("date") == today}
+    held = {p.get("code") for p in get_open_positions(account="발굴주")}
+    codes = [c for c in seed if c not in done_today and c not in held][:quota]
     return {"codes": codes, "names": {c: stock_name(c) for c in codes}}
 
 

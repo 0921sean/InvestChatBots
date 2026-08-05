@@ -329,13 +329,17 @@ def test_desk_rosters_and_H_profile():
     assert "bots" in r.__code__.co_varnames
 
 
-def test_source_bottleneck_self_sources_seed_minus_cached(monkeypatch):
+def test_source_bottleneck_resources_seed_minus_done_and_held(monkeypatch):
+    # 상시 워치리스트: 시드에서 '오늘 이미 분석' + '보유 중'만 제외하고 매일 재소싱
+    import db
     monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR", "LITE", "AAOI"])
-    monkeypatch.setattr(aifund, "get_cached_codes", lambda: ["LITE"])   # LITE는 이미 분석됨
+    monkeypatch.setattr(aifund, "_today_kst", lambda: "2026-08-05")
+    monkeypatch.setattr(db, "get_fund_reports", lambda n=300: [{"date": "2026-08-05", "code": "LITE"}])  # LITE 오늘 분석함
+    monkeypatch.setattr(db, "get_open_positions", lambda account=None: [{"code": "AAOI"}])                # AAOI 보유 중
     monkeypatch.setattr(aifund, "stock_name", lambda c: c)
     r = aifund.source_bottleneck("US")
-    assert r["codes"] == ["COHR", "AAOI"]                # 시드 - 캐시, S가 직접 고름
-    assert set(r["names"]) == {"COHR", "AAOI"}
+    assert r["codes"] == ["COHR"]                        # 시드 - 오늘분석(LITE) - 보유(AAOI)
+    assert set(r["names"]) == {"COHR"}
 
 
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
