@@ -286,6 +286,8 @@ def run_bottleneck_curation(limit=None):
         return {"added": [], "skipped": "disabled"}
     limit = limit or BOTTLENECK_CURATION_QUOTA
     from db import get_bottleneck_seeds
+    _bottleneck_seed()                                           # 빈 DB 첫 실행 대비: 하드코딩 시드 approved 백필 '먼저'
+    #   (안 하면 큐레이션 pending이 테이블을 채워 백필이 영구 skip → 기존 S 워치리스트가 사라짐)
     exclude = set(get_bottleneck_seeds(None))                     # 이미 pending/approved/rejected인 건 재출현 금지
     try:
         cands = _research_bottleneck_candidates(exclude, limit)
