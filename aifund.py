@@ -463,6 +463,22 @@ def q_exit_signal(closes, strat):
     return bt.minervini_exit(closes) if strat == "M" else meanrev_exit(closes)
 
 
+def q_veto(closes, in_uptrend):
+    """Q veto(보조지표) — 대형주에서 '지금 사면 안 되는 자리'만 막는다. 하드 진입게이트 아님:
+    veto 아니면 P/W/H 확신을 따라 매수('장기 메인 + 퀀트 보조지표' 철학).
+    veto 조건(명백한 위험만): ①약세장(SPY<200MA) ②종목 200일선 아래(장기추세 이탈=낙하칼 회피).
+    과매수(볼밴 상단)는 veto 안 함 — 건강한 상승추세도 밴드 상단을 타서 오판 위험. 장기픽은 타이밍보다 종목이 중요.
+    반환 (veto: bool, 이유: str)."""
+    import backtest as bt
+    if not in_uptrend:
+        return True, "약세장(시장 200MA 아래)"
+    if len(closes) >= 200:
+        s200 = bt._sma(closes, 200)
+        if s200 and closes[-1] < s200:
+            return True, "200일선 아래(장기추세 이탈)"
+    return False, ""
+
+
 def run_q_desk(market="US"):
     """Q(B+M 블렌드) 라이브 실행 — 전 유니버스 자체 스캔 → Q 계좌(id 6) 매수/청산.
     ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 룰·무비용, 하루 1회.
@@ -1040,12 +1056,12 @@ def run_largecap_execute(market="US"):
         o = data.get(w["code"])
         if not o:
             continue
-        tag = q_entry_signal(o["close"], up)
-        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "진입" if tag else "대기"))   # 티커(상세명)·이유
-        if not tag:
+        veto, why = q_veto(o["close"], up)                    # 보조지표 veto: '사면 안 되는 자리'만 막고 나머진 P/W/H 확신 따름
+        _narrate("Q", _q_say(_tk(w["code"], w.get("name")), o["close"], "대기" if veto else "진입"))   # 티커(상세명)·이유
+        if veto:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
-        rz = f"Q {'추세돌파' if tag == 'M' else '되돌림'} 진입" + (f" · 관심 {appr}" if appr else "")
+        rz = "Q 타이밍 승인 (P/W/H 확신·타이밍 이상무)" + (f" · 관심 {appr}" if appr else "")
         _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], _desk_amount("대형주"),
                                      rz, market, account="대형주")
         if not err:
@@ -1060,7 +1076,7 @@ def run_largecap_execute(market="US"):
             o = data.get(code)
             if not o:
                 continue
-            strat = "M" if "추세돌파" in (p.get("reasoning") or "") else "B"
+            strat = "B" if "되돌림" in (p.get("reasoning") or "") else "M"   # veto·추세 매수는 M(50MA 이탈까지 홀드, 덜 eager)
             exiting = bool(q_exit_signal(o["close"], strat))
             _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
             if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
