@@ -4,17 +4,17 @@
 > (CLAUDE.md = *고정 지침·가드레일* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
 > ⚠️ **ICB는 라이브 사이트다.** 코드 변경 전 Think Before Coding + Surgical Changes 준수(CLAUDE.md §A).
-> updated: 2026-08-05 (대량 세션 — 버그 fix 9건(#101~109) + S 부활·Q veto·섹터정비·이해게이트. 공급망병목 심층연구→S 재설계 방향 확정. **다음 세션 로드맵은 아래 "🚧 다음 세션" 참조.**)
+> updated: 2026-08-05 (밤 세션 — S 시드 큐레이션 인프라 ②a/②b/②c/②e 구현. 브랜치 `feat/bottleneck-seed-db`, 미push. **남은 건 ②d(6시 에이전트)뿐 — API비용/cron이라 명시 승인 필요.**)
 
-## 🚧 다음 세션 — S/Q 재설계 로드맵 (2026-08-05 확정, 아직 미구현)
-> 오늘 사용자와 대량 논의로 **방향 확정**. 아래는 새 세션에서 이어받아 구현할 것.
+## 🚧 다음 세션 — S/Q 재설계 로드맵 (2026-08-05 확정)
+> 방향 확정 후 인프라 구현 중. ②a/②b/②c/②e ✅완료(브랜치 `feat/bottleneck-seed-db`). 남은 건 ②d.
 - **① S 시드 = 사람 큐레이션** (봇이 초크포인트 발굴은 불가 — haiku+yfinance로 못 함). 역할분담: **발굴·조사=Claude(웹서치)** / **승인=사용자** / **평가·매매=라이브 S봇**.
-- **② 6시 큐레이션 흐름** (여러 조각, 미착수):
-  - a. 병목 시드를 **DB 테이블화**(`bottleneck_seed`: ticker·근거·status pending/approved). 현재는 `strategy_private.US_BOTTLENECK_SEED` 하드코딩.
-  - b. `source_bottleneck`이 **DB approved 시드** 읽게 변경.
-  - c. **Admin 페이지 승인 UI**(pending 후보 ✅/❌ + 오너 엔드포인트) — 폰 출근길 탭 승인.
-  - d. **아침 6시 스케줄 에이전트**(Claude Code 루틴, 웹서치로 초크포인트 후보 조사 → DB pending 삽입). ⚠️ Mac mini 로컬 DB 접근 필요 → 로컬 cron(launchd) 유력. 매일 API비용(사용자 승인함).
-  - e. **S 피드 채팅 "결재 올림" + ntfy 알림**(링크=Admin 승인페이지).
+- **② 6시 큐레이션 흐름**:
+  - a. ✅ 병목 시드 **DB 테이블화**(`bottleneck_seed`: ticker·rationale·status pending/approved/rejected·source). db 헬퍼 add/get/decide/backfill.
+  - b. ✅ `source_bottleneck`이 **DB approved 시드** 읽음. 빈 테이블은 최초 1회 하드코딩 14시드를 approved 백필(라이브 동작 보존). 하드코딩 원천은 `_hardcoded_bottleneck_seed`로 분리.
+  - c. ✅ **Admin 승인 UI**: `GET /owner/seeds`(static/seeds.html, 폰 결재) + 오너 엔드포인트 `/api/bottleneck/seeds`(목록)·`/decide`(승인/반려)·`/add`(수동 pending). ⚠️ 동적 `/owner/{token}`보다 먼저 선언해 선점.
+  - d. ⏳ **아침 6시 스케줄 에이전트**(Claude Code 루틴, 웹서치로 초크포인트 후보 조사 → `aifund.submit_bottleneck_candidates()` 호출로 DB pending 삽입). ⚠️ Mac mini 로컬 DB 접근 필요 → 로컬 cron(launchd) 유력. **매일 API비용 — 가드레일 §3상 명시 승인 후 착수.** submit 훅은 ②e에서 이미 구현됨.
+  - e. ✅ **S 피드 "결재 올림" + ntfy 알림**: `aifund.submit_bottleneck_candidates()`가 pending 등록 + S 내레이션 + 오너 ntfy(링크=`/owner/seeds`, `SITE_URL` env 있으면 절대링크). ②d가 이 훅을 부르면 됨.
 - **③ S 렌즈 추가 심화**: 오늘 페르소나에 "저마진·적자여도 논지로, 시총vsTAM·희석 본다" 한 줄 넣음(라이브). GitHub `W-Y-P/공급망병목-aleabitoreddit-skill`의 SKILL.md 프레임으로 더 정교화 가능(선택).
 - **④ 시드 정비**: 현 14개에 AVGO·ANET·MRVL(유명 '참치') 섞임 → 공급망병목 실제 픽(AXTI·SIVE·NBIS·RPI 등 무명 상류)으로 큐레이션. Claude가 웹서치로 후보 조사→사용자 승인.
 - **⑤ 거시자문 봇 = 비투표 매크로 자문**(트레이딩봇 X). blog_posts(blog1, 277편) 원문 보유. `병목자문` 패턴처럼 AGENT_PROFILES 자문 봇으로 — "거시적으로 지금 사면 안 된다" 시장레벨 경고. (KR/서사형이라 트레이딩 룰로는 안 맞음.)
@@ -51,6 +51,12 @@
 - 릴스 자동 파이프라인 삭제 → 당분간 수동 업로드(파급력 우선).
 
 ## 최근 세션 로그 (최신이 위)
+- **2026-08-05 (밤 — S 시드 큐레이션 인프라 ②a/②b/②c/②e)** — 브랜치 `feat/bottleneck-seed-db`(feat/q-veto-largecap 위, 미push). 커밋 2개(#98).
+  - **②a/②b(커밋 059a2bb)**: 병목 시드 `strategy_private` 하드코딩 → DB `bottleneck_seed` 테이블(ticker·rationale·status·source). `source_bottleneck`이 approved만 소싱. 빈 테이블은 최초 1회 하드코딩 14시드 approved 백필 → **라이브 무접촉 보존**. `trading_engine`의 `US_BOTTLENECK_SEED` 직접참조(committee 유니버스)는 무변경.
+  - **②c/②e(커밋 85bce59)**: `GET /owner/seeds`(폰 결재 페이지) + 오너 API 3종(목록/decide/add). `aifund.submit_bottleneck_candidates()` = pending 등록+S '결재 올림' 내레이션+오너 ntfy(②d가 부를 훅). ⚠️ `/owner/seeds`를 동적 `/owner/{token}`보다 먼저 선언(선점).
+  - **검증**: 신규 테스트 6건 통과·전체 회귀 0(기존 실패 11건은 사전 존재=옛 로스터/채팅라우팅 드리프트, stash로 확인). TestClient E2E로 엔드포인트 구동(anon 403·오너 결재·400·페이지 렌더 200).
+  - **⚠️ 남은 것 = ②d(6시 에이전트)** — 매일 API비용+launchd cron이라 가드레일 §3상 **명시 승인 후** 착수. submit 훅은 준비됨.
+  - **⚠️ git**: 이 브랜치가 #108·#109(미머지) 위에 있음 → #108·#109 먼저 머지하면 이 PR diff가 깔끔. 아직 push 안 함.
 - **2026-08-05 (대량 세션 — 라이브 버그 fix 9건 + S/Q 재설계 착수)**
   - **머지 완료(#101~107, origin/main)**: dotenv 로딩순서(NEW_DESK_ENABLED가 import시점 False로 굳던 컷오버 게이트 버그) · 관전피드 H봇 색누락 · 매수이유 모달 초보친화(A종목소개+friendlyReason, 원본 reasoning은 ranks 크레딧용 보존) · **yfinance 병목완화**(이름 영속캐시 db.stock_names + .info 3→2회 fail-fast + `/api/largecap/run` in-process 트리거) · **유저채팅 봇을 committee→P/W/H/S**(ROOT_IS_FUND 게이트, +desk='fund' 태그로 fund피드 노출) · **벤치마크 스냅샷 배선**(07-31 멈춤 — committee 스케줄러 은퇴 때 같이 빠짐 → scheduler에 잡 추가, SPY baseline 백필).
   - **미머지 PR**: #108(S 재소싱 버그) · #109(Q veto). 둘 다 CI 그린, 사용자 `!`로 머지 예정.

@@ -142,8 +142,8 @@ def source_today(market="US", quota=None, rng=random):
             "briefing": build_briefing(new, cat, names)}
 
 
-def _bottleneck_seed():
-    """병목 시드 유니버스 — 비공개(strategy_private), 없으면 example(빈값) 폴백."""
+def _hardcoded_bottleneck_seed():
+    """하드코딩 병목 시드 — 비공개(strategy_private), 없으면 example(빈값) 폴백. DB 백필 원천."""
     try:
         from strategy_private import US_BOTTLENECK_SEED as seed
     except Exception:
@@ -152,6 +152,15 @@ def _bottleneck_seed():
         except Exception:
             seed = []
     return list(seed or [])
+
+
+def _bottleneck_seed():
+    """S 워치리스트 = DB에서 승인(approved)된 병목 시드(로드맵 ②b: 사람 큐레이션).
+    테이블이 비어 있으면 최초 1회 하드코딩 시드를 approved로 백필 → 라이브 동작 그대로 보존."""
+    from db import get_bottleneck_seed_rows, get_bottleneck_seeds, backfill_bottleneck_seeds
+    if not get_bottleneck_seed_rows():                   # 최초 1회만: 하드코딩 → approved
+        backfill_bottleneck_seeds(_hardcoded_bottleneck_seed())
+    return get_bottleneck_seeds("approved")
 
 
 def source_bottleneck(market="US", quota=None):
@@ -189,6 +198,33 @@ def _s_sourcing_note(codes, names) -> str:
     except Exception as e:
         logger.warning(f"S 소싱 노트 실패: {e}")
         return fallback
+
+
+def submit_bottleneck_candidates(candidates, source="agent") -> list:
+    """②d 큐레이션 산출물을 결재 큐에 올림 — pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy.
+    candidates: [{'ticker','rationale'}] 또는 [ticker,...]. 반환: 새로 올라간 티커 목록.
+    ※ 승인은 사람(Admin /owner/seeds). 여기선 소싱만 — 매수·평가 안 함."""
+    from db import add_bottleneck_seed
+    norm = []
+    for c in candidates or []:
+        if isinstance(c, dict):
+            norm.append((str(c.get("ticker", "")).strip().upper(), c.get("rationale", "")))
+        else:
+            norm.append((str(c).strip().upper(), ""))
+    added = [t for t, why in norm if t and add_bottleneck_seed(t, why, source=source)]
+    if not added:
+        return []
+    lst = ", ".join(added)
+    _narrate("S", f"오늘 사슬 뒤에서 병목 후보를 물어왔습니다: {lst}. 워치리스트 편입은 사장님 결재로 올립니다. 🧾")
+    try:
+        from notifier import notify
+        site = os.getenv("SITE_URL", "").rstrip("/")
+        link = (site + "/owner/seeds") if site else "/owner/seeds"
+        notify(f"🔩 병목 시드 결재 {len(added)}건", f"{lst}\n승인/반려: {link}",
+               priority="default", cooldown=0)
+    except Exception as e:
+        logger.warning(f"병목 결재 알림 실패: {e}")
+    return added
 
 
 # ── 발굴 3인(P/W/S) 분석 (네트워크 + LLM) ─────────────────
