@@ -390,9 +390,10 @@ def test_pub_letter_rot13_maps_fund_bots_only():
 
 def test_merr_macro_note_uses_current_data(tmp_path, monkeypatch):
     # M은 '지금' 지수 데이터를 매크로 렌즈로 읽음 — call_agent 목킹, 벤치마크 최근 2행 주입
-    import db, agents
+    import db, agents, prompts
     monkeypatch.setenv("DB_PATH", str(tmp_path / "m.db"))
     db.init_db()
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "M", {"system": "매크로 자문"})  # 비공개 페르소나 없는 CI 대비
     monkeypatch.setattr(db, "get_benchmark_snapshots",
                         lambda: [{"date": "2026-08-05", "spy": 500, "qqq": 400},
                                  {"date": "2026-08-06", "spy": 505, "qqq": 396}])
