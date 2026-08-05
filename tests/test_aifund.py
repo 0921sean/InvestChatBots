@@ -283,6 +283,7 @@ def test_run_largecap_select_2stage_daily(monkeypatch):
     cleared = []
     monkeypatch.setattr(db, "clear_watchlist", lambda: cleared.append(True))          # 매일 재분석
     opin = []
+    monkeypatch.setattr(aifund, "_merr_macro_note", lambda: "")                        # M 거시 코멘트 LLM 호출 목킹
     monkeypatch.setattr(aifund, "_sector_opinion", lambda bot, sec, names, m="US": f"{bot} 섹터의견")
     monkeypatch.setattr(aifund, "_store_sector_consensus", lambda t, sec, ops: opin.append((sec, dict(ops))))
     monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
@@ -376,6 +377,34 @@ def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeyp
     narrated.clear(); notified.clear()
     assert aifund.submit_bottleneck_candidates(["AXTI"]) == []
     assert narrated == [] and notified == []
+
+
+def test_pub_letter_rot13_maps_fund_bots_only():
+    assert aifund.pub_letter("A") == "N" and aifund.pub_letter("P") == "C"
+    assert aifund.pub_letter("W") == "J" and aifund.pub_letter("H") == "U"
+    assert aifund.pub_letter("S") == "F" and aifund.pub_letter("Q") == "D"
+    assert aifund.pub_letter("M") == "Z"
+    assert aifund.pub_letter("드가자") == "드가자"      # 위원회 한글명 통과
+    assert aifund.pub_letter("User") == "User"
+
+
+def test_merr_macro_note_uses_current_data(tmp_path, monkeypatch):
+    # M은 '지금' 지수 데이터를 매크로 렌즈로 읽음 — call_agent 목킹, 벤치마크 최근 2행 주입
+    import db, agents
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "m.db"))
+    db.init_db()
+    monkeypatch.setattr(db, "get_benchmark_snapshots",
+                        lambda: [{"date": "2026-08-05", "spy": 500, "qqq": 400},
+                                 {"date": "2026-08-06", "spy": 505, "qqq": 396}])
+    captured = {}
+    def fake(name, system, prompt, timeout=60, model=None, trim=True):
+        captured["prompt"] = prompt
+        return "유동성은 아직 우호적이지만 밸류 부담이 커진 국면이다."
+    monkeypatch.setattr(agents, "call_agent", fake)
+    note = aifund._merr_macro_note()
+    assert "국면" in note
+    assert "S&P500" in captured["prompt"] and "+1.0%" in captured["prompt"]   # 현재 데이터 주입
+    assert "과거" in captured["prompt"]                                        # 과거시황 금지 지시
 
 
 def test_parse_candidates_json_extracts_and_filters():
