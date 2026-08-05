@@ -310,6 +310,61 @@ def backfill_bottleneck_seeds(tickers: list, source: str = "seed") -> int:
         return n
 
 
+# ── 매수 결재 큐 (봇 판단 → 오너 승인 → 체결) ─────────────────
+def has_pending_buy(code: str, desk: str) -> bool:
+    """해당 종목·데스크에 이미 대기중(pending) 결재가 있나 — 사이클마다 중복 상신 방지."""
+    with _conn() as con:
+        return con.execute(
+            "SELECT 1 FROM pending_buy WHERE code=? AND desk=? AND status='pending' LIMIT 1",
+            (code, desk)).fetchone() is not None
+
+
+def add_pending_buy(ticker, code, desk, account, market, amount, decision_price,
+                    approvers, stock_desc="", reason="", q_comment=None) -> int:
+    """매수 결재 상신 → pending. 같은 종목·데스크가 이미 대기중이면 0(중복 방지). 반환: 새 id(또는 0)."""
+    if has_pending_buy(code, desk):
+        return 0
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT INTO pending_buy (ticker, code, desk, account, market, amount, decision_price, "
+            "approvers, stock_desc, reason, q_comment) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (ticker, code, desk, account, market, amount, decision_price,
+             approvers, stock_desc, reason, q_comment))
+        return cur.lastrowid
+
+
+def get_pending_buys(status: str = "pending") -> list:
+    """결재 큐 목록(최신 상신이 위). status=None이면 전체."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        if status is None:
+            rows = con.execute("SELECT * FROM pending_buy ORDER BY created_at DESC").fetchall()
+        else:
+            rows = con.execute("SELECT * FROM pending_buy WHERE status=? ORDER BY created_at DESC",
+                               (status,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_pending_buy(pid: int) -> dict:
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        r = con.execute("SELECT * FROM pending_buy WHERE id=?", (pid,)).fetchone()
+        return dict(r) if r else None
+
+
+def decide_pending_buy(pid: int, status: str) -> dict:
+    """pending 결재를 approved/rejected로 확정. 반환: 확정된 행(체결 실행용) 또는 None(없음/이미 결정)."""
+    if status not in ("approved", "rejected"):
+        return None
+    with _conn() as con:
+        cur = con.execute(
+            "UPDATE pending_buy SET status=?, decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+            (status, pid))
+        if cur.rowcount == 0:
+            return None
+    return get_pending_buy(pid)
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -431,6 +486,24 @@ def init_db():
             source TEXT,                               -- 'seed'(하드코딩 이관) / 'agent'(6시 큐레이션) / 'manual'
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             decided_at DATETIME                        -- 승인/반려 시각
+        );
+        -- 매수 결재 큐: 봇이 매수 판단 시 즉시 체결 대신 오너 승인 대기(사이클은 계속). 승인=사람.
+        CREATE TABLE IF NOT EXISTS pending_buy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,                      -- 표시 이름(회사명/심볼)
+            code TEXT NOT NULL,                        -- 매수·가격용 코드
+            desk TEXT NOT NULL,                        -- 대형주 / 발굴주
+            account TEXT NOT NULL,
+            market TEXT DEFAULT 'US',
+            amount REAL,                               -- 매수 금액(사이징)
+            decision_price REAL,                       -- 봇 판단 시점 가격 = 체결가(승인 늦어도 이 가격)
+            approvers TEXT,                            -- 찬성 봇(내부 레터, 예 'P,W,S')
+            stock_desc TEXT,                           -- A 사업 설명
+            reason TEXT,                               -- 매수 판단 이유(친절)
+            q_comment TEXT,                            -- 대형주 Q 타이밍 멘트
+            status TEXT DEFAULT 'pending',             -- pending / approved / rejected
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME
         );
         CREATE TABLE IF NOT EXISTS largecap_watch (
             code TEXT PRIMARY KEY,                     -- 대형주 관심종목 캐시(P/W/H가 선정 → Q가 진입 타이밍 감시)

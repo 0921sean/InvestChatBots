@@ -147,3 +147,19 @@ def test_bottleneck_backfill_once_and_preserves_curation():
     add_bottleneck_seed("MU")                                        # pending 하나 추가
     assert backfill_bottleneck_seeds(["NVDA", "AVGO"]) == 0
     assert "NVDA" not in get_bottleneck_seeds(None)
+
+
+def test_pending_buy_add_dedup_and_decide():
+    from db import (add_pending_buy, has_pending_buy, get_pending_buys,
+                    get_pending_buy, decide_pending_buy)
+    pid = add_pending_buy("Veeva", "VEEV", "발굴주", "발굴주", "US", 2_500_000, 240.5,
+                          "P,W", stock_desc="수직 SaaS", reason="PEG 매력", q_comment=None)
+    assert pid > 0 and has_pending_buy("VEEV", "발굴주")
+    assert add_pending_buy("Veeva", "VEEV", "발굴주", "발굴주", "US", 2_500_000, 999, "P") == 0  # 중복 대기 skip
+    assert [r["code"] for r in get_pending_buys("pending")] == ["VEEV"]
+    # 승인 → 행 반환(체결 실행용), pending에서 빠짐
+    row = decide_pending_buy(pid, "approved")
+    assert row["decision_price"] == 240.5 and row["status"] == "approved"
+    assert get_pending_buys("pending") == []
+    assert decide_pending_buy(pid, "approved") is None            # 이미 처리됨
+    assert not has_pending_buy("VEEV", "발굴주")                   # 재상신 가능
