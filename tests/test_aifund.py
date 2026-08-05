@@ -378,6 +378,44 @@ def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeyp
     assert narrated == [] and notified == []
 
 
+def test_parse_candidates_json_extracts_and_filters():
+    # 코드펜스·머리말 섞여도 JSON 배열만 추출, ticker 없는 항목은 버림, 대문자 정규화
+    txt = ('여기 후보입니다:\n```json\n'
+           '[{"ticker":"axti","rationale":"InP 상류"},'
+           '{"rationale":"티커없음"},'
+           '{"ticker":"SIVE","rationale":"실리콘포토닉스"}]\n```')
+    out = aifund._parse_candidates_json(txt)
+    assert [c["ticker"] for c in out] == ["AXTI", "SIVE"]
+    assert aifund._parse_candidates_json("설명만 있고 JSON 없음") == []
+
+
+def test_run_bottleneck_curation_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", False)
+    assert aifund.run_bottleneck_curation()["skipped"] == "disabled"
+
+
+def test_run_bottleneck_curation_researches_excludes_and_queues(tmp_path, monkeypatch):
+    import db, agents, notifier
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "cur.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
+    db.add_bottleneck_seed("COHR", "이미 다룸")               # 제외 대상(테이블에 이미 있음)
+    db.decide_bottleneck_seed("COHR", "rejected")            # 이미 결재됨 — 재출현 금지 확인용
+    narr, noti = [], []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": narr.append((b, c)))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: noti.append(1))
+    # 웹서치 CLI 응답을 목킹: COHR(제외)·AXTI·SIVE·TOOLONG(형식탈락)·nvda(소문자→NVDA)
+    fake = ('[{"ticker":"COHR","rationale":"x"},{"ticker":"AXTI","rationale":"InP"},'
+            '{"ticker":"SIVE","rationale":"포토닉스"},{"ticker":"TOOLONG","rationale":"y"},'
+            '{"ticker":"nvda","rationale":"z"}]')
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda sys_, usr, timeout=60, model=None, allowed_tools=None: fake)
+    r = aifund.run_bottleneck_curation(limit=5)
+    assert set(r["added"]) == {"AXTI", "SIVE", "NVDA"}          # COHR 제외 · TOOLONG 형식탈락
+    assert set(db.get_bottleneck_seeds("pending")) == {"AXTI", "SIVE", "NVDA"}
+    assert narr and noti                                        # S 결재 올림 + 오너 알림 1회
+
+
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
     monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR"])
     monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])
