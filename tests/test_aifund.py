@@ -797,3 +797,45 @@ def test_run_q_index_desk_exits_on_reversal(tmp_path, monkeypatch):
 def test_run_q_index_desk_noop_when_disabled(monkeypatch):
     monkeypatch.setattr(aifund, "Q_INDEX_ENABLED", False)
     assert aifund.run_q_index_desk() == {"bought": [], "sold": []}
+
+
+def test_narrate_macro_context_reuses_today_briefing(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "mc.db"))
+    db.init_db()
+    said = []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": said.append((b, c)))
+    aifund._narrate_macro_context()                                  # 브리핑 없음 → 침묵
+    assert said == []
+    db.save_macro_briefing(aifund._today_kst(), "시장은 유동성 대기 국면입니다.\n상세...")
+    aifund._narrate_macro_context()                                  # 오늘 브리핑 요지 재사용(LLM 0콜)
+    assert said and said[0][0] == "M" and "유동성 대기" in said[0][1]
+    db.save_macro_briefing("2000-01-01", "옛날 브리핑")               # 오늘자 아니면 침묵 유지
+
+
+def test_run_risk_review_digest_and_narration(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "risk.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    db.buy_shared_position("엔비디아", "NVDA", 100.0, 5_000_000, "테스트", "US", account="대형주")
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "RISK_OFFICER_ENABLED", True)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "R", {"system": "리스크 오피서"})
+    said, cap = [], {}
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": said.append((b, c)))
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda name, sys_, usr, timeout=60, model=None, trim=True:
+                        (cap.update(p=usr), "집중도가 높습니다. 현금 완충은 충분합니다.")[1])
+    r = aifund.run_risk_review()
+    assert r["chars"] > 0
+    assert "엔비디아" in cap["p"] and "집중도 상위" in cap["p"]      # 다이제스트에 보유·집중도 포함
+    assert said and said[0][0] == "R" and "리스크 점검" in said[0][1]
+
+
+def test_run_risk_review_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(aifund, "RISK_OFFICER_ENABLED", False)
+    assert aifund.run_risk_review()["skipped"] == "disabled"
+
+
+def test_pub_letter_includes_R():
+    assert aifund.pub_letter("R") == "E"

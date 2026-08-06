@@ -3,7 +3,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation,
-                    run_macro_briefing, run_q_index_desk)
+                    run_macro_briefing, run_q_index_desk, run_risk_review)
 
 
 def _capture_benchmark():
@@ -50,6 +50,11 @@ def start_scheduler():
     scheduler.add_job(run_q_index_desk,
                       CronTrigger(hour=6, minute=10, day_of_week='mon-fri'),
                       id="q_index_desk", misfire_grace_time=1800)
+    # 06:20: R 리스크 오피서 일일 점검 (포트폴리오 집중도·상관·시나리오, 비투표 코멘트).
+    # RISK_OFFICER_ENABLED=False면 no-op.
+    scheduler.add_job(run_risk_review,
+                      CronTrigger(hour=6, minute=20, day_of_week='mon-fri'),
+                      id="risk_review", misfire_grace_time=1800)
     # 06시: 지수 벤치마크 스냅샷 (SPY·QQQ·코스피 등). 데스크 게이트와 무관하게 항상.
     scheduler.add_job(_capture_benchmark,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),
