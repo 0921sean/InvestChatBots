@@ -23,6 +23,8 @@ BOTTLENECK_CURATION_QUOTA = 5   # 하루 1콜로 올리는 후보 상한(토큰 
 # 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/owner/approvals).
 # 사이클은 결재만 올리고 계속 진행(논블로킹). 청산·손절은 자동(매수만 결재). off면 기존처럼 자동 매수.
 BUY_APPROVAL_REQUIRED = os.getenv("BUY_APPROVAL_REQUIRED", "").lower() in ("1", "true", "yes")
+# M 거시 브리핑 게이트(.env). on이면 매일 아침 블로그 새 글 크롤 + 거시 브리핑 생성(구독 토큰).
+MACRO_BRIEFING_ENABLED = os.getenv("MACRO_BRIEFING_ENABLED", "").lower() in ("1", "true", "yes")
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -1156,6 +1158,62 @@ def _merr_macro_note() -> str:
     except Exception as e:
         logger.warning(f"M 매크로 노트 실패: {e}")
         return ""
+
+
+def _fetch_new_blog_posts() -> int:
+    """블로그 새 글 RSS 크롤 → blog_posts 저장. 실패해도 무시. 반환: 새 글 수(대략)."""
+    n = 0
+    try:
+        from blog_fetcher import get_blog_ids, fetch_blog_rss
+        for bid in get_blog_ids():
+            try:
+                got = fetch_blog_rss(bid)
+                n += len(got) if got else 0
+            except Exception as e:
+                logger.warning(f"블로그 RSS 실패 {bid}: {e}")
+    except Exception as e:
+        logger.warning(f"블로그 fetch 준비 실패: {e}")
+    return n
+
+
+def run_macro_briefing():
+    """매일 아침 M 거시 브리핑 — 블로그 새 글 크롤 → 최근 글 + 현재 지수 → M이 오너 보고 작성 → 저장.
+    /owner/approvals 상단에 표시. MACRO_BRIEFING_ENABLED=False면 no-op. 실패/토큰소진 시 skip."""
+    if not MACRO_BRIEFING_ENABLED:
+        return {"skipped": "disabled"}
+    from db import get_recent_blog_posts, save_macro_briefing, get_benchmark_snapshots
+    _fetch_new_blog_posts()
+    since = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=14)).strftime("%Y-%m-%d")
+    posts = get_recent_blog_posts(since, limit=8)
+    blog_txt = "\n\n".join(f"[{p.get('post_date', '')}] {p.get('title', '')}\n{(p.get('content') or '')[:800]}"
+                           for p in posts) or "(최근 블로그 글 없음)"
+    snaps = get_benchmark_snapshots() or []
+    idx = []
+    if len(snaps) >= 2:
+        prev, cur = snaps[-2], snaps[-1]
+        for k, lbl in (("spy", "S&P500"), ("qqq", "나스닥100"), ("kospi", "코스피")):
+            p, c = prev.get(k), cur.get(k)
+            if p and c:
+                idx.append(f"{lbl} {c:.0f}({(c / p - 1) * 100:+.1f}%)")
+    idx_txt = " · ".join(idx) or "지수 데이터 부족(보수적으로)"
+    today = _today_kst()
+    try:
+        from agents import call_agent
+        from prompts import AGENT_PROFILES
+        user = (f"오늘({today}) 현재 지수(전일 대비): {idx_txt}\n\n"
+                f"[최근 시장 블로그 글 발췌]\n{blog_txt}\n\n"
+                "위 '현재 지수'와 '최근 블로그'를 근거로 사장님께 올릴 오늘의 거시 시장 브리핑을 써줘. "
+                "① 지금 시장 국면 한 문단 ② 블로그에서 주목할 매크로 포인트 2~3개(불릿) "
+                "③ 오늘 매수 결재 판단 시 참고할 점 한 줄. 정중한 보고체(존댓말). "
+                "반드시 '지금' 기준 — 과거 시황을 현재처럼 말하지 말 것. 종목 추천·매수 권유 아님.")
+        content = (call_agent("M", AGENT_PROFILES["M"]["system"], user, timeout=120,
+                              model="haiku", trim=False) or "").strip()
+    except Exception as e:
+        logger.error(f"M 브리핑 생성 실패: {e}", exc_info=True)
+        return {"error": str(e)}
+    if content:
+        save_macro_briefing(today, content)
+    return {"date": today, "posts": len(posts), "chars": len(content)}
 
 
 def run_largecap_select(market="US"):

@@ -365,6 +365,22 @@ def decide_pending_buy(pid: int, status: str) -> dict:
     return get_pending_buy(pid)
 
 
+# ── M 거시 브리핑 (매일 아침 오너 보고) ──────────────────────
+def save_macro_briefing(date: str, content: str):
+    """오늘 브리핑 저장(하루 1건, 같은 날 재생성은 갱신)."""
+    with _conn() as con:
+        con.execute("INSERT INTO macro_briefing (date, content) VALUES (?,?) "
+                    "ON CONFLICT(date) DO UPDATE SET content=excluded.content", (date, content))
+
+
+def get_latest_macro_briefing() -> dict:
+    """가장 최근 브리핑(dict) 또는 None."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        r = con.execute("SELECT * FROM macro_briefing ORDER BY date DESC LIMIT 1").fetchone()
+        return dict(r) if r else None
+
+
 def init_db():
     _migrate()
     with _conn() as con:
@@ -504,6 +520,12 @@ def init_db():
             status TEXT DEFAULT 'pending',             -- pending / approved / rejected
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             decided_at DATETIME
+        );
+        -- M 거시 브리핑: 매일 아침 오너에게 올리는 시장 국면 + 블로그 다이제스트(하루 1건).
+        CREATE TABLE IF NOT EXISTS macro_briefing (
+            date TEXT PRIMARY KEY,                     -- KST 날짜
+            content TEXT,                              -- 브리핑 본문
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS largecap_watch (
             code TEXT PRIMARY KEY,                     -- 대형주 관심종목 캐시(P/W/H가 선정 → Q가 진입 타이밍 감시)

@@ -163,3 +163,13 @@ def test_pending_buy_add_dedup_and_decide():
     assert get_pending_buys("pending") == []
     assert decide_pending_buy(pid, "approved") is None            # 이미 처리됨
     assert not has_pending_buy("VEEV", "발굴주")                   # 재상신 가능
+
+
+def test_macro_briefing_save_and_latest():
+    from db import save_macro_briefing, get_latest_macro_briefing
+    assert get_latest_macro_briefing() is None
+    save_macro_briefing("2026-08-05", "어제 브리핑")
+    save_macro_briefing("2026-08-06", "오늘 브리핑")
+    save_macro_briefing("2026-08-06", "오늘 브리핑(수정)")   # 같은 날 upsert
+    b = get_latest_macro_briefing()
+    assert b["date"] == "2026-08-06" and b["content"] == "오늘 브리핑(수정)"

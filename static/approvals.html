@@ -37,11 +37,17 @@
   .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; margin-left: auto; }
   .b-app { background: #12331f; color: #56d364; } .b-rej { background: #3a2224; color: #f0757c; }
   a.back { display: inline-block; margin-top: 24px; font-size: 11px; color: #6e7681; text-decoration: none; }
+  .brief { background: #12161f; border: 1px solid #2b3550; border-radius: 12px; padding: 14px 15px; margin-bottom: 18px; }
+  .brief h3 { font-size: 12px; font-weight: 800; color: #8b8cf0; margin-bottom: 4px; letter-spacing: .02em; }
+  .brief .date { font-size: 10px; color: #6e7681; margin-bottom: 8px; }
+  .brief .body { font-size: 12.5px; line-height: 1.7; color: #c9d1d9; white-space: pre-wrap; }
 </style>
 </head>
 <body>
   <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">매수 결재</span></div>
   <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
+
+  <div id="briefing"></div>
 
   <div class="sec-title">🟡 결재 대기</div>
   <div id="pending"></div>
@@ -78,7 +84,21 @@ function card(it) {
     </div></div>`;
 }
 
+async function loadBriefing() {
+  try {
+    const r = await fetch('/api/macro-briefing', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const b = await r.json();
+    if (!b || !b.content) return;
+    document.getElementById('briefing').innerHTML =
+      `<div class="brief"><h3>🧭 오늘의 거시 브리핑</h3>` +
+      `<div class="date">${esc(b.date || '')}</div>` +
+      `<div class="body">${esc(b.content)}</div></div>`;
+  } catch (e) { /* 브리핑 없어도 결재는 표시 */ }
+}
+
 async function load() {
+  loadBriefing();
   const [p, d] = await Promise.all([
     fetch('/api/buy-approvals?status=pending', {credentials:'same-origin'}),
     fetch('/api/buy-approvals?status=all', {credentials:'same-origin'}),

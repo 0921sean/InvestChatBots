@@ -2,7 +2,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 
-from aifund import run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation
+from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation,
+                    run_macro_briefing)
 
 
 def _capture_benchmark():
@@ -39,6 +40,11 @@ def start_scheduler():
     scheduler.add_job(run_bottleneck_curation,
                       CronTrigger(hour=5, minute=50, day_of_week='mon-fri'),
                       id="bottleneck_curation", misfire_grace_time=1800)
+    # 05:40: M 거시 브리핑 (블로그 새 글 크롤 + 시장국면 → 오너 보고). 결재 페이지 상단 표시.
+    # MACRO_BRIEFING_ENABLED=False면 no-op. 결재/사이클과 독립 스레드.
+    scheduler.add_job(run_macro_briefing,
+                      CronTrigger(hour=5, minute=40, day_of_week='mon-fri'),
+                      id="macro_briefing", misfire_grace_time=1800)
     # 06시: 지수 벤치마크 스냅샷 (SPY·QQQ·코스피 등). 데스크 게이트와 무관하게 항상.
     scheduler.add_job(_capture_benchmark,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),
