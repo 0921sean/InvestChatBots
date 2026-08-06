@@ -232,7 +232,7 @@ def test_run_discovery_desk_or_gate_buys(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+                        lambda m="US", quota=None: {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
     monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
     monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("소개", True))  # 이해 게이트 통과(명확)
@@ -257,7 +257,7 @@ def test_run_discovery_desk_approval_mode_queues_not_buys(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+                        lambda m="US", quota=None: {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
     monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
     monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("수직 SaaS 회사", True))
@@ -304,7 +304,7 @@ def test_discovery_s_pick_is_s_only_not_committee(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": [], "catalyst": [], "names": {}, "briefing": "b"})  # A픽 없음
+                        lambda m="US", quota=None: {"new": [], "catalyst": [], "names": {}, "briefing": "b"})  # A픽 없음
     monkeypatch.setattr(aifund, "source_bottleneck",
                         lambda m="US": {"codes": ["POET"], "names": {"POET": "POET"}})              # S픽만
     monkeypatch.setattr(aifund, "_s_sourcing_note", lambda *a, **k: "note")
@@ -332,7 +332,7 @@ def test_run_discovery_desk_comprehension_gate_blocks(monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+                        lambda m="US", quota=None: {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
     monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
     monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("", False))  # 사업 불명확
@@ -658,7 +658,7 @@ def test_discovery_observation_mode_registers_not_buys(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "source_today",
-                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+                        lambda m="US", quota=None: {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
     monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
     monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
     monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("AI 반도체", True))
@@ -903,3 +903,75 @@ def test_record_fetch_counts_and_returns_today(tmp_path, monkeypatch):
     assert db.record_fetch("price", False) == (1, 2)
     rows = db.get_fetch_health()
     assert rows[0]["ok"] == 1 and rows[0]["fail"] == 2
+
+
+# ── 워크데이 모델 ──────────────────────────────────────
+def test_deep_study_parses_survive_and_withdraw(monkeypatch):
+    import agents, prompts
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "P", {"system": "성장주"})
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "log_decision", lambda *a, **k: None)
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: "반박 검토.\n[딥스터디] 유지 | 이유: 논지 견고")
+    ok, note = aifund._deep_study("P", "NVDA", "NVIDIA", "첫 논지", ("패킷", ""))
+    assert ok is True and "반박 검토" in note                    # note = 검토 본문(결론 줄 제외)
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: "[딥스터디] 철회 | 이유: 밸류 부담이 더 셈")
+    ok, _ = aifund._deep_study("P", "NVDA", "NVIDIA", "첫 논지", ("패킷", ""))
+    assert ok is False
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    ok, note = aifund._deep_study("P", "NVDA", "NVIDIA", "첫 논지", ("패킷", ""))
+    assert ok is True and note == ""                             # 스터디 실패는 차단 사유 아님
+
+
+def test_workday_deep_study_withdraw_blocks_observation(tmp_path, monkeypatch):
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "wd.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "WORKDAY_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US", quota=None: {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("소개", True))
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, m="US", brief=None: ({"P": "매수"}.get(bot, "관망"), "r"))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    monkeypatch.setattr(aifund, "_deep_study", lambda *a, **k: (False, ""))   # 반박에 무너짐
+    aifund.run_discovery_desk()
+    assert db.get_observations("observing") == []                # 관찰 등록 차단
+    monkeypatch.setattr(aifund, "_deep_study", lambda *a, **k: (True, "버팀"))
+    aifund.run_discovery_desk()
+    assert len(db.get_observations("observing")) == 1            # 통과 시 관찰 등록
+
+
+def test_run_workday_runs_morning_block_and_clocks_out(monkeypatch):
+    calls = []
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "WORKDAY_ENABLED", True)
+    monkeypatch.setattr(aifund, "_workday_date", None)
+    monkeypatch.setattr(aifund, "WORKDAY_END_HOUR", 0)           # 루프 즉시 종료(퇴근)
+    for fn in ("run_macro_briefing", "run_bottleneck_curation", "run_largecap_cycle",
+               "run_q_index_desk", "run_risk_review"):
+        monkeypatch.setattr(aifund, fn, (lambda n: lambda *a, **k: calls.append(n))(fn))
+    said = []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": said.append(c))
+    r = aifund.run_workday()
+    assert calls == ["run_macro_briefing", "run_bottleneck_curation", "run_largecap_cycle",
+                     "run_q_index_desk", "run_risk_review"]      # 아침 블록 순서
+    assert r["rounds"] == 0 and any("퇴근" in c for c in said)
+    monkeypatch.setattr(aifund, "WORKDAY_ENABLED", False)
+    assert aifund.run_workday()["skipped"] == "disabled"
+
+
+def test_run_workday_lock_prevents_double(monkeypatch):
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "WORKDAY_ENABLED", True)
+    assert aifund._workday_lock.acquire(blocking=False)
+    try:
+        assert aifund.run_workday()["skipped"] == "already_working"   # 근무 중 재진입 no-op
+    finally:
+        aifund._workday_lock.release()
