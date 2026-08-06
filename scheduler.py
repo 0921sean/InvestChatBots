@@ -3,7 +3,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation,
-                    run_macro_briefing)
+                    run_macro_briefing, run_q_index_desk)
 
 
 def _capture_benchmark():
@@ -45,6 +45,11 @@ def start_scheduler():
     scheduler.add_job(run_macro_briefing,
                       CronTrigger(hour=5, minute=40, day_of_week='mon-fri'),
                       id="macro_briefing", misfire_grace_time=1800)
+    # 06:10: Q 지수 스윙 계좌 (QQQ/SPY + 1배 인버스, 룰·무LLM·자동 소액). US 종가 직후 일봉.
+    # Q_INDEX_ENABLED=False면 no-op. 대형주(06:00)와 독립 스레드.
+    scheduler.add_job(run_q_index_desk,
+                      CronTrigger(hour=6, minute=10, day_of_week='mon-fri'),
+                      id="q_index_desk", misfire_grace_time=1800)
     # 06시: 지수 벤치마크 스냅샷 (SPY·QQQ·코스피 등). 데스크 게이트와 무관하게 항상.
     scheduler.add_job(_capture_benchmark,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),

@@ -730,3 +730,70 @@ def test_observation_review_conviction_too_early_keeps_observing(tmp_path, monke
     assert r["convinced"] == [] and subs == []
     obs = db.get_observations("observing")[0]
     assert obs["review_count"] == 1                    # 기록은 남고 계속 관찰
+
+
+# ── Q 지수 스윙 데스크 ──────────────────────────────────
+def _idx_series(trend="up"):
+    # 200일선 위 상승추세 + 마지막 봉 신고가 (또는 미러)
+    if trend == "up":
+        return [100 + i * 0.5 for i in range(260)]                  # 단조 상승 → 항상 신고가
+    return [230 - i * 0.5 for i in range(260)]                      # 단조 하락 → 항상 신저가
+
+
+def test_q_index_signal_long_inverse_none():
+    assert aifund.q_index_signal(_idx_series("up")) == "long"       # 200MA 위 + 신고가
+    assert aifund.q_index_signal(_idx_series("down")) == "inverse"  # 200MA 아래 + 신저가
+    flat = [100.0] * 260
+    assert aifund.q_index_signal(flat) is None                      # 돌파 없음(신고가=신저가 동시라 200MA 경계)
+    assert aifund.q_index_signal([100] * 50) is None                # 데이터 부족
+
+
+def test_q_index_exit_mirror():
+    up, down = _idx_series("up"), _idx_series("down")
+    assert aifund.q_index_exit(down, "long") is True                # 롱: 50MA 이탈 → 청산
+    assert aifund.q_index_exit(up, "long") is False
+    assert aifund.q_index_exit(up, "inverse") is True               # 인버스: 50MA 회복 → 청산
+    assert aifund.q_index_exit(down, "inverse") is False
+
+
+def test_run_q_index_desk_enters_long_and_inverse(tmp_path, monkeypatch):
+    import db, backtest as bt
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "qi.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "Q_INDEX_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    # QQQ 상승(롱 신호) · SPY 하락(인버스 신호)
+    data = {"QQQ": {"close": _idx_series("up")}, "PSQ": {"close": _idx_series("down")},
+            "SPY": {"close": _idx_series("down")}, "SH": {"close": _idx_series("up")}}
+    monkeypatch.setattr(bt, "_fetch", lambda tickers, period="2y": data)
+    r = aifund.run_q_index_desk()
+    assert set(r["bought"]) == {"QQQ", "SH"}                        # QQQ 롱 + SPY 인버스(SH)
+    pos = db.get_open_positions(account="Q지수")
+    assert {p["code"] for p in pos} == {"QQQ", "SH"}
+    assert db.get_shared_portfolio("Q지수")["balance"] == 10_000_000 - 2 * aifund.Q_INDEX_SLOT
+    # 재실행: 이미 보유 → 중복 진입 없음(멱등)
+    r2 = aifund.run_q_index_desk()
+    assert r2["bought"] == []
+
+
+def test_run_q_index_desk_exits_on_reversal(tmp_path, monkeypatch):
+    import db, backtest as bt
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "qx.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "Q_INDEX_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    db.buy_shared_position("QQQ", "QQQ", 200.0, 5_000_000, "Q지수 추세 돌파 롱 (QQQ 기준)", "US", account="Q지수")
+    data = {"QQQ": {"close": _idx_series("down")}, "PSQ": {"close": _idx_series("up")},
+            "SPY": {"close": [100.0] * 260}, "SH": {"close": [100.0] * 260}}
+    monkeypatch.setattr(bt, "_fetch", lambda tickers, period="2y": data)
+    r = aifund.run_q_index_desk()
+    assert "QQQ" in r["sold"]                                       # 50MA 이탈 → 롱 청산
+    assert db.get_open_positions(account="Q지수") == [] or \
+        all(p["code"] != "QQQ" for p in db.get_open_positions(account="Q지수"))
+
+
+def test_run_q_index_desk_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(aifund, "Q_INDEX_ENABLED", False)
+    assert aifund.run_q_index_desk() == {"bought": [], "sold": []}

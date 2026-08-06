@@ -76,11 +76,11 @@ def test_fund_report_roundtrip_and_upsert():
 
 def test_ensure_desk_accounts_seeds_5000_and_leaves_committee():
     from db import (ensure_desk_accounts, get_shared_portfolio, DESK_ACCOUNTS,
-                    DESK_SEED, INITIAL_BALANCE)
+                    DESK_SEED, ACCT_SEED, INITIAL_BALANCE)
     main_before = get_shared_portfolio("main")["balance"]
     ensure_desk_accounts()
-    for acct in DESK_ACCOUNTS:                          # 대형주/발굴주 각 5,000만
-        assert get_shared_portfolio(acct)["balance"] == DESK_SEED
+    for acct in DESK_ACCOUNTS:                          # 대형주/발굴주 5,000만 · Q지수 1,000만
+        assert get_shared_portfolio(acct)["balance"] == ACCT_SEED[acct]
     assert get_shared_portfolio("main")["balance"] == main_before   # committee 무영향
     ensure_desk_accounts()                              # 멱등(중복 시드 안 함)
     assert get_shared_portfolio("대형주")["balance"] == DESK_SEED

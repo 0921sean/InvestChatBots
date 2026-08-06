@@ -9,12 +9,14 @@ TRADING_BALANCE = 30_000_000   # 트레이딩(서브) 시드 = 3,000만 (2026-08
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
 # AI펀드 4봇 경쟁 계좌(P/W/S/Q=id 3~6) — committee(1/2)와 분리. 각 가상 1억.
 _ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6,
-            "대형주": 7, "발굴주": 8}   # 7/8 = 통일 데스크(대형주/발굴주)
+            "대형주": 7, "발굴주": 8, "Q지수": 9}   # 7/8 = 통일 데스크, 9 = Q 지수 스윙(자기 전략 포워드 테스트)
 FUND_ACCOUNTS = ("P", "W", "S", "Q")   # (레거시) 4봇 경쟁 계좌 — 통일 데스크로 대체 중
 FUND_SEED = 100_000_000                # 봇당 가상 1억
-# 통일 데스크(대형주/발굴주) — v1 대체. 설계 docs/AIFUND_PIVOT.md
-DESK_ACCOUNTS = ("대형주", "발굴주")
-DESK_SEED = 50_000_000                 # 데스크당 가상 5,000만 (총 1억)
+# 통일 데스크(대형주/발굴주/Q지수) — v1 대체. 설계 docs/AIFUND_PIVOT.md
+DESK_ACCOUNTS = ("대형주", "발굴주", "Q지수")
+DESK_SEED = 50_000_000                 # 데스크당 가상 5,000만
+Q_INDEX_SEED = 10_000_000              # Q 지수 스윙 소액 계좌(1,000만) — 봇 개성 실험
+ACCT_SEED = {"대형주": DESK_SEED, "발굴주": DESK_SEED, "Q지수": Q_INDEX_SEED}
 
 
 def _acct_id(account: str) -> int:
@@ -32,12 +34,12 @@ def ensure_fund_accounts():
 
 
 def ensure_desk_accounts():
-    """통일 데스크 계좌(대형주/발굴주, 각 5,000만)를 시드(INSERT OR IGNORE). 멱등·committee 무영향.
-    ⚠️ 실제 자본 재편·committee 승계는 별도 마이그레이션(백업 후)."""
+    """통일 데스크 계좌(대형주/발굴주 각 5,000만 · Q지수 1,000만)를 시드(INSERT OR IGNORE).
+    멱등·committee 무영향. ⚠️ 실제 자본 재편·committee 승계는 별도 마이그레이션(백업 후)."""
     with _conn() as con:
         for acct in DESK_ACCOUNTS:
             con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
-                        (_ACCT_ID[acct], DESK_SEED))
+                        (_ACCT_ID[acct], ACCT_SEED[acct]))
 
 
 def add_to_watch(code: str, name: str, approved_by: str):
@@ -723,6 +725,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_chat_queue_status ON chat_queue(status, id);
         CREATE INDEX IF NOT EXISTS idx_chat_queue_day ON chat_queue(day);
         """)
+    _migrate()   # 갓 만든 DB에도 ALTER 컬럼(market·account 등) 반영 — 생성 전 1차는 기존 DB용, 멱등
 
 
 # ── 채팅 질문 큐 (안전장치 1/3: 하드 캡 + FIFO) ──────────────
