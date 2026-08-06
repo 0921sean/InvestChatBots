@@ -645,3 +645,88 @@ def test_run_macro_briefing_uses_blog_and_index(tmp_path, monkeypatch):
     assert r["posts"] == 1 and r["chars"] > 0
     assert "연준 스탠스" in cap["p"] and "S&P500" in cap["p"] and "과거" in cap["p"]   # 블로그+지수+현재기준 지시
     assert db.get_latest_macro_briefing()["content"] == "오늘 시장은 관망 국면입니다."
+
+
+def test_discovery_observation_mode_registers_not_buys(tmp_path, monkeypatch):
+    # OBSERVATION_REQUIRED=True: 매수 판단 → 관찰 등록만(결재도 체결도 안 함)
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "obs.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)   # 관찰이 결재보다 먼저
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": ["NVDA"], "catalyst": [], "names": {"NVDA": "NVIDIA"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("AI 반도체", True))
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda code, name, tk, bot, m="US", brief=None: ({"P": "매수"}.get(bot, "관망"), "PEG 매력"))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    submitted, bought = [], []
+    monkeypatch.setattr(aifund, "_submit_buy_approval", lambda *a, **k: (submitted.append(1), True)[1])
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (bought.append(1), (1, None))[1])
+    r = aifund.run_discovery_desk()
+    assert submitted == [] and bought == [] and r["buys"] == []   # 결재도 체결도 없음
+    obs = db.get_observations("observing")
+    assert len(obs) == 1 and obs[0]["code"] == "NVDA" and obs[0]["price_at"] == 100.0
+    assert obs[0]["bots"] == "P"
+
+
+def _obs_env(tmp_path, monkeypatch, price=110.0):
+    import db, fetchers, prompts, agents
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "rev.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("현재 패킷", ""))
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: price)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "P", prompts.AGENT_PROFILES.get("P", {"system": "성장주"}))
+    return db, agents
+
+
+def test_observation_review_convinced_submits_with_story(tmp_path, monkeypatch):
+    db, agents = _obs_env(tmp_path, monkeypatch)
+    oid = db.add_observation("NVDA", "NVIDIA", "발굴주", "US", "P", "· 성장주 담당 의견 — PEG 매력", "AI 반도체", 100.0)
+    db.record_observation_review(oid, {"date": "2026-08-06", "price": 105.0,
+                                       "verdicts": {"P": "유지"}, "notes": {"P": "아직 지켜봄"}})  # 1회차 완료 상태
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda name, sys_, usr, timeout=60, model=None, trim=True:
+                        "논지 그대로 강해짐.\n[관찰] 확신 | 이유: 실적 가이던스 상향")
+    subs = []
+    monkeypatch.setattr(aifund, "_submit_buy_approval",
+                        lambda desk, acct, name, code, price, amt, bots, m, **k: (subs.append((code, k.get("reason"))), True)[1])
+    r = aifund.run_observation_review()
+    assert r["convinced"] == ["NVDA"]
+    assert db.get_observations("convinced")            # 상태 전이
+    code, story = subs[0]
+    assert code == "NVDA" and "재점검" in story and "매수를 건의" in story   # 관찰 서사 첨부
+
+
+def test_observation_review_all_withdraw_drops(tmp_path, monkeypatch):
+    db, agents = _obs_env(tmp_path, monkeypatch)
+    db.add_observation("XYZ", "Xyz", "발굴주", "US", "P", "논지", "회사", 50.0)
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda *a, **k: "[관찰] 철회 | 이유: 마진 급락, 논지 훼손")
+    subs = []
+    monkeypatch.setattr(aifund, "_submit_buy_approval", lambda *a, **k: (subs.append(1), True)[1])
+    r = aifund.run_observation_review()
+    assert r["dropped"] == ["XYZ"] and subs == []
+    assert db.get_observations("dropped") and db.get_observations("observing") == []
+
+
+def test_observation_review_conviction_too_early_keeps_observing(tmp_path, monkeypatch):
+    # 첫 재점검(1회차)에 확신이어도 최소 횟수(2) 전이면 계속 관찰
+    db, agents = _obs_env(tmp_path, monkeypatch)
+    db.add_observation("ABC", "Abc", "발굴주", "US", "P", "논지", "회사", 10.0)
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: "[관찰] 확신 | 이유: 좋아짐")
+    subs = []
+    monkeypatch.setattr(aifund, "_submit_buy_approval", lambda *a, **k: (subs.append(1), True)[1])
+    r = aifund.run_observation_review()
+    assert r["convinced"] == [] and subs == []
+    obs = db.get_observations("observing")[0]
+    assert obs["review_count"] == 1                    # 기록은 남고 계속 관찰

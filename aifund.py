@@ -25,6 +25,10 @@ BOTTLENECK_CURATION_QUOTA = 5   # 하루 1콜로 올리는 후보 상한(토큰 
 BUY_APPROVAL_REQUIRED = os.getenv("BUY_APPROVAL_REQUIRED", "").lower() in ("1", "true", "yes")
 # M 거시 브리핑 게이트(.env). on이면 매일 아침 블로그 새 글 크롤 + 거시 브리핑 생성(구독 토큰).
 MACRO_BRIEFING_ENABLED = os.getenv("MACRO_BRIEFING_ENABLED", "").lower() in ("1", "true", "yes")
+# 관찰 단계 게이트(.env). on이면 발굴주 매수 판단이 즉시 결재/체결이 아니라 '관찰 등록' →
+# 사이클마다 재관찰(자기 논지 vs 현재) → 최소 OBSERVATION_MIN_REVIEWS회 후에도 확신이면 그때 결재.
+OBSERVATION_REQUIRED = os.getenv("OBSERVATION_REQUIRED", "").lower() in ("1", "true", "yes")
+OBSERVATION_MIN_REVIEWS = 2     # 확신 상신 전 최소 재관찰 횟수(발굴 사이클 0/12/18 기준 ≈ 하루)
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -1038,6 +1042,107 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
     return True
 
 
+# ── 관찰 단계 (신중한 매수: 매수 판단 → 며칠 관찰 → 확신 시 결재) ──
+_OBS_RE = re.compile(r"\[관찰\]\s*(확신|유지|철회)")
+
+
+def _register_observation(desk, name, code, price, approvers, reasonings, stock_desc, market):
+    """매수 판단 종목을 '관찰'로 등록 — 바로 안 사고 지켜보기 시작. 중복 등록은 조용히 skip."""
+    from db import add_observation
+    thesis = _compose_buy_report(approvers, reasonings)
+    oid = add_observation(code, name, desk, market, ",".join(approvers), thesis, stock_desc, price)
+    if oid:
+        _narrate(approvers[0],
+                 f"👀 {_tk(code, name)} — 사고 싶은 마음은 있는데, 서두르지 않겠습니다. "
+                 f"현재가 기준으로 며칠 지켜보면서 논지가 유지되는지 확인한 뒤 결재 올릴게요.")
+    return oid
+
+
+def _observation_prompt(obs, brief_packet, cur_price) -> str:
+    """재관찰 프롬프트 — 자기 과거 논지 + 당시 가격 vs 현재 데이터로 확신 재평가."""
+    days = (obs.get("review_count") or 0) + 1
+    return (f"[관찰 재점검 {days}회차] 너는 앞서 {obs['name']} ({obs['code']})를 매수 후보로 보고 "
+            f"이런 논지를 남겼다 (당시 가격 {obs.get('price_at') or '?'}):\n{obs.get('thesis') or '(논지 기록 없음)'}\n\n"
+            f"현재 가격: {cur_price or '?'}\n현재 데이터:\n{brief_packet or '(데이터 부족 — 보수적으로)'}\n\n"
+            "그때의 논지가 지금도 유지·강화되고 있나? 서두를 필요 없다 — 확신이 없으면 더 지켜보고, "
+            "논지가 훼손됐으면 솔직하게 철회해라. 반드시 아래 형식으로:\n"
+            "[관찰] 확신 | 이유: ...  (이제 사도 된다고 확신)\n"
+            "[관찰] 유지 | 이유: ...  (계속 지켜본다)\n"
+            "[관찰] 철회 | 이유: ...  (논지 훼손 — 관찰 중단)")
+
+
+def run_observation_review(market="US"):
+    """관찰 중 종목 재점검(발굴 사이클마다) — 승인봇별 재평가 → 전원 철회=drop /
+    확신 도달(최소 OBSERVATION_MIN_REVIEWS회차)=결재 상신. 반환 {'reviewed','convinced','dropped'}."""
+    if not (NEW_DESK_ENABLED and OBSERVATION_REQUIRED):
+        return {"reviewed": [], "convinced": [], "dropped": []}
+    from db import get_observations, record_observation_review
+    from fetchers import fetch_stock_price
+    from prompts import AGENT_PROFILES
+    from agents import call_agent
+    obs_list = get_observations("observing", desk="발굴주")
+    reviewed, convinced, dropped = [], [], []
+    today = _today_kst()
+    for obs in obs_list:
+        code, name = obs["code"], obs.get("name") or obs["code"]
+        brief = build_research_brief(code, name, code, market)          # 현재 데이터로 재평가
+        packet = (brief or ("", ""))[0]
+        price = fetch_stock_price(code if market == "US" else f"{code}.KS")
+        bots = [b for b in (obs.get("bots") or "").split(",") if b]
+        verdicts, notes = {}, {}
+        for bot in bots:
+            try:
+                out = call_agent(bot, AGENT_PROFILES[bot]["system"],
+                                 _observation_prompt(obs, packet, price), model="sonnet", trim=False)
+            except Exception as e:
+                logger.warning(f"관찰 재점검 실패 {code}@{bot}: {e}")
+                out = "[관찰] 유지 | 이유: 점검 실패 — 다음에 다시"
+            m = _OBS_RE.search(out or "")
+            verdicts[bot] = m.group(1) if m else "유지"
+            notes[bot] = _clean_reason(re.sub(r"\[관찰\][^\n]*", "", out or "")) or \
+                _verdict_reason((out or "").replace("[관찰]", "[결정] 관망 |"))
+            _narrate(bot, f"👀 {_tk(code, name)} 관찰 {obs['review_count'] + 1}회차 — " + (out or "").strip()[:300],
+                     model="sonnet")
+        review = {"date": today, "price": price,
+                  "verdicts": verdicts, "notes": notes}
+        n_now = (obs.get("review_count") or 0) + 1
+        keep = [b for b in bots if verdicts.get(b) != "철회"]
+        conv = [b for b in bots if verdicts.get(b) == "확신"]
+        if not keep:                                                    # 전원 철회
+            record_observation_review(obs["id"], review, status="dropped")
+            dropped.append(code)
+            _narrate(bots[0], f"{_tk(code, name)} — 지켜본 결과 논지가 훼손됐습니다. 관찰 중단합니다. 무리해서 살 이유가 없죠.")
+        elif conv and n_now >= OBSERVATION_MIN_REVIEWS:                 # 확신 + 충분히 지켜봄 → 결재
+            record_observation_review(obs["id"], review, status="convinced")
+            convinced.append(code)
+            story = _observation_story(obs, review, n_now)
+            _submit_buy_approval("발굴주", "발굴주", name, code, price or obs.get("price_at"),
+                                 _desk_amount("발굴주"), conv, market,
+                                 stock_desc=obs.get("stock_desc") or "", reason=story, speaker=conv[0])
+        else:                                                           # 계속 관찰
+            record_observation_review(obs["id"], review)
+        reviewed.append(code)
+    return {"reviewed": reviewed, "convinced": convinced, "dropped": dropped}
+
+
+def _observation_story(obs, last_review, n_reviews) -> str:
+    """결재용 관찰 서사 — 처음 논지부터 확신까지의 흐름을 정중하게 요약."""
+    import json
+    lines = [f"· 최초 검토 — 당시 가격 {obs.get('price_at') or '?'}에서 매수 후보로 선정했습니다.",
+             f"{obs.get('thesis') or ''}".strip(),
+             f"· 이후 {n_reviews}회에 걸쳐 재점검하며 논지를 확인했습니다."]
+    try:
+        hist = json.loads(obs.get("reviews") or "[]") + [last_review]
+        for i, r in enumerate(hist, 1):
+            for bot, note in (r.get("notes") or {}).items():
+                if note:
+                    lines.append(f"  - {i}회차({r.get('date', '')}) {_ROLE_KO.get(bot, bot)} — {note[:150]}")
+    except Exception:
+        pass
+    lines.append(f"· 현재가 {last_review.get('price') or '?'} 기준으로도 논지가 유효하다고 판단해 매수를 건의드립니다.")
+    return "\n".join(x for x in lines if x)
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
@@ -1089,6 +1194,9 @@ def run_discovery_desk(market="US"):
         if not price:
             continue
         reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유(자동매수 로그용)
+        if OBSERVATION_REQUIRED:                                      # 신중한 매수: 바로 안 사고 관찰 등록 → 재관찰로 확신 쌓기
+            _register_observation("발굴주", name, code, price, approvers, reasonings, biz_ko, market)
+            continue
         if BUY_APPROVAL_REQUIRED:                                     # 즉시 체결 대신 오너 결재로(사이클은 계속)
             report = _compose_buy_report(approvers, reasonings) or reason   # 승인 봇별 상세 근거(상사 보고체)
             _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
@@ -1398,14 +1506,15 @@ def run_largecap_cycle(market="US"):
 
 
 def run_discovery_cycle(market="US"):
-    """12·18·24 발굴 슬롯 — A/S 발굴 → P/W/S OR게이트 즉시매수 + 보유 점검 → NAV 스냅샷."""
+    """12·18·24 발굴 슬롯 — 관찰 재점검 → A/S 발굴 → P/W/S OR게이트 (관찰등록/결재/매수) + 보유 점검 → NAV."""
     if not NEW_DESK_ENABLED:
         return {}
     try:
+        obs = run_observation_review(market)     # 지켜보던 종목부터 재점검(확신 도달 시 결재 상신)
         desk = run_discovery_desk(market)
         review = run_discovery_review(market)
         _snapshot_fund_nav()
-        return {"desk": desk, "review": review}
+        return {"observation": obs, "desk": desk, "review": review}
     except Exception as e:
         logger.error(f"발굴 사이클 실패: {e}", exc_info=True)
         return {"error": str(e)}
