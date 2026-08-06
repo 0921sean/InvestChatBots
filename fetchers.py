@@ -628,6 +628,19 @@ def detect_and_fetch_stocks(message: str) -> str:
     return "\n\n".join(results)
 
 
+def _record_price_health(ok: bool):
+    """시세 fetch 성공/실패 기록(P0 헬스체크) — 오늘 실패율 임계(10건+·50%+) 시 오너 ntfy(쿨다운 내장)."""
+    try:
+        from db import record_fetch
+        okc, fail = record_fetch("price", ok)
+        if not ok and fail >= 10 and fail / max(okc + fail, 1) > 0.5:
+            from notifier import notify
+            notify("⚠️ 시세 데이터 실패율 경고",
+                   f"오늘 price fetch {okc}성공/{fail}실패 — yfinance 리밋/장애 가능. 사이클 판단 품질 저하 주의.")
+    except Exception:
+        pass
+
+
 def fetch_stock_price(symbol: str) -> float | None:
     """단일 종목 현재가."""
     try:
@@ -635,8 +648,11 @@ def fetch_stock_price(symbol: str) -> float | None:
                        interval=Interval.INTERVAL_1_DAY)
         a = h.get_analysis()
         close = a.indicators.get("close") or a.indicators.get("Close")
-        return float(close) if close else None
+        if close:
+            _record_price_health(True)
+            return float(close)
     except Exception:
         pass
     price, _ = _yf_price(symbol)
+    _record_price_health(price is not None)
     return price

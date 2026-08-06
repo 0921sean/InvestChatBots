@@ -412,6 +412,70 @@ def record_observation_review(oid: int, review: dict, status: str = None):
                         "updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(arr, ensure_ascii=False), oid))
 
 
+# ── P0 성과 계측 (decision_log · 주간 리포트 · 데이터 헬스) ────
+def add_decision_log(date, source, bot, code, name, verdict, reasoning, packet, persona_hash, model):
+    """봇 판단 1건 기록(재현성: 입력 패킷·페르소나 해시 포함). 실패해도 예외 안 냄(매매 로직 보호)."""
+    try:
+        with _conn() as con:
+            con.execute(
+                "INSERT INTO decision_log (date, source, bot, code, name, verdict, reasoning, packet, "
+                "persona_hash, model) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (date, source, bot, code, name, verdict, (reasoning or "")[:4000],
+                 (packet or "")[:6000], persona_hash, model))
+    except Exception:
+        pass
+
+
+def get_decision_logs(before_date: str = None, source: str = None, limit: int = 2000) -> list:
+    """판단 기록 조회 — 주간 채점용(before_date 이하), 최신순."""
+    q, args = "SELECT * FROM decision_log WHERE 1=1", []
+    if before_date:
+        q += " AND date <= ?"; args.append(before_date)
+    if source:
+        q += " AND source = ?"; args.append(source)
+    q += " ORDER BY date DESC, id DESC LIMIT ?"; args.append(limit)
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(q, args).fetchall()]
+
+
+def save_weekly_report(date: str, content: str):
+    with _conn() as con:
+        con.execute("INSERT INTO weekly_report (date, content) VALUES (?,?) "
+                    "ON CONFLICT(date) DO UPDATE SET content=excluded.content", (date, content))
+
+
+def get_latest_weekly_report() -> dict:
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        r = con.execute("SELECT * FROM weekly_report ORDER BY date DESC LIMIT 1").fetchone()
+        return dict(r) if r else None
+
+
+def record_fetch(source: str, ok: bool):
+    """데이터 fetch 성공/실패 카운트(일자별). 반환: 오늘 (ok, fail) — 임계 알림 판단용. 실패해도 무해."""
+    try:
+        from datetime import datetime, timezone, timedelta
+        today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+        with _conn() as con:
+            con.execute("INSERT INTO fetch_health (date, source, ok, fail) VALUES (?,?,?,?) "
+                        "ON CONFLICT(date, source) DO UPDATE SET ok=ok+excluded.ok, fail=fail+excluded.fail",
+                        (today, source, 1 if ok else 0, 0 if ok else 1))
+            r = con.execute("SELECT ok, fail FROM fetch_health WHERE date=? AND source=?",
+                            (today, source)).fetchone()
+            return (r[0], r[1]) if r else (0, 0)
+    except Exception:
+        return (0, 0)
+
+
+def get_fetch_health(days: int = 7) -> list:
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(
+            "SELECT date, source, ok, fail FROM fetch_health ORDER BY date DESC LIMIT ?",
+            (days * 4,)).fetchall()]
+
+
 # ── M 거시 브리핑 (매일 아침 오너 보고) ──────────────────────
 def save_macro_briefing(date: str, content: str):
     """오늘 브리핑 저장(하루 1건, 같은 날 재생성은 갱신)."""
@@ -585,6 +649,37 @@ def init_db():
             started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(code, desk)
+        );
+        -- P0 성과 계측: 모든 봇 판단을 입력 데이터·페르소나 버전과 함께 기록(재현성·사후 채점).
+        CREATE TABLE IF NOT EXISTS decision_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,                        -- KST 판단일
+            source TEXT,                               -- 분석 / 관찰 / Q타이밍 / Q지수
+            bot TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            verdict TEXT,                              -- 매수/관망/매도/확신/유지/철회/진입/대기/청산
+            reasoning TEXT,                            -- 봇 응답 원문
+            packet TEXT,                               -- 판단 시점 입력 데이터(재현성·사후 분석)
+            persona_hash TEXT,                         -- 페르소나 프롬프트 해시(버전 추적)
+            model TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_decision_log_date ON decision_log(date);
+        CREATE INDEX IF NOT EXISTS idx_decision_log_code ON decision_log(code);
+        -- 주간 성과 리포트(오너 전용 — 매매용 정확도 지표는 관전과 분리, 결재식 보고)
+        CREATE TABLE IF NOT EXISTS weekly_report (
+            date TEXT PRIMARY KEY,
+            content TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        -- 데이터 소스 헬스(yfinance 등 실패 추적 — 실패율 경고)
+        CREATE TABLE IF NOT EXISTS fetch_health (
+            date TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ok INTEGER DEFAULT 0,
+            fail INTEGER DEFAULT 0,
+            PRIMARY KEY (date, source)
         );
         -- M 거시 브리핑: 매일 아침 오너에게 올리는 시장 국면 + 블로그 다이제스트(하루 1건).
         CREATE TABLE IF NOT EXISTS macro_briefing (

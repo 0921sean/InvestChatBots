@@ -839,3 +839,67 @@ def test_run_risk_review_noop_when_disabled(monkeypatch):
 
 def test_pub_letter_includes_R():
     assert aifund.pub_letter("R") == "E"
+
+
+# ── P0 성과 계측 (decision_log · 주간 리포트 · 헬스) ──────────
+def test_analyze_stock_logs_decision(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "dl.db"))
+    db.init_db()
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "P", {"system": "성장주 페르소나"})
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda *a, **k: "PEG 매력적.\n[결정] 매수 | 이유: 성장 지속")
+    v, rz = aifund.analyze_stock("NVDA", "NVIDIA", "NVDA", "P", brief=("입력패킷", "사업"))
+    assert v == "매수"
+    logs = db.get_decision_logs()
+    assert len(logs) == 1
+    L = logs[0]
+    assert (L["bot"], L["code"], L["verdict"], L["source"]) == ("P", "NVDA", "매수", "분석")
+    assert L["packet"] == "입력패킷" and len(L["persona_hash"]) == 10   # 재현성: 입력+버전
+
+
+def test_log_decision_never_raises(monkeypatch):
+    # DB가 깨져도 매매 로직에 예외 전파 금지
+    import db
+    monkeypatch.setattr(db, "add_decision_log", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down")))
+    aifund.log_decision("분석", "P", "X", "X", "매수", "r")   # 예외 없이 통과해야
+
+
+def test_ret_after_computes_forward_return():
+    dates = [f"2026-08-{d:02d}" for d in range(1, 15)]
+    closes = [100 + i for i in range(14)]
+    r = aifund._ret_after(dates, closes, "2026-08-03", ndays=5)
+    assert abs(r - (107 / 102 - 1)) < 1e-9                      # 판단일 첫 종가 102 → 5거래일 뒤 107
+    assert aifund._ret_after(dates, closes, "2026-08-12", ndays=5) is None   # 미래 데이터 부족
+    assert aifund._ret_after(dates, closes, "2026-09-01", ndays=5) is None   # 판단일 이후 데이터 없음
+
+
+def test_run_weekly_report_grades_and_saves(tmp_path, monkeypatch):
+    import db, notifier
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "wr.db"))
+    db.init_db()
+    # 8일 전 판단 2건(매수 적중 P · 관망 기회비용 W)
+    from datetime import datetime, timezone, timedelta
+    old = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=8)).strftime("%Y-%m-%d")
+    db.add_decision_log(old, "분석", "P", "AAA", "A사", "매수", "r", "pkt", "h", "sonnet")
+    db.add_decision_log(old, "분석", "W", "AAA", "A사", "관망", "r", "pkt", "h", "sonnet")
+    dates = [(datetime.now(timezone(timedelta(hours=9))) - timedelta(days=10 - i)).strftime("%Y-%m-%d") for i in range(10)]
+    monkeypatch.setattr(aifund, "_fetch_closes_dated",
+                        lambda codes, period="3mo": {"AAA": (dates, [100, 101, 102, 103, 104, 105, 106, 107, 108, 110])})
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    r = aifund.run_weekly_report()
+    assert r["graded"] == 2
+    rep = db.get_latest_weekly_report()
+    assert "봇별 판단 채점" in rep["content"] and "성장주(P) 매수" in rep["content"]
+    assert "적중↑" in rep["content"]                             # 매수 후 상승 = 적중
+
+
+def test_record_fetch_counts_and_returns_today(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "fh.db"))
+    db.init_db()
+    assert db.record_fetch("price", True) == (1, 0)
+    assert db.record_fetch("price", False) == (1, 1)
+    assert db.record_fetch("price", False) == (1, 2)
+    rows = db.get_fetch_health()
+    assert rows[0]["ok"] == 1 and rows[0]["fail"] == 2

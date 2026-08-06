@@ -3,7 +3,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation,
-                    run_macro_briefing, run_q_index_desk, run_risk_review)
+                    run_macro_briefing, run_q_index_desk, run_risk_review, run_weekly_report)
 
 
 def _capture_benchmark():
@@ -59,5 +59,9 @@ def start_scheduler():
     scheduler.add_job(_capture_benchmark,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),
                       id="benchmark_snapshot", misfire_grace_time=3600)
+    # 토 09:00: 주간 성과 리포트(오너 전용, 결정적 계산·LLM 0) — 봇 채점 + 결재 부가가치 + 데이터 헬스.
+    scheduler.add_job(run_weekly_report,
+                      CronTrigger(hour=9, minute=0, day_of_week='sat'),
+                      id="weekly_report", misfire_grace_time=3600)
     scheduler.start()
     return scheduler

@@ -495,6 +495,26 @@ def verdict_message(reasoning: str, verdict: str, name: str = "") -> str:
     return (txt + "\n\n" + _decision_line(verdict)) if txt else _decision_line(verdict)
 
 
+def _persona_hash(bot) -> str:
+    """페르소나 프롬프트 버전 추적용 짧은 해시 — 판단 재현성(어느 버전이 판단했나)."""
+    try:
+        import hashlib
+        from prompts import AGENT_PROFILES
+        return hashlib.sha1((AGENT_PROFILES[bot].get("system") or "").encode()).hexdigest()[:10]
+    except Exception:
+        return ""
+
+
+def log_decision(source, bot, code, name, verdict, reasoning, packet="", model="sonnet"):
+    """봇 판단을 decision_log에 기록(P0 성과 계측·재현성). 어떤 실패도 매매 로직에 전파 안 함."""
+    try:
+        from db import add_decision_log
+        add_decision_log(_today_kst(), source, bot, code, name, verdict, reasoning,
+                         packet, _persona_hash(bot), model)
+    except Exception:
+        pass
+
+
 def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
     """발굴봇 1인이 한 종목 분석 → thesis 캐시에 저장. 반환: (verdict, reasoning).
     brief: A가 준비한 (packet_text, business_summary). 없으면 직접 준비(단독 호출용)."""
@@ -508,6 +528,7 @@ def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
     reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet", trim=False)
     verdict = _parse_verdict(reasoning)
     save_thesis(code, bot, verdict, reasoning)
+    log_decision("분석", bot, code, name, verdict, reasoning, packet=packet)   # P0: 채점 가능하게 기록
     return verdict, reasoning
 
 
@@ -1055,6 +1076,7 @@ def run_q_index_desk():
             bought.append(code)
             held_by_code[code] = {"code": code}
             notes.append(f"{code} 진입({label})")
+            log_decision("Q지수", "Q", code, code, "진입", label, model="rule")   # P0
     if notes:
         _narrate("Q", "📊 지수 계좌 점검 — " + " · ".join(notes) + ". 제 전략이 지수에서도 통하는지 직접 증명해보겠습니다.")
     return {"bought": bought, "sold": sold}
@@ -1182,6 +1204,7 @@ def run_observation_review(market="US"):
                 out = "[관찰] 유지 | 이유: 점검 실패 — 다음에 다시"
             m = _OBS_RE.search(out or "")
             verdicts[bot] = m.group(1) if m else "유지"
+            log_decision("관찰", bot, code, name, verdicts[bot], out or "", packet=packet)   # P0
             notes[bot] = _clean_reason(re.sub(r"\[관찰\][^\n]*", "", out or "")) or \
                 _verdict_reason((out or "").replace("[관찰]", "[결정] 관망 |"))
             _narrate(bot, f"👀 {_tk(code, name)} 관찰 {obs['review_count'] + 1}회차 — " + (out or "").strip()[:300],
@@ -1263,6 +1286,100 @@ def _portfolio_digest() -> str:
         lines.append("집중도 상위: " + ", ".join(f"{s} {a / total * 100:.0f}%" for s, a in top)
                      + f" · 현금 비중 {total_cash / total * 100:.0f}%")
     return "\n".join(lines)
+
+
+def _fetch_closes_dated(codes, period="3mo"):
+    """{code: (dates[], closes[])} — 주간 채점용 날짜 정렬 종가(yfinance 1콜). 실패 종목은 빠짐."""
+    out = {}
+    try:
+        import yfinance as yf
+        df = yf.download(list(codes), period=period, interval="1d", auto_adjust=True,
+                         group_by="ticker", progress=False, threads=True)
+        for c in codes:
+            try:
+                sub = df[c] if len(codes) > 1 else df
+                closes = sub["Close"].dropna()
+                out[c] = ([d.strftime("%Y-%m-%d") for d in closes.index], [float(x) for x in closes.values])
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning(f"주간 채점 시세 실패: {e}")
+    return out
+
+
+def _ret_after(dates, closes, decision_date, ndays=5):
+    """판단일 이후 첫 종가 → n거래일 뒤 수익률. 데이터 부족 시 None."""
+    idx = next((i for i, d in enumerate(dates) if d >= decision_date), None)
+    if idx is None or idx + ndays >= len(closes) or not closes[idx]:
+        return None
+    return closes[idx + ndays] / closes[idx] - 1
+
+
+def run_weekly_report():
+    """P0 주간 성과 리포트(오너 전용·결정적 계산·LLM 0) — 봇별 판단 채점 + 결재 부가가치 + 데이터 헬스.
+    저장(weekly_report) + 오너 ntfy. 반환 dict."""
+    from db import (get_decision_logs, save_weekly_report, get_pending_buys,
+                    get_fetch_health, get_observations)
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=9)))
+    today = now.strftime("%Y-%m-%d")
+    cutoff = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    rows = [r for r in get_decision_logs(before_date=cutoff, source="분석")
+            if r.get("verdict") in ("매수", "관망", "매도")]
+    codes = sorted({r["code"] for r in rows})
+    px = _fetch_closes_dated(codes) if codes else {}
+    stats = {}                                                   # (bot, verdict) → [rets]
+    for r in rows:
+        d = px.get(r["code"])
+        if not d:
+            continue
+        ret = _ret_after(d[0], d[1], r["date"])
+        if ret is None:
+            continue
+        stats.setdefault((r["bot"], r["verdict"]), []).append(ret)
+    lines = [f"📊 주간 성과 리포트 ({today})", "", "■ 봇별 판단 채점 (판단 7일 후 수익률, '분석' 판단만)"]
+    if stats:
+        for (bot, v), rets in sorted(stats.items()):
+            avg = sum(rets) / len(rets)
+            win = sum(1 for x in rets if x > 0) / len(rets)
+            note = "적중↑" if (v == "매수" and avg > 0) or (v == "관망" and avg <= 0) else "재점검 필요"
+            lines.append(f"  {_ROLE_KO.get(bot, bot)}({bot}) {v}: {len(rets)}건 · 평균 {avg*100:+.1f}% · 상승률 {win*100:.0f}% [{note}]")
+    else:
+        lines.append("  (채점 가능한 7일 경과 판단이 아직 없음 — 데이터 축적 중)")
+    appr = [p for p in get_pending_buys(None) if p["status"] in ("approved", "rejected")
+            and (p.get("decided_at") or "")[:10] <= cutoff]
+    if appr:
+        lines += ["", "■ 사장님 결재 부가가치 (판단가 대비 최신가)"]
+        pcodes = sorted({p["code"] for p in appr})
+        ppx = _fetch_closes_dated(pcodes)
+        for st in ("approved", "rejected"):
+            rets = []
+            for p in appr:
+                if p["status"] != st or p["code"] not in ppx or not p.get("decision_price"):
+                    continue
+                closes = ppx[p["code"]][1]
+                if closes:
+                    rets.append(closes[-1] / p["decision_price"] - 1)
+            if rets:
+                lbl = "승인(매수)" if st == "approved" else "거부(패스)"
+                lines.append(f"  {lbl}: {len(rets)}건 · 평균 {sum(rets)/len(rets)*100:+.1f}%")
+    obs_c = len(get_observations("convinced")); obs_d = len(get_observations("dropped"))
+    lines += ["", f"■ 관찰 단계: 확신 전환 {obs_c} · 철회 {obs_d}"]
+    fh = get_fetch_health(7)
+    if fh:
+        tot_ok = sum(r["ok"] for r in fh); tot_fail = sum(r["fail"] for r in fh)
+        rate = tot_fail / max(tot_ok + tot_fail, 1) * 100
+        lines += ["", f"■ 데이터 헬스(7일): 성공 {tot_ok} · 실패 {tot_fail} ({rate:.0f}%)"
+                  + (" ⚠️ 실패율 높음 — 소스 점검 필요" if rate > 30 else "")]
+    content = "\n".join(lines)
+    save_weekly_report(today, content)
+    try:
+        from notifier import notify
+        site = os.getenv("SITE_URL", "").rstrip("/")
+        notify("📊 주간 성과 리포트", f"봇 판단 채점 도착 — {(site or '') + '/owner/approvals'}", cooldown=0)
+    except Exception:
+        pass
+    return {"date": today, "graded": sum(len(v) for v in stats.values()), "chars": len(content)}
 
 
 def run_risk_review():
@@ -1584,6 +1701,8 @@ def run_largecap_execute(market="US"):
         veto, why = q_veto(o["close"], up)                    # 보조지표 veto: '사면 안 되는 자리'만 막고 나머진 P/W/H 확신 따름
         q_note = _q_say(_tk(w["code"], w.get("name")), o["close"], "대기" if veto else "진입")
         _narrate("Q", q_note)                                 # 티커(상세명)·이유 (결재에도 이 멘트 첨부)
+        log_decision("Q타이밍", "Q", w["code"], w.get("name"), "대기" if veto else "진입",
+                     q_note, packet=(why or ""), model="rule")   # P0
         if veto:
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
