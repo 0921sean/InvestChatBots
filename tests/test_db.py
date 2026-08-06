@@ -173,3 +173,21 @@ def test_macro_briefing_save_and_latest():
     save_macro_briefing("2026-08-06", "오늘 브리핑(수정)")   # 같은 날 upsert
     b = get_latest_macro_briefing()
     assert b["date"] == "2026-08-06" and b["content"] == "오늘 브리핑(수정)"
+
+
+def test_observation_add_dedup_review_and_transition():
+    import json
+    from db import add_observation, get_observations, record_observation_review
+    oid = add_observation("POET", "POET", "발굴주", "US", "S", "InP 병목 논지", "광통신 회사", 5.5)
+    assert oid > 0
+    assert add_observation("POET", "poet2", "발굴주", "US", "S", "x", "y", 6.0) == 0   # observing 중복 방지
+    obs = get_observations("observing", desk="발굴주")
+    assert len(obs) == 1 and obs[0]["price_at"] == 5.5 and obs[0]["review_count"] == 0
+    record_observation_review(oid, {"date": "2026-08-07", "price": 5.7, "verdicts": {"S": "유지"}})
+    obs = get_observations("observing")[0]
+    assert obs["review_count"] == 1 and json.loads(obs["reviews"])[0]["price"] == 5.7
+    record_observation_review(oid, {"date": "2026-08-08", "price": 6.0, "verdicts": {"S": "확신"}}, status="convinced")
+    assert get_observations("observing") == []                                          # 전이 완료
+    assert get_observations("convinced")[0]["review_count"] == 2
+    # 종료 후엔 재등록 가능(새 관찰이 과거 기록 대체)
+    assert add_observation("POET", "POET", "발굴주", "US", "P", "새 논지", "y", 7.0) > 0

@@ -365,6 +365,51 @@ def decide_pending_buy(pid: int, status: str) -> dict:
     return get_pending_buy(pid)
 
 
+# ── 관찰 단계 (신중한 매수: 등록 → 재관찰 → 확신 시 결재) ──────
+def add_observation(code, name, desk, market, bots, thesis, stock_desc, price_at) -> int:
+    """관찰 등록. 같은 종목·데스크 진행중(observing)이 있으면 0(중복 방지). 반환: 새 id(또는 0)."""
+    with _conn() as con:
+        if con.execute("SELECT 1 FROM observation WHERE code=? AND desk=? AND status='observing'",
+                       (code, desk)).fetchone():
+            return 0
+        con.execute("DELETE FROM observation WHERE code=? AND desk=? AND status!='observing'",
+                    (code, desk))                       # 과거 종료 기록은 새 관찰로 대체
+        cur = con.execute(
+            "INSERT INTO observation (code, name, desk, market, bots, thesis, stock_desc, price_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (code, name, desk, market, bots, thesis, stock_desc, price_at))
+        return cur.lastrowid
+
+
+def get_observations(status: str = "observing", desk: str = None) -> list:
+    """관찰 목록(오래된 것부터 — 먼저 등록된 것부터 재검토)."""
+    q = "SELECT * FROM observation WHERE status=?"
+    args = [status]
+    if desk:
+        q += " AND desk=?"
+        args.append(desk)
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(q + " ORDER BY started_at", args).fetchall()]
+
+
+def record_observation_review(oid: int, review: dict, status: str = None):
+    """재관찰 1회 기록(JSON append + count++). status 주면 상태 전이(convinced/dropped)."""
+    import json
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT reviews FROM observation WHERE id=?", (oid,)).fetchone()
+        if not row:
+            return
+        arr = json.loads(row["reviews"] or "[]")
+        arr.append(review)
+        if status:
+            con.execute("UPDATE observation SET reviews=?, review_count=review_count+1, status=?, "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(arr, ensure_ascii=False), status, oid))
+        else:
+            con.execute("UPDATE observation SET reviews=?, review_count=review_count+1, "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(arr, ensure_ascii=False), oid))
+
+
 # ── M 거시 브리핑 (매일 아침 오너 보고) ──────────────────────
 def save_macro_briefing(date: str, content: str):
     """오늘 브리핑 저장(하루 1건, 같은 날 재생성은 갱신)."""
@@ -520,6 +565,24 @@ def init_db():
             status TEXT DEFAULT 'pending',             -- pending / approved / rejected
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             decided_at DATETIME
+        );
+        -- 관찰 단계(신중한 매수): 매수 판단 시 바로 결재가 아니라 며칠 관찰 → 확신 쌓이면 결재 상신.
+        CREATE TABLE IF NOT EXISTS observation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL,
+            name TEXT,
+            desk TEXT NOT NULL,                        -- 발굴주 (대형주는 매일 재분석 구조라 미적용)
+            market TEXT DEFAULT 'US',
+            bots TEXT,                                 -- 첫 매수 판단 봇들(내부 레터 'P,S')
+            thesis TEXT,                               -- 첫 판단 논지(봇별 요약)
+            stock_desc TEXT,                           -- A 사업 설명(결재 첨부용)
+            price_at REAL,                             -- 등록 시점 가격
+            review_count INTEGER DEFAULT 0,            -- 재관찰 횟수
+            reviews TEXT DEFAULT '[]',                 -- JSON 배열: date·bot·verdict·note·price
+            status TEXT DEFAULT 'observing',           -- observing / convinced / dropped
+            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(code, desk)
         );
         -- M 거시 브리핑: 매일 아침 오너에게 올리는 시장 국면 + 블로그 다이제스트(하루 1건).
         CREATE TABLE IF NOT EXISTS macro_briefing (
