@@ -991,22 +991,45 @@ def _report_summary(code) -> str:
     return ""
 
 
+_ROLE_KO = {"P": "성장주", "W": "가치", "H": "실적", "S": "병목", "Q": "타이밍"}
+
+
+def _clean_reason(rz: str) -> str:
+    """봇 응답에서 [결정] 표기 줄만 걷어내고 근거 본문은 살린다(상세 보고용)."""
+    txt = re.sub(r"\[결정\][^\n]*", "", rz or "").strip()
+    return _clean_md(txt).strip() if txt else ""
+
+
+def _compose_buy_report(approvers, reasonings) -> str:
+    """승인 봇들의 판단 근거를 역할별로 정중·상세하게 묶는다(상사 보고체)."""
+    lines = []
+    for b in approvers or []:
+        r = _clean_reason((reasonings or {}).get(b, ""))
+        if r:
+            lines.append(f"· {_ROLE_KO.get(b, b)} 담당 의견 — {r}")
+    return "\n".join(lines)
+
+
 def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, market,
                          stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
-    """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + '결재 올림' 내레이션 + 오너 ntfy.
+    """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
     같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
     from db import add_pending_buy
     pid = add_pending_buy(ticker, code, desk, account, market, amount, price,
                           ",".join(approvers) if approvers else "", stock_desc, reason, q_comment)
     if not pid:
         return False
+    px = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
     _narrate(speaker or (approvers[0] if approvers else "A"),
-             f"📋 {_tk(code, ticker)} 매수하고 싶어요 — 사장님께 결재 올립니다. 승인해주시면 담을게요.")
+             f"📋 사장님, {_tk(code, ticker)} 매수를 건의드립니다. 판단가 {px} 기준으로 상세 사유를 "
+             f"결재함에 올려두었습니다 — 검토 후 승인 부탁드리겠습니다. 🙇")
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
         link = (site + "/owner/approvals") if site else "/owner/approvals"
-        notify(f"🧾 매수 결재 — {ticker}", f"{desk} · {ticker} @ {price:,.2f}\n승인/거부: {link}",
+        head = (reason or "").splitlines()[0][:80] if reason else stock_desc[:80]
+        notify(f"🧾 매수 결재 건의 — {ticker} ({desk})",
+               f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n{head}\n검토·승인: {link}",
                priority="default", cooldown=0)
     except Exception as e:
         logger.warning(f"매수 결재 알림 실패: {e}")
@@ -1028,8 +1051,9 @@ def run_discovery_desk(market="US"):
     s_src = source_bottleneck(market)
     if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목 + 맥락(왜 병목인지)을 직접 알림
         _narrate("S", _s_sourcing_note(s_src["codes"], s_src["names"]))
-    cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
-        + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
+    # 후보마다 '판단할 봇' 태깅 — A 발굴픽은 P/W/S 위원회, S 병목픽은 S 독자(P/W 재투표 안 받음).
+    cands = [(c, src["names"].get(c, c), DISCOVERY_BOTS) for c in src["new"] + src["catalyst"]] \
+        + [(c, s_src["names"].get(c, c), ["S"]) for c in s_src["codes"]]
     if not cands:
         _narrate("A", _line(_CLOCK_OUT, "A"))
         return {"buys": []}
@@ -1037,16 +1061,16 @@ def run_discovery_desk(market="US"):
         _narrate(bot, _line(_CLOCK_IN, bot))
     today = _today_kst()
     buys = []
-    for code, name in cands:
+    for code, name, bots in cands:
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
         biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
-        if not clear:                                                # 이해 게이트: 사업 불명확 → P/W/S 안 붙이고 매수 차단
+        if not clear:                                                # 이해 게이트: 사업 불명확 → 판단봇 안 붙이고 매수 차단
             _narrate("A", f"{_tk(code, name)} — 이 회사가 실제로 뭘 해서 버는지 명확히 설명하기 어렵네요(홍보 문구 위주/정보 부족). 이해 못 하는 종목은 안 삽니다, 패스할게요. 🙅")
             continue
         verdicts, reasonings = {}, {}
-        for bot in DISCOVERY_BOTS:                                   # P/W/S 순차 — 각자 끝나는 대로 하나씩
+        for bot in bots:                                             # A픽=P/W/S 위원회 / S픽=S 독자
             try:
                 v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
             except Exception as e:
@@ -1054,7 +1078,7 @@ def run_discovery_desk(market="US"):
                 v, rz = "관망", ""
             verdicts[bot], reasonings[bot] = v, rz
             _narrate(bot, verdict_message(rz, v, name), model="sonnet")
-        approvers = [b for b in DISCOVERY_BOTS if verdicts.get(b) == "매수"]
+        approvers = [b for b in bots if verdicts.get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
         if not _desk_can_open("발굴주", len(get_open_positions(account="발굴주"))):
@@ -1062,10 +1086,11 @@ def run_discovery_desk(market="US"):
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
         if not price:
             continue
-        reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유
+        reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유(자동매수 로그용)
         if BUY_APPROVAL_REQUIRED:                                     # 즉시 체결 대신 오너 결재로(사이클은 계속)
+            report = _compose_buy_report(approvers, reasonings) or reason   # 승인 봇별 상세 근거(상사 보고체)
             _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
-                                 approvers, market, stock_desc=biz_ko, reason=reason, speaker=approvers[0])
+                                 approvers, market, stock_desc=biz_ko, reason=report, speaker=approvers[0])
             continue
         rz = f"발굴주 매수 ({','.join(approvers)})" + (f" — {approvers[0]}: {reason}" if reason else "")
         _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
@@ -1252,10 +1277,14 @@ def run_largecap_execute(market="US"):
             continue
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
         if BUY_APPROVAL_REQUIRED:                             # 즉시 체결 대신 오너 결재로(Q 멘트까지 전달)
+            appr_ko = "·".join(_ROLE_KO.get(a, a) for a in appr.split(",") if a)
+            report = (f"· 펀더 심사 — {appr_ko} 담당이 이 종목을 관심종목으로 선정했습니다"
+                      f"(재무·성장 기준 통과).\n· 진입 타이밍 — 아래 타이밍 담당 코멘트 참고. "
+                      f"지금이 매수 자리라 판단합니다.")
             _submit_buy_approval("대형주", "대형주", w["name"], w["code"], o["close"][-1],
                                  _desk_amount("대형주"), [a for a in appr.split(",") if a], market,
                                  stock_desc=_report_summary(w["code"]),
-                                 reason="P/W/H 확신 + Q 진입 타이밍 이상무", q_comment=q_note, speaker="Q")
+                                 reason=report, q_comment=q_note, speaker="Q")
             continue
         rz = "Q 타이밍 승인 (P/W/H 확신·타이밍 이상무)" + (f" · 관심 {appr}" if appr else "")
         _, err = buy_shared_position(w["name"], w["code"], o["close"][-1], _desk_amount("대형주"),

@@ -297,6 +297,34 @@ def test_submit_buy_approval_queues_narrates_notifies_and_dedups(tmp_path, monke
     assert narr == [] and noti == []
 
 
+def test_discovery_s_pick_is_s_only_not_committee(monkeypatch):
+    # S 병목픽은 P/W 재투표 없이 S 독자 판단 → 매수면 S 단독 승인으로 처리
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": [], "catalyst": [], "names": {}, "briefing": "b"})  # A픽 없음
+    monkeypatch.setattr(aifund, "source_bottleneck",
+                        lambda m="US": {"codes": ["POET"], "names": {"POET": "POET"}})              # S픽만
+    monkeypatch.setattr(aifund, "_s_sourcing_note", lambda *a, **k: "note")
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("광통신 병목", True))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    analyzed = []
+    def rec(code, name, tk, bot, m="US", brief=None):
+        analyzed.append((code, bot)); return "매수", "InP 병목"
+    monkeypatch.setattr(aifund, "analyze_stock", rec)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 12.0)
+    calls = []
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (calls.append(a[0]), (1, None))[1])
+    r = aifund.run_discovery_desk()
+    assert analyzed == [("POET", "S")]        # S만 판단 — P/W 안 붙음
+    assert r["buys"] == ["POET"]              # S 단독 매수
+
+
 def test_run_discovery_desk_comprehension_gate_blocks(monkeypatch):
     """A가 사업 불명확 판정 → P/W/S 분석·매수 스킵(하드 차단)."""
     import db, fetchers
@@ -580,3 +608,15 @@ def test_run_largecap_select_resume_skips_done(monkeypatch):
     aifund.run_largecap_select()
     assert analyzed == ["Z"]      # X(완료섹터)·Y(완료종목) 스킵, Z만
     assert cleared == []          # 합의 있으니 watchlist 안 비움(resume)
+
+
+def test_compose_buy_report_role_labeled_and_strips_decision():
+    # 결재 상세 사유 = 승인 봇별 역할라벨 + 근거 본문([결정] 줄 제거)
+    rep = aifund._compose_buy_report(
+        ["P", "S"],
+        {"P": "PEG 0.9로 저평가.\n[결정] 매수 | 이유: 성장 지속",
+         "S": "InP 상류 병목이라 대체 불가.",
+         "W": "관망 근거"})               # 미승인 봇(W)은 제외
+    assert "성장주 담당 의견 — PEG 0.9로 저평가." in rep
+    assert "병목 담당 의견 — InP 상류 병목이라 대체 불가." in rep
+    assert "관망" not in rep and "[결정]" not in rep   # 승인봇만 · 결정줄 제거

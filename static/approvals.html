@@ -41,7 +41,7 @@
 </head>
 <body>
   <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">매수 결재</span></div>
-  <div class="sub">봇이 매수하고 싶어 올린 결재입니다. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수 안 함. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
+  <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
 
   <div class="sec-title">🟡 결재 대기</div>
   <div id="pending"></div>
@@ -69,9 +69,9 @@ function card(it) {
     <div class="head"><span class="tk">${esc(it.ticker)}</span><span class="code">${esc(it.code)}</span>
       <span class="desk ${deskCls}">${esc(it.desk)}</span></div>
     <div class="nums">판단가 <b>${fmtPrice(it.decision_price, it.market)}</b> · 투자금 <b>₩${Math.round(it.amount||0).toLocaleString()}</b>${who ? ` · 찬성 <b>${esc(who)}</b>` : ''}</div>
-    ${co ? `<div class="sec s-co">🏢 이런 회사예요</div><div class="txt">${esc(co)}</div>` : ''}
-    ${why ? `<div class="sec s-why">🟢 왜 사려는지</div><div class="txt">${esc(why)}</div>` : ''}
-    ${q ? `<div class="sec s-q">⏱️ 타이밍 (Q)</div><div class="txt">${esc(q)}</div>` : ''}
+    ${co ? `<div class="sec s-co">🏢 회사 소개</div><div class="txt">${esc(co)}</div>` : ''}
+    ${why ? `<div class="sec s-why">📈 매수 사유 (담당 봇 의견)</div><div class="txt">${esc(why)}</div>` : ''}
+    ${q ? `<div class="sec s-q">⏱️ 진입 타이밍</div><div class="txt">${esc(q)}</div>` : ''}
     <div class="acts">
       <button class="ok" onclick="decide(${it.id},'approved',this)">✅ 승인 (매수)</button>
       <button class="no" onclick="decide(${it.id},'rejected',this)">❌ 거부 (매수 X)</button>
