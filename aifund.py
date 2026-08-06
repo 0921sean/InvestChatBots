@@ -9,6 +9,8 @@ AI 펀드 팀룸 — 설계 docs/AIFUND_PIVOT.md.
 import logging
 import os
 import random
+import threading
+import time as _time
 from datetime import datetime, timezone, timedelta
 
 from db import get_cached_codes, get_thesis, invalidate_thesis
@@ -29,6 +31,12 @@ MACRO_BRIEFING_ENABLED = os.getenv("MACRO_BRIEFING_ENABLED", "").lower() in ("1"
 # 사이클마다 재관찰(자기 논지 vs 현재) → 최소 OBSERVATION_MIN_REVIEWS회 후에도 확신이면 그때 결재.
 OBSERVATION_REQUIRED = os.getenv("OBSERVATION_REQUIRED", "").lower() in ("1", "true", "yes")
 OBSERVATION_MIN_REVIEWS = 2     # 확신 상신 전 최소 재관찰 횟수(발굴 사이클 0/12/18 기준 ≈ 하루)
+# 워크데이 모델(.env WORKDAY_ENABLED): 고정 시간표 폐지 — 출근(아침 블록) 후 종일 스터디 라운드.
+# 토큰 소진 시 쉬었다가 충전되면 재출근(keeper가 매시 확인). P/W 공부 시간이 길어짐(라운드×딥스터디).
+WORKDAY_ENABLED = os.getenv("WORKDAY_ENABLED", "").lower() in ("1", "true", "yes")
+WORKDAY_END_HOUR = 22           # 이 시각(KST) 넘으면 퇴근
+WORKDAY_ROUND_QUOTA = 8         # 발굴 라운드당 신규 후보 수(작게·깊게 — 하루 여러 라운드)
+WORKDAY_BREAK_SEC = 20 * 60     # 라운드 간 휴식(데이터소스·피드 페이싱)
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
                            # 대형주(~59)급으로 크게 봐도 됨. 운영값 — 조정 쉬움.
 
@@ -304,7 +312,10 @@ def run_bottleneck_curation(limit=None):
     if not BOTTLENECK_CURATION_ENABLED:
         return {"added": [], "skipped": "disabled"}
     limit = limit or BOTTLENECK_CURATION_QUOTA
-    from db import get_bottleneck_seeds
+    from db import get_bottleneck_seeds, get_bottleneck_seed_rows
+    if any((r.get("created_at") or "").startswith(_today_kst()) and r.get("source") == "agent"
+           for r in get_bottleneck_seed_rows()):                 # 하루 1콜(워크데이 재출근 중복 방지)
+        return {"added": [], "skipped": "already_today"}
     _bottleneck_seed()                                           # 빈 DB 첫 실행 대비: 하드코딩 시드 approved 백필 '먼저'
     #   (안 하면 큐레이션 pending이 테이블을 채워 백필이 영구 skip → 기존 S 워치리스트가 사라짐)
     exclude = set(get_bottleneck_seeds(None))                     # 이미 pending/approved/rejected인 건 재출현 금지
@@ -1382,11 +1393,18 @@ def run_weekly_report():
     return {"date": today, "graded": sum(len(v) for v in stats.values()), "chars": len(content)}
 
 
+_risk_done_date = None                                           # 하루 1회 가드(재출근 중복 방지)
+
+
 def run_risk_review():
     """R 리스크 오피서 일일 점검(비투표) — 펀드 전 계좌를 전천후 렌즈로 훑고 피드에 코멘트.
     RISK_OFFICER_ENABLED=False면 no-op. haiku 1콜, 실패 시 skip."""
+    global _risk_done_date
     if not (NEW_DESK_ENABLED and RISK_OFFICER_ENABLED):
         return {"skipped": "disabled"}
+    if _risk_done_date == _today_kst():
+        return {"skipped": "already_today"}
+    _risk_done_date = _today_kst()
     digest = _portfolio_digest()
     try:
         from agents import call_agent
@@ -1414,7 +1432,7 @@ def run_discovery_desk(market="US"):
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
     _narrate("A", _line(_CLOCK_IN, "A"))
-    src = source_today(market)
+    src = source_today(market, quota=WORKDAY_ROUND_QUOTA if WORKDAY_ENABLED else None)
     _narrate("A", src["briefing"])
     _narrate_macro_context()                                  # M: 오늘 브리핑 요지 한 줄(재사용 — 추가 토큰 0)
     s_src = source_bottleneck(market)
@@ -1456,6 +1474,12 @@ def run_discovery_desk(market="US"):
         if not price:
             continue
         reason = _verdict_reason(reasonings.get(approvers[0], ""))    # 대표 승인봇의 매수 이유(자동매수 로그용)
+        if WORKDAY_ENABLED:                                           # 딥스터디: 매수 확신을 스스로 반박해보고 살아남아야 진행
+            survived, deep = _deep_study(approvers[0], code, name, reasonings.get(approvers[0], ""), brief)
+            if not survived:
+                continue                                              # 반박에 무너짐 → 이번엔 패스(공부 기록은 피드·로그에 남음)
+            if deep:
+                reasonings[approvers[0]] = (reasonings.get(approvers[0], "") + "\n[딥스터디] " + deep)
         if OBSERVATION_REQUIRED:                                      # 신중한 매수: 바로 안 사고 관찰 등록 → 재관찰로 확신 쌓기
             _register_observation("발굴주", name, code, price, approvers, reasonings, biz_ko, market)
             continue
@@ -1551,7 +1575,11 @@ def run_macro_briefing():
     /owner/approvals 상단에 표시. MACRO_BRIEFING_ENABLED=False면 no-op. 실패/토큰소진 시 skip."""
     if not MACRO_BRIEFING_ENABLED:
         return {"skipped": "disabled"}
-    from db import get_recent_blog_posts, save_macro_briefing, get_benchmark_snapshots
+    from db import (get_recent_blog_posts, save_macro_briefing, get_benchmark_snapshots,
+                    get_latest_macro_briefing)
+    _b = get_latest_macro_briefing()
+    if _b and _b.get("date") == _today_kst():                 # 하루 1회(워크데이 재출근 시 중복 생성 방지)
+        return {"skipped": "already_today"}
     _fetch_new_blog_posts()
     since = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=14)).strftime("%Y-%m-%d")
     posts = get_recent_blog_posts(since, limit=8)
@@ -1752,6 +1780,73 @@ def run_new_desk_cycle(market="US"):
     le = run_largecap_execute(market)
     _snapshot_fund_nav()
     return {"discovery": d, "discovery_review": dr, "largecap_select": ls, "largecap_execute": le}
+
+
+# ── 워크데이 모델 (시간표 폐지 — 출근 → 아침 블록 → 종일 스터디 라운드 → 퇴근) ──
+_DEEP_RE = re.compile(r"\[딥스터디\]\s*(유지|철회)")
+
+
+def _deep_study(bot, code, name, first_reasoning, brief):
+    """악마의 변호인 — 매수 확신을 스스로 반박(최악 시나리오)해보고 살아남는지 검증(1콜).
+    반환: (살아남음 여부, 딥 노트). 실패 시 (True, "") — 스터디 불가가 매수 차단 사유는 아님."""
+    try:
+        from agents import call_agent
+        from prompts import AGENT_PROFILES
+        packet = (brief or ("", ""))[0]
+        prompt = (f"방금 너는 {name} ({code})에 매수 판단을 내렸다:\n{first_reasoning}\n\n"
+                  f"데이터:\n{packet}\n\n이제 반대편에 서라. 이 매수가 틀릴 수 있는 시나리오를 "
+                  "구체적으로 2~3개 들고(밸류에이션·경쟁·수요 둔화 등), 각각에 네 논지가 버티는지 따져라. "
+                  "버티면 [딥스터디] 유지 | 이유: … / 반박이 더 세면 [딥스터디] 철회 | 이유: … 로 끝내라.")
+        out = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet", trim=False) or ""
+        m = _DEEP_RE.search(out)
+        survived = (m.group(1) == "유지") if m else True
+        _narrate(bot, f"🧑‍🎓 {_tk(code, name)} 반대 논리 점검 — " + out.strip()[:320], model="sonnet")
+        log_decision("딥스터디", bot, code, name, "유지" if survived else "철회", out, packet=packet)
+        return survived, _clean_reason(re.sub(r"\[딥스터디\][^\n]*", "", out))
+    except Exception as e:
+        logger.warning(f"딥스터디 실패 {code}@{bot}: {e}")
+        return True, ""
+
+
+_workday_lock = threading.Lock()
+_workday_date = None                                             # 오늘 첫 출근 여부(멘트 구분)
+
+
+def run_workday():
+    """워크데이 오케스트레이터 — keeper(매시)가 호출. 이미 근무 중이면 no-op.
+    출근 → 아침 블록(전부 멱등·하루 1회 가드) → 종일 발굴 스터디 라운드 → WORKDAY_END_HOUR 퇴근.
+    토큰 소진 시 루프가 쉬고, 프로세스가 죽어도 keeper가 다음 시각에 재출근."""
+    global _workday_date
+    if not (NEW_DESK_ENABLED and WORKDAY_ENABLED):
+        return {"skipped": "disabled"}
+    if not _workday_lock.acquire(blocking=False):
+        return {"skipped": "already_working"}
+    try:
+        from agents import is_claude_token_exhausted
+        first = _workday_date != _today_kst()
+        _workday_date = _today_kst()
+        _narrate("A", "🌅 다들 출근했습니다 — 오늘도 각자 페이스로 갑니다. 급할 것 없어요, 깊게 봅시다."
+                 if first else "다시 자리에 앉았습니다 — 이어서 보던 것들 계속 봅니다.")
+        run_macro_briefing()                                     # 하루 1회 가드 내장
+        run_bottleneck_curation()                                # 하루 1회 가드 내장
+        run_largecap_cycle()                                     # 오늘 완료 섹터는 idempotent 스킵
+        run_q_index_desk()                                       # 멱등(중복 보유 방지)
+        run_risk_review()                                        # 하루 1회 가드 내장
+        rounds = 0
+        while datetime.now(timezone(timedelta(hours=9))).hour < WORKDAY_END_HOUR:
+            if is_claude_token_exhausted():                      # 토큰 소진 → 쉬었다가 충전되면 재개
+                _time.sleep(15 * 60)
+                continue
+            run_discovery_cycle()                                # 관찰 재점검 + 발굴 라운드(라운드 쿼터·딥스터디)
+            rounds += 1
+            _time.sleep(WORKDAY_BREAK_SEC)
+        _narrate("A", f"오늘 근무 끝 — 스터디 {rounds}라운드 돌았습니다. 다들 퇴근합니다 🫡")
+        return {"rounds": rounds}
+    except Exception as e:
+        logger.error(f"워크데이 실패: {e}", exc_info=True)
+        return {"error": str(e)}
+    finally:
+        _workday_lock.release()
 
 
 # ── 스케줄러 슬롯 (컷오버) — 06 대형주 / 12·18·24 발굴. NEW_DESK_ENABLED=False면 각 내부 함수가 no-op ──
