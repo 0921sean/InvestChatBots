@@ -1351,6 +1351,24 @@ def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
     return {"ok": True, "bought": True}
 
 
+@app.get("/api/macro-briefing")
+def api_macro_briefing(request: Request):
+    """오늘의 M 거시 브리핑 (owner only) — 결재 페이지 상단 표시용."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_latest_macro_briefing
+    return get_latest_macro_briefing() or {}
+
+
+@app.post("/api/macro-briefing/run")
+def api_macro_briefing_run(request: Request):
+    """브리핑 지금 수동 생성 (owner only). ⚠️ 블로그 크롤 + 구독 토큰. MACRO_BRIEFING_ENABLED=False면 no-op."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from aifund import run_macro_briefing
+    return run_macro_briefing()
+
+
 @app.get("/api/_debug/state")
 def api_debug_state():
     """디버그 — 서버 프로세스 내부 상태."""

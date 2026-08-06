@@ -620,3 +620,28 @@ def test_compose_buy_report_role_labeled_and_strips_decision():
     assert "성장주 담당 의견 — PEG 0.9로 저평가." in rep
     assert "병목 담당 의견 — InP 상류 병목이라 대체 불가." in rep
     assert "관망" not in rep and "[결정]" not in rep   # 승인봇만 · 결정줄 제거
+
+
+def test_run_macro_briefing_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(aifund, "MACRO_BRIEFING_ENABLED", False)
+    assert aifund.run_macro_briefing()["skipped"] == "disabled"
+
+
+def test_run_macro_briefing_uses_blog_and_index(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "brief.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "MACRO_BRIEFING_ENABLED", True)
+    monkeypatch.setattr(aifund, "_fetch_new_blog_posts", lambda: 0)          # 크롤 목킹
+    monkeypatch.setattr(db, "get_recent_blog_posts",
+                        lambda since, limit=8: [{"post_date": "2026-08-05", "title": "연준 스탠스", "content": "유동성 축소 관점"}])
+    monkeypatch.setattr(db, "get_benchmark_snapshots",
+                        lambda: [{"spy": 500, "qqq": 400}, {"spy": 505, "qqq": 396}])
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "M", {"system": "거시 자문"})
+    cap = {}
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda name, sys_, usr, timeout=60, model=None, trim=True: (cap.update(p=usr), "오늘 시장은 관망 국면입니다.")[1])
+    r = aifund.run_macro_briefing()
+    assert r["posts"] == 1 and r["chars"] > 0
+    assert "연준 스탠스" in cap["p"] and "S&P500" in cap["p"] and "과거" in cap["p"]   # 블로그+지수+현재기준 지시
+    assert db.get_latest_macro_briefing()["content"] == "오늘 시장은 관망 국면입니다."
