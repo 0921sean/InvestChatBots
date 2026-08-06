@@ -115,7 +115,7 @@ TELEGRAM_GROUPS=t.me/group1,-1001234567890   # 쉼표로 여러 방
 TELEGRAM_SESSION=telegram_session
 
 # 블로그 (쉼표로 여러 개)
-BLOG_URLS=https://blog.naver.com/ranto28
+BLOG_URLS=https://blog.naver.com/blog1
 
 # 알림
 NTFY_TOPIC=<your-topic>

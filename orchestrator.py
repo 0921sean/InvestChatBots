@@ -2214,7 +2214,7 @@ def chat_queue_worker():
             time.sleep(2.0)
 
 
-# 라이브(fund)에서 유저 채팅에 답하는 봇 — 현재 데스크 판단봇(P·린치/W·버핏/H·실적/S·병목).
+# 라이브(fund)에서 유저 채팅에 답하는 봇 — 현재 데스크 판단봇(P·성장주/W·가치/H·실적/S·병목).
 # A(애널리스트)·Q(룰 타이밍봇)는 대화 페르소나가 없어 제외.
 FUND_CHAT_ORDER = ["P", "W", "H", "S"]
 
@@ -2637,7 +2637,7 @@ def _review_holdings_inner(force: bool = False, market: str = None):
             for n, r in bot_responses
         )
 
-        # 실적왕(피터린치) 펀더 thesis 훼손 = 단독 매도 트리거 (§3 매매 로직)
+        # 실적왕(성장주(GARP)) 펀더 thesis 훼손 = 단독 매도 트리거 (§3 매매 로직)
         siljeokwang_sell = any(n == "실적왕" and _parse_decision(r)[0] == "매도"
                                for n, r in bot_responses)
         if sell_count >= SELL_MAJORITY or siljeokwang_sell:

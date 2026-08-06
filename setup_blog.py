@@ -19,7 +19,7 @@ blog_ids = get_blog_ids()
 
 if not blog_ids:
     print("❌ .env에 BLOG_URLS가 설정되지 않았습니다.")
-    print("   예: BLOG_URLS=https://blog.naver.com/ranto28")
+    print("   예: BLOG_URLS=https://blog.naver.com/blog1")
     exit(1)
 
 print(f"📖 블로그 {len(blog_ids)}개 전체 크롤링 시작")

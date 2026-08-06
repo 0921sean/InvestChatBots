@@ -31,16 +31,16 @@ def test_get_messages_since_filters_correctly():
 def test_desk_separates_committee_and_fund_feeds():
     from db import get_recent_messages
     save_message(round_id=1, agent_name="드가자", model="claude", content="committee 발언")   # desk=None
-    save_message(round_id=None, agent_name="피터 린치", model="sonnet", content="fund 발언", desk="fund")
+    save_message(round_id=None, agent_name="성장주(GARP)", model="sonnet", content="fund 발언", desk="fund")
     # 기본(committee) 피드는 fund 내레이션을 안 본다
     committee = get_messages_since(0)
     assert [m["agent_name"] for m in committee] == ["드가자"]
     # fund 피드는 fund 내레이션만 본다
     fund = get_messages_since(0, desk="fund")
-    assert [m["agent_name"] for m in fund] == ["피터 린치"]
+    assert [m["agent_name"] for m in fund] == ["성장주(GARP)"]
     # 최근 N개도 동일하게 분리
     assert [m["agent_name"] for m in get_recent_messages(10)] == ["드가자"]
-    assert [m["agent_name"] for m in get_recent_messages(10, desk="fund")] == ["피터 린치"]
+    assert [m["agent_name"] for m in get_recent_messages(10, desk="fund")] == ["성장주(GARP)"]
 
 
 def test_narrate_writes_fund_desk_only():

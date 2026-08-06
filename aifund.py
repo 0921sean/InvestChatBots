@@ -307,8 +307,8 @@ import re                                          # noqa: E402
 
 NEW_DESK_ORDER = ["P", "W", "S"]                   # (레거시) 4봇 경쟁 발굴 순서
 # 통일 데스크 결정자 (설계 docs/AIFUND_PIVOT.md)
-LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 린치·버핏·실적왕(H) → 관심종목 캐시
-DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 린치·버핏·병목 → 즉시매수
+LARGECAP_BOTS = ["P", "W", "H"]                    # 대형주 = 성장주·가치·실적왕(H) → 관심종목 캐시
+DISCOVERY_BOTS = ["P", "W", "S"]                   # 발굴주 = 성장주·가치·병목 → 즉시매수
 # 데스크별 사이징 — 대형주 집중(고확신), 발굴주 분산(리스크). 각 시드 DESK_SEED(5,000만) 기준.
 DESK_SIZING = {"대형주": {"weight": 0.10, "max": 10},   # 종목당 10%(500만) · 최대 10
                "발굴주": {"weight": 0.05, "max": 20}}   # 종목당 5%(250만) · 최대 20

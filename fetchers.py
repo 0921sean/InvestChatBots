@@ -236,7 +236,7 @@ def fetch_stock_data(code: str, yf_ticker: str, name: str,
         for key, attr in [
             ("per", "trailingPE"), ("per_fwd", "forwardPE"),
             ("eps", "trailingEps"), ("roe", "returnOnEquity"),
-            ("peg", "trailingPegRatio"), ("eps_growth", "earningsGrowth"),  # 피터린치(실적왕) GARP용
+            ("peg", "trailingPegRatio"), ("eps_growth", "earningsGrowth"),  # 성장주(GARP)(실적왕) GARP용
             ("market_cap", "marketCap"), ("52w_high", "fiftyTwoWeekHigh"),
             ("52w_low", "fiftyTwoWeekLow"), ("revenue", "totalRevenue"),
             ("debt_ratio", "debtToEquity"),
@@ -318,7 +318,7 @@ def format_stock_data(data: dict) -> str:
     if roe and not math.isnan(roe):
         lines.append(f"ROE: {roe*100:.1f}%")
 
-    # 피터린치(실적왕) GARP 지표 — 없으면 명시(실적왕은 "데이터 없어 판단 보류")
+    # 성장주(GARP)(실적왕) GARP 지표 — 없으면 명시(실적왕은 "데이터 없어 판단 보류")
     peg = data.get("peg")
     epsg = data.get("eps_growth")
     if peg is not None and not (isinstance(peg, float) and math.isnan(peg)):
