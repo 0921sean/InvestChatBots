@@ -580,3 +580,15 @@ def test_run_largecap_select_resume_skips_done(monkeypatch):
     aifund.run_largecap_select()
     assert analyzed == ["Z"]      # X(완료섹터)·Y(완료종목) 스킵, Z만
     assert cleared == []          # 합의 있으니 watchlist 안 비움(resume)
+
+
+def test_compose_buy_report_role_labeled_and_strips_decision():
+    # 결재 상세 사유 = 승인 봇별 역할라벨 + 근거 본문([결정] 줄 제거)
+    rep = aifund._compose_buy_report(
+        ["P", "S"],
+        {"P": "PEG 0.9로 저평가.\n[결정] 매수 | 이유: 성장 지속",
+         "S": "InP 상류 병목이라 대체 불가.",
+         "W": "관망 근거"})               # 미승인 봇(W)은 제외
+    assert "성장주 담당 의견 — PEG 0.9로 저평가." in rep
+    assert "병목 담당 의견 — InP 상류 병목이라 대체 불가." in rep
+    assert "관망" not in rep and "[결정]" not in rep   # 승인봇만 · 결정줄 제거
