@@ -1051,8 +1051,9 @@ def run_discovery_desk(market="US"):
     s_src = source_bottleneck(market)
     if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목 + 맥락(왜 병목인지)을 직접 알림
         _narrate("S", _s_sourcing_note(s_src["codes"], s_src["names"]))
-    cands = [(c, src["names"].get(c, c)) for c in src["new"] + src["catalyst"]] \
-        + [(c, s_src["names"].get(c, c)) for c in s_src["codes"]]
+    # 후보마다 '판단할 봇' 태깅 — A 발굴픽은 P/W/S 위원회, S 병목픽은 S 독자(P/W 재투표 안 받음).
+    cands = [(c, src["names"].get(c, c), DISCOVERY_BOTS) for c in src["new"] + src["catalyst"]] \
+        + [(c, s_src["names"].get(c, c), ["S"]) for c in s_src["codes"]]
     if not cands:
         _narrate("A", _line(_CLOCK_OUT, "A"))
         return {"buys": []}
@@ -1060,16 +1061,16 @@ def run_discovery_desk(market="US"):
         _narrate(bot, _line(_CLOCK_IN, bot))
     today = _today_kst()
     buys = []
-    for code, name in cands:
+    for code, name, bots in cands:
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
         biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
-        if not clear:                                                # 이해 게이트: 사업 불명확 → P/W/S 안 붙이고 매수 차단
+        if not clear:                                                # 이해 게이트: 사업 불명확 → 판단봇 안 붙이고 매수 차단
             _narrate("A", f"{_tk(code, name)} — 이 회사가 실제로 뭘 해서 버는지 명확히 설명하기 어렵네요(홍보 문구 위주/정보 부족). 이해 못 하는 종목은 안 삽니다, 패스할게요. 🙅")
             continue
         verdicts, reasonings = {}, {}
-        for bot in DISCOVERY_BOTS:                                   # P/W/S 순차 — 각자 끝나는 대로 하나씩
+        for bot in bots:                                             # A픽=P/W/S 위원회 / S픽=S 독자
             try:
                 v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
             except Exception as e:
@@ -1077,7 +1078,7 @@ def run_discovery_desk(market="US"):
                 v, rz = "관망", ""
             verdicts[bot], reasonings[bot] = v, rz
             _narrate(bot, verdict_message(rz, v, name), model="sonnet")
-        approvers = [b for b in DISCOVERY_BOTS if verdicts.get(b) == "매수"]
+        approvers = [b for b in bots if verdicts.get(b) == "매수"]
         if not approvers or get_open_positions_by_symbol(name, account="발굴주"):
             continue
         if not _desk_can_open("발굴주", len(get_open_positions(account="발굴주"))):

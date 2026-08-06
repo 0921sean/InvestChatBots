@@ -297,6 +297,34 @@ def test_submit_buy_approval_queues_narrates_notifies_and_dedups(tmp_path, monke
     assert narr == [] and noti == []
 
 
+def test_discovery_s_pick_is_s_only_not_committee(monkeypatch):
+    # S 병목픽은 P/W 재투표 없이 S 독자 판단 → 매수면 S 단독 승인으로 처리
+    import db, fetchers
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US": {"new": [], "catalyst": [], "names": {}, "briefing": "b"})  # A픽 없음
+    monkeypatch.setattr(aifund, "source_bottleneck",
+                        lambda m="US": {"codes": ["POET"], "names": {"POET": "POET"}})              # S픽만
+    monkeypatch.setattr(aifund, "_s_sourcing_note", lambda *a, **k: "note")
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("광통신 병목", True))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    analyzed = []
+    def rec(code, name, tk, bot, m="US", brief=None):
+        analyzed.append((code, bot)); return "매수", "InP 병목"
+    monkeypatch.setattr(aifund, "analyze_stock", rec)
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 12.0)
+    calls = []
+    monkeypatch.setattr(db, "buy_shared_position", lambda *a, **k: (calls.append(a[0]), (1, None))[1])
+    r = aifund.run_discovery_desk()
+    assert analyzed == [("POET", "S")]        # S만 판단 — P/W 안 붙음
+    assert r["buys"] == ["POET"]              # S 단독 매수
+
+
 def test_run_discovery_desk_comprehension_gate_blocks(monkeypatch):
     """A가 사업 불명확 판정 → P/W/S 분석·매수 스킵(하드 차단)."""
     import db, fetchers
