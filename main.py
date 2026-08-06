@@ -1370,6 +1370,24 @@ def api_macro_briefing_run(request: Request):
     return run_macro_briefing()
 
 
+@app.get("/api/weekly-report")
+def api_weekly_report(request: Request):
+    """주간 성과 리포트 (owner only) — 매매용 정확도 지표는 관전과 분리, 오너에게만."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from db import get_latest_weekly_report
+    return get_latest_weekly_report() or {}
+
+
+@app.post("/api/weekly-report/run")
+def api_weekly_report_run(request: Request):
+    """주간 리포트 지금 생성 (owner only). LLM 0 — 순수 계산."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    from aifund import run_weekly_report
+    return run_weekly_report()
+
+
 @app.get("/api/_debug/state")
 def api_debug_state():
     """디버그 — 서버 프로세스 내부 상태."""

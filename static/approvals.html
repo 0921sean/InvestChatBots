@@ -48,6 +48,7 @@
   <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
 
   <div id="briefing"></div>
+  <div id="weekly"></div>
 
   <div class="sec-title">🟡 결재 대기</div>
   <div id="pending"></div>
@@ -97,8 +98,21 @@ async function loadBriefing() {
   } catch (e) { /* 브리핑 없어도 결재는 표시 */ }
 }
 
+async function loadWeekly() {
+  try {
+    const r = await fetch('/api/weekly-report', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const w = await r.json();
+    if (!w || !w.content) return;
+    document.getElementById('weekly').innerHTML =
+      `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#56d364">📊 주간 성과 리포트 (${esc(w.date||'')}) — 펼쳐보기</summary>` +
+      `<div class="body" style="margin-top:8px">${esc(w.content)}</div></details>`;
+  } catch (e) { /* 없어도 무시 */ }
+}
+
 async function load() {
   loadBriefing();
+  loadWeekly();
   const [p, d] = await Promise.all([
     fetch('/api/buy-approvals?status=pending', {credentials:'same-origin'}),
     fetch('/api/buy-approvals?status=all', {credentials:'same-origin'}),
