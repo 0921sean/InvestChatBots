@@ -977,6 +977,89 @@ def _spy_uptrend():
     return len(spy["close"]) >= 200 and spy["close"][-1] > bt._sma(spy["close"], 200)
 
 
+# ── Q 지수 스윙 데스크 (봇 개성: 자기 전략을 지수로 포워드 테스트, 소액·자동) ──
+# 1배 인버스만(SH·PSQ) — 레버리지 인버스(SQQQ 등)는 일일 리밸런싱 decay로 스윙에 부적합.
+Q_INDEX_ENABLED = os.getenv("Q_INDEX_ENABLED", "").lower() in ("1", "true", "yes")
+Q_INDEX_PAIRS = {"QQQ": "PSQ", "SPY": "SH"}     # 지수 → 1배 인버스
+Q_INDEX_SLOT = 5_000_000                        # 슬롯당 500만 (2슬롯 = 시드 1,000만)
+
+
+def q_index_signal(closes):
+    """지수 스윙 진입 신호(일봉): 'long'(200MA 위 + 20일 신고가) / 'inverse'(200MA 아래 + 20일 신저가) / None.
+    Q의 추세 철학을 지수에 대칭 적용 — 상승추세 돌파는 롱, 하락추세 이탈은 인버스."""
+    if len(closes) < 200:
+        return None
+    import backtest as bt
+    c, s200 = closes[-1], bt._sma(closes, 200)
+    if c > s200 and c >= max(closes[-20:]):
+        return "long"
+    if c < s200 and c <= min(closes[-20:]):
+        return "inverse"
+    return None
+
+
+def q_index_exit(closes, side):
+    """지수 스윙 청산(일봉): 롱=50MA 이탈 / 인버스=50MA 회복(추세 반전 미러)."""
+    import backtest as bt
+    s50 = bt._sma(closes, 50)
+    if s50 is None:
+        return False
+    return closes[-1] < s50 if side == "long" else closes[-1] > s50
+
+
+def run_q_index_desk():
+    """Q 지수 계좌(1,000만) 일일 점검 — QQQ/SPY 스윙 + 1배 인버스. 자동매매(소액·룰·결재 없음).
+    Q_INDEX_ENABLED=False면 no-op. 반환 {'bought','sold'}."""
+    if not (NEW_DESK_ENABLED and Q_INDEX_ENABLED):
+        return {"bought": [], "sold": []}
+    import backtest as bt
+    from db import (ensure_desk_accounts, get_open_positions, buy_shared_position,
+                    sell_shared_position)
+    ensure_desk_accounts()
+    tickers = list(Q_INDEX_PAIRS) + list(Q_INDEX_PAIRS.values())
+    data = bt._fetch(tickers, period="2y")
+    held = get_open_positions(account="Q지수")
+    held_by_code = {(p.get("code") or p["symbol"]): p for p in held}
+    bought, sold, notes = [], [], []
+    for idx, inv in Q_INDEX_PAIRS.items():
+        o = data.get(idx)
+        if not o or len(o.get("close") or []) < 200:
+            continue
+        closes = o["close"]
+        # ① 보유분 청산 판정 — 롱(idx)·인버스(inv) 각각 지수 기준 미러 룰
+        for code, side in ((idx, "long"), (inv, "inverse")):
+            p = held_by_code.get(code)
+            if p and q_index_exit(closes, side):
+                px_o = data.get(code)
+                px = (px_o["close"][-1] if px_o and px_o.get("close") else None)
+                if px and not sell_shared_position(p["id"], px, exit_reasoning=f"Q지수 {side} 청산(50MA 반전)")[1]:
+                    sold.append(code)
+                    held_by_code.pop(code, None)
+                    notes.append(f"{code} 청산(추세 반전)")
+        # ② 신규 진입 — 같은 지수의 롱·인버스 동시 보유 금지
+        sig = q_index_signal(closes)
+        if not sig:
+            continue
+        code = idx if sig == "long" else inv
+        other = inv if sig == "long" else idx
+        if code in held_by_code or other in held_by_code:
+            continue
+        px_o = data.get(code)
+        px = (px_o["close"][-1] if px_o and px_o.get("close") else None)
+        if not px:
+            continue
+        label = "추세 돌파 롱" if sig == "long" else "하락추세 인버스"
+        _, err = buy_shared_position(code, code, px, Q_INDEX_SLOT,
+                                     f"Q지수 {label} ({idx} 기준)", "US", account="Q지수")
+        if not err:
+            bought.append(code)
+            held_by_code[code] = {"code": code}
+            notes.append(f"{code} 진입({label})")
+    if notes:
+        _narrate("Q", "📊 지수 계좌 점검 — " + " · ".join(notes) + ". 제 전략이 지수에서도 통하는지 직접 증명해보겠습니다.")
+    return {"bought": bought, "sold": sold}
+
+
 def _approver_of(position):
     """발굴주 포지션 reasoning에서 첫 매수 찬성봇 추출. 못 찾으면 P."""
     r = position.get("reasoning") or ""

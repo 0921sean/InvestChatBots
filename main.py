@@ -680,9 +680,9 @@ def api_fund():
     global _price_cache, _price_cache_at
     if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:   # 현재가 캐시 만료 시 백그라운드 갱신
         threading.Thread(target=_refresh_prices_bg, daemon=True).start()
-    from db import (DESK_ACCOUNTS, DESK_SEED, get_shared_portfolio,
+    from db import (DESK_ACCOUNTS, DESK_SEED, ACCT_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
-    acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c"}
+    acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c", "Q지수": "#4bbf8a"}
     # 봇별 출근/퇴근: 각 봇의 최신 fund 내레이션이 '퇴근'이면 off, 그 외 발화 있으면 working.
     # → 06 대형주엔 S가 발화 없어 자동 off, Q는 핸드오프 후 출근 멘트로 on. (스케줄러 무배선 상태에서도 피드가 진실원천)
     recent = get_recent_messages(60, desk="fund")
@@ -701,7 +701,7 @@ def api_fund():
             "balance": pf.get("balance") or 0, "invested": pf.get("invested") or 0,
             "total_pnl": pf.get("total_pnl") or 0,
             "win_count": pf.get("win_count") or 0, "loss_count": pf.get("loss_count") or 0,
-            "initial_balance": DESK_SEED, "color": acct_color.get(acct, "#8b949e"),
+            "initial_balance": ACCT_SEED.get(acct, DESK_SEED), "color": acct_color.get(acct, "#8b949e"),
             "positions": [{"symbol": p["symbol"], "code": p.get("code"), "market": p.get("market"),
                            "status": p.get("status"), "amount": p.get("amount"),
                            "entry_price": p.get("entry_price"), "current_price": p.get("current_price"),
