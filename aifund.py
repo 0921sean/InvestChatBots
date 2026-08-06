@@ -34,7 +34,7 @@ DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+
 
 # 공개 표기용 이니셜 치환(ROT13) — 내부 코드/DB는 A/P/W/H/S/Q/M 그대로 두고 '출력·표시'에서만 치환해
 # 전략 유추 방지(오너는 ROT13으로 복호화). API 응답(main)·표시 콘텐츠에서만 사용. 미등록 이름은 그대로.
-_FUND_PUB = {"A": "N", "P": "C", "W": "J", "H": "U", "S": "F", "Q": "D", "M": "Z"}
+_FUND_PUB = {"A": "N", "P": "C", "W": "J", "H": "U", "S": "F", "Q": "D", "M": "Z", "R": "E"}
 
 
 def pub_letter(name):
@@ -1080,7 +1080,7 @@ def _report_summary(code) -> str:
     return ""
 
 
-_ROLE_KO = {"P": "성장주", "W": "가치", "H": "실적", "S": "병목", "Q": "타이밍"}
+_ROLE_KO = {"P": "성장주", "W": "가치", "H": "실적", "S": "병목", "Q": "타이밍", "M": "거시", "R": "리스크"}
 
 
 def _clean_reason(rz: str) -> str:
@@ -1226,6 +1226,67 @@ def _observation_story(obs, last_review, n_reviews) -> str:
     return "\n".join(x for x in lines if x)
 
 
+def _narrate_macro_context():
+    """M: 오늘 거시 브리핑이 있으면 요지 한 줄을 발굴 피드에 공유(브리핑 재사용 — 추가 LLM 호출 없음)."""
+    try:
+        from db import get_latest_macro_briefing
+        b = get_latest_macro_briefing()
+        if b and b.get("date") == _today_kst() and (b.get("content") or "").strip():
+            head = b["content"].strip().split("\n")[0][:220]
+            _narrate("M", f"오늘 거시 환경 참고입니다 — {head}", model="haiku")
+    except Exception as e:
+        logger.debug(f"M 발굴 코멘트 skip: {e}")
+
+
+# ── R 리스크 오피서 (비투표: 포트폴리오 '전체' 리스크 일일 점검) ──
+RISK_OFFICER_ENABLED = os.getenv("RISK_OFFICER_ENABLED", "").lower() in ("1", "true", "yes")
+
+
+def _portfolio_digest() -> str:
+    """펀드 전 계좌 보유·현금 요약(순수) — R 점검 인풋. 집중도 상위 노출 포함."""
+    from db import DESK_ACCOUNTS, ACCT_SEED, get_shared_portfolio, get_open_positions
+    lines, all_pos, total_inv, total_cash = [], [], 0.0, 0.0
+    for acct in DESK_ACCOUNTS:
+        pf = get_shared_portfolio(acct) or {}
+        pos = get_open_positions(account=acct)
+        cash = pf.get("balance") or 0
+        inv = sum((p.get("amount") or 0) for p in pos)
+        total_cash += cash
+        total_inv += inv
+        all_pos += [(p["symbol"], p.get("amount") or 0) for p in pos]
+        lines.append(f"[{acct}] 현금 {cash / 1e6:,.0f}백만 · 투자 {inv / 1e6:,.0f}백만 · "
+                     + (", ".join(f"{s}({a / 1e6:,.0f}백만)" for s, a in
+                                  [(p['symbol'], p.get('amount') or 0) for p in pos]) or "보유 없음"))
+    total = total_cash + total_inv
+    if total and all_pos:
+        top = sorted(all_pos, key=lambda x: -x[1])[:3]
+        lines.append("집중도 상위: " + ", ".join(f"{s} {a / total * 100:.0f}%" for s, a in top)
+                     + f" · 현금 비중 {total_cash / total * 100:.0f}%")
+    return "\n".join(lines)
+
+
+def run_risk_review():
+    """R 리스크 오피서 일일 점검(비투표) — 펀드 전 계좌를 전천후 렌즈로 훑고 피드에 코멘트.
+    RISK_OFFICER_ENABLED=False면 no-op. haiku 1콜, 실패 시 skip."""
+    if not (NEW_DESK_ENABLED and RISK_OFFICER_ENABLED):
+        return {"skipped": "disabled"}
+    digest = _portfolio_digest()
+    try:
+        from agents import call_agent
+        from prompts import AGENT_PROFILES
+        prompt = (f"오늘({_today_kst()}) 우리 가상 펀드 현황:\n{digest}\n\n"
+                  "포트폴리오 '전체' 관점에서 리스크 점검 코멘트를 3~4문장으로. "
+                  "집중도·상관관계·시나리오·현금 완충을 렌즈로, 개별 종목 추천 없이.")
+        out = (call_agent("R", AGENT_PROFILES["R"]["system"], prompt, timeout=90,
+                          model="haiku", trim=False) or "").strip()
+    except Exception as e:
+        logger.warning(f"R 리스크 점검 실패: {e}")
+        return {"error": str(e)}
+    if out:
+        _narrate("R", "🛡️ 오늘의 포트폴리오 리스크 점검 — " + _clean_md(out), model="haiku")
+    return {"chars": len(out)}
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
@@ -1238,6 +1299,7 @@ def run_discovery_desk(market="US"):
     _narrate("A", _line(_CLOCK_IN, "A"))
     src = source_today(market)
     _narrate("A", src["briefing"])
+    _narrate_macro_context()                                  # M: 오늘 브리핑 요지 한 줄(재사용 — 추가 토큰 0)
     s_src = source_bottleneck(market)
     if s_src["codes"]:                                        # S가 자체 소싱한 병목 종목 + 맥락(왜 병목인지)을 직접 알림
         _narrate("S", _s_sourcing_note(s_src["codes"], s_src["names"]))
