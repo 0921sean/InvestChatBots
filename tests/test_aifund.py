@@ -1000,3 +1000,12 @@ def test_seed_track_injects_owner_frame(tmp_path, monkeypatch):
     aifund.run_discovery_desk()
     assert "오너 승인 병목 워치리스트" in seen[("POET", "S")]      # 시드 → 프레임 주입
     assert "오너 승인" not in seen[("PEP", "P")]                    # A픽 → 기존 잣대 유지
+
+
+def test_curation_prompt_is_multi_trend_not_ai_only():
+    # 큐레이션 시스템 프롬프트가 AI에 한정되지 않고 여러 트렌드 + 편중 금지를 지시
+    p = aifund._CURATION_SYS
+    assert "여러 트렌드" in p and "편중 금지" in p
+    for kw in ("전력망", "원자력", "방산", "바이오"):
+        assert kw in p                                   # 비AI 트렌드 예시 포함
+    assert "최대 2개" in p                                # AI/반도체 배치 상한
