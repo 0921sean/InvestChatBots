@@ -27,7 +27,7 @@ def test_kr_cost_includes_tax():
     assert bt.COST["KRX"][1] > bt.COST["US"][1]   # KR 청산에 거래세 반영
 
 def test_no_lookahead_fill_next_open():
-    # 볼린저 단순터치: 하단 이탈 후 회복 → 트레이드 발생, 체결은 다음 봉 시가
+    # 평균회귀 단순터치: 하단 이탈 후 회복 → 트레이드 발생, 체결은 다음 봉 시가
     c = [100.0] * 310 + [100, 100, 84, 90, 95, 106, 106, 106, 106, 106]
     o = list(c)
     low = list(c)
@@ -77,23 +77,23 @@ def test_sma_series():
     assert s[2] == 2.0 and s[3] == 3.0 and s[4] == 4.0   # 롤링 평균
 
 
-def test_minervini_enters_uptrend_exits_on_breakdown():
+def test_trend_enters_uptrend_exits_on_breakdown():
     # 상승추세(정배열·신고가 돌파 → 진입) 후 급락(50일선 하회 → 청산) = 완료거래 발생
     rise = [100.0 + i * 0.3 for i in range(300)]         # 100 → ~190 상승추세
     drop = [rise[-1] - 4 * i for i in range(1, 31)]      # 급락 → 50일선 하회
     c = rise + drop
     o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
          "dates": [f"d{i}" for i in range(len(c))]}
-    trades = bt.backtest_stock(o, "minervini", "std", "US")
+    trades = bt.backtest_stock(o, "trend", "std", "US")
     assert trades                                        # 진입+청산 완료거래 ≥1
     assert all("entry_date" in t for t in trades)
 
 
-def test_minervini_no_entry_in_downtrend():
+def test_trend_no_entry_in_downtrend():
     # 하락추세 → 트렌드템플릿 불충족 → 진입 없음
     c = [200.0 - i * 0.3 for i in range(320)]
     o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c]}
-    assert bt.backtest_stock(o, "minervini", "std", "US") == []
+    assert bt.backtest_stock(o, "trend", "std", "US") == []
 
 
 def test_market_uptrend_dates():
@@ -104,15 +104,15 @@ def test_market_uptrend_dates():
     assert "d249" in ok and "d0" not in ok               # 초기(200선 미형성)는 제외
 
 
-def test_minervini_market_filter_blocks_entry():
+def test_trend_market_filter_blocks_entry():
     # 시장필터에 진입일이 없으면 M 진입 안 함 = 거래 0
     rise = [100.0 + i * 0.3 for i in range(300)]
     drop = [rise[-1] - 4 * i for i in range(1, 31)]
     c = rise + drop
     o = {"open": list(c), "close": c, "low": [x * 0.99 for x in c],
          "dates": [f"d{i}" for i in range(len(c))]}
-    assert bt.backtest_stock(o, "minervini", "std", "US") != []            # 필터 없으면 거래 있음
-    assert bt.backtest_stock(o, "minervini", "std", "US", market_ok=set()) == []  # 전부 차단
+    assert bt.backtest_stock(o, "trend", "std", "US") != []            # 필터 없으면 거래 있음
+    assert bt.backtest_stock(o, "trend", "std", "US", market_ok=set()) == []  # 전부 차단
 
 
 def test_hard_stop_caps_worst_loss():
@@ -147,7 +147,7 @@ def test_portfolio_sim_respects_max_positions():
 
 def test_q_spec_is_b_plus_m():
     keys = {(s, v) for s, v, _, _ in bt.Q_SPEC}
-    assert ("minervini", "std") in keys and ("meanrev", "b") in keys   # Q = M + B
+    assert ("trend", "std") in keys and ("meanrev", "b") in keys   # Q = M + B
 
 
 def test_momentum_v1_vs_v2_differ():
@@ -168,14 +168,14 @@ def test_momentum_v1_vs_v2_differ():
     assert isinstance(v1, list) and isinstance(v2, list)
 
 
-def test_minervini_entry_live():
+def test_trend_entry_live():
     c = [round(100.0 + i * 0.3, 2) for i in range(300)]    # 상승추세, 최신=신고가
-    assert bt.minervini_entry(c, in_uptrend=True) is True
-    assert bt.minervini_entry(c, in_uptrend=False) is False  # 시장필터 하락 → 진입 X
-    assert bt.minervini_entry(c[:100], in_uptrend=True) is False  # 252봉 미만
+    assert bt.trend_entry(c, in_uptrend=True) is True
+    assert bt.trend_entry(c, in_uptrend=False) is False  # 시장필터 하락 → 진입 X
+    assert bt.trend_entry(c[:100], in_uptrend=True) is False  # 252봉 미만
 
 
-def test_minervini_exit_live():
+def test_trend_exit_live():
     up = [100.0 + i for i in range(60)]
-    assert bt.minervini_exit(up) is False                   # 50일선 위 → 홀드
-    assert bt.minervini_exit(up + [50.0]) is True            # 급락 50일선 하회 → 청산
+    assert bt.trend_exit(up) is False                   # 50일선 위 → 홀드
+    assert bt.trend_exit(up + [50.0]) is True            # 급락 50일선 하회 → 청산

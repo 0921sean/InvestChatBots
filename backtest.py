@@ -10,7 +10,7 @@
 
 비교(명세):
 - 전략1 MACD+RSI: 익절 v1(1:2 전량) vs v2(절반+잔량).
-- 전략2 볼린저: (a)단순터치 vs (b)복귀확인.
+- 전략2 평균회귀: (a)단순터치 vs (b)복귀확인.
 
 지표: 승률·손익비·거래당 기댓값·누적수익·MDD·거래횟수.
 """
@@ -19,9 +19,9 @@ import logging
 import trading_strategies as ts
 
 try:                                       # M 튜닝값은 비공개(strategy_private)
-    from strategy_private import MINERVINI_STOP_PCT, MINERVINI_BREAKOUT
+    from strategy_private import TREND_STOP_PCT, TREND_BREAKOUT
 except ImportError:
-    from strategy_private_example import MINERVINI_STOP_PCT, MINERVINI_BREAKOUT
+    from strategy_private_example import TREND_STOP_PCT, TREND_BREAKOUT
 
 logger = logging.getLogger("investchat.backtest")
 
@@ -50,7 +50,7 @@ def _sma(closes, n):
     return sum(closes[-n:]) / n if len(closes) >= n else None
 
 
-def minervini_entry(closes, in_uptrend):
+def trend_entry(closes, in_uptrend):
     """M 진입 신호(최신 바 기준 — 라이브 Q용). in_uptrend=시장필터(SPY>200MA).
     트렌드템플릿(정배열+200선 상승+52주 저점 +30%/고점 25%이내) + N일 신고가 돌파.
     backtest_stock의 _mini_fire와 동일 규칙."""
@@ -64,10 +64,10 @@ def minervini_entry(closes, in_uptrend):
     lo, hi = min(closes[-252:]), max(closes[-252:])
     if not (c > s50 > s150 > s200 and s200 > s200_prev and c >= 1.30 * lo and c >= 0.75 * hi):
         return False
-    return c >= max(closes[-MINERVINI_BREAKOUT:])
+    return c >= max(closes[-TREND_BREAKOUT:])
 
 
-def minervini_exit(closes):
+def trend_exit(closes):
     """M 청산(라이브): 종가가 50일선 하회(추세 이탈)."""
     s50 = _sma(closes, 50)
     return s50 is not None and closes[-1] < s50
@@ -122,7 +122,7 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
     if strategy == "momentum":
         ma, sg = _aligned_macd(closes)
         rs = _aligned_rsi(closes)
-    elif strategy == "minervini":
+    elif strategy == "trend":
         s50 = _sma_series(closes, 50)
         s150 = _sma_series(closes, 150)
         s200 = _sma_series(closes, 200)
@@ -140,7 +140,7 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
         return ma[t - 1] is not None and ma[t] is not None and ma[t - 1] >= sg[t - 1] and ma[t] < sg[t]
 
     def _mini_fire(t):
-        """미너비니 진입: 트렌드템플릿(정배열+200선 상승+52주 저점대비 +30%·고점 25%이내) + N일 신고가 돌파.
+        """추세돌파 진입: 트렌드템플릿(정배열+200선 상승+52주 저점대비 +30%·고점 25%이내) + N일 신고가 돌파.
         (단일종목판 — 상대강도 RS는 교차종목 데이터라 생략.)"""
         if t < 252 or s50[t] is None or s150[t] is None or s200[t] is None or s200[t - 21] is None:
             return False
@@ -150,7 +150,7 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
         if not (c > s50[t] > s150[t] > s200[t] and s200[t] > s200[t - 21]
                 and c >= 1.30 * lo and c >= 0.75 * hi):
             return False
-        return c >= max(closes[t - MINERVINI_BREAKOUT + 1:t + 1])   # 신고가 돌파(피봇 프록시)
+        return c >= max(closes[t - TREND_BREAKOUT + 1:t + 1])   # 신고가 돌파(피봇 프록시)
 
     def _record(e_price, x_price, exit_idx, size=1.0):
         gross = (x_price - e_price) / e_price
@@ -165,12 +165,12 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
             fire = False
             if strategy == "momentum":
                 fire = _gc(t) and rs[t] is not None and rs[t] >= ts.RSI_MOMENTUM_MIN
-            elif strategy == "minervini":
+            elif strategy == "trend":
                 fire = _mini_fire(t) and (market_ok is None or dates is None
                                           or dates[t + 1] in market_ok)   # 시장 환경 필터
-            elif variant == "a":        # 볼린저 단순터치
+            elif variant == "a":        # 평균회귀 단순터치
                 fire = lb[t] is not None and closes[t] < lb[t]
-            else:                        # 볼린저 복귀확인
+            else:                        # 평균회귀 복귀확인
                 fire = (lb[t - 1] is not None and lb[t] is not None
                         and closes[t - 1] < lb[t - 1] and closes[t] >= lb[t])
             if fire:
@@ -181,8 +181,8 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
                 if strategy == "momentum":
                     stop = min(lows[max(0, t - ts.MOM_STOP_LOOKBACK + 1):t + 1])
                     target = entry + 2.0 * (entry - stop)
-                elif strategy == "minervini":
-                    stop = entry * (1 + MINERVINI_STOP_PCT)   # 타이트 스탑
+                elif strategy == "trend":
+                    stop = entry * (1 + TREND_STOP_PCT)   # 타이트 스탑
         else:
             if hard_stop_pct is not None and closes[t] <= entry * (1 + hard_stop_pct):
                 _record(entry, nxt, t + 1, size=(0.5 if half_done else 1.0))   # 공통 하드스탑
@@ -203,11 +203,11 @@ def backtest_stock(o, strategy, variant, market, market_ok=None, hard_stop_pct=N
                     elif hit_stop or trend_out or (half_done and closes[t] <= entry):
                         _record(entry, nxt, t + 1, size=0.5 if half_done else 1.0)
                         in_pos = False
-            elif strategy == "minervini":   # 방어적 청산: 50일선 하회(추세 이탈) or 타이트 스탑
+            elif strategy == "trend":   # 방어적 청산: 50일선 하회(추세 이탈) or 타이트 스탑
                 if (s50[t] is not None and closes[t] < s50[t]) or closes[t] <= stop:
                     _record(entry, nxt, t + 1)
                     in_pos = False
-            else:                        # 볼린저 청산: 중심선 익절 or 하단 재이탈 손절
+            else:                        # 평균회귀 청산: 중심선 익절 or 하단 재이탈 손절
                 if mb[t] is not None and (closes[t] >= mb[t] or closes[t] < lb[t]):
                     _record(entry, nxt, t + 1)
                     in_pos = False
@@ -256,7 +256,7 @@ def classify_regime(bench_closes, lookback=63, up=0.05, down=-0.05):
 
 def market_uptrend_dates(bench, ma=200):
     """벤치마크가 상승국면(종가 > ma일선)인 날짜 set — M 시장 환경 필터용.
-    bench: {'close','dates'} (_fetch_bench 형식). 미너비니 '약세장 매수 금지' 원칙."""
+    bench: {'close','dates'} (_fetch_bench 형식). 추세돌파 '약세장 매수 금지' 원칙."""
     closes, dates = bench["close"], bench["dates"]
     sma = _sma_series(closes, ma)
     return {dates[i] for i in range(len(closes)) if sma[i] is not None and closes[i] > sma[i]}
@@ -278,9 +278,9 @@ import os
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _VARIANTS = [("전략1 MACD+RSI", "momentum", "v1", "익절 v1(1:2 전량)"),
              ("전략1 MACD+RSI", "momentum", "v2", "익절 v2(절반+잔량)"),
-             ("전략2 볼린저", "meanrev", "a", "(a) 단순터치"),
-             ("전략2 볼린저", "meanrev", "b", "(b) 복귀확인"),
-             ("전략3 미너비니", "minervini", "std", "트렌드템플릿+돌파")]
+             ("전략2 평균회귀", "meanrev", "a", "(a) 단순터치"),
+             ("전략2 평균회귀", "meanrev", "b", "(b) 복귀확인"),
+             ("전략3 추세돌파", "trend", "std", "트렌드템플릿+돌파")]
 
 
 def _load_universe(market):
@@ -364,10 +364,10 @@ def run(period="6y"):
 
 
 # ── Q = B+M 블렌드 (자본 인지 포트폴리오) ────────────────────
-# Q의 정체: M(미너비니, 시장필터) + B(볼린저 복귀확인)를 한 계좌에 넣고 M 우선 배정.
+# Q의 정체: M(추세돌파, 시장필터) + B(평균회귀 복귀확인)를 한 계좌에 넣고 M 우선 배정.
 # M이 선별적이라 비는 자본을 B가 채움 → 상승장 고엣지(M) + 전천후(B) 결합.
 # (strategy, variant, use_market_filter, priority) — priority 낮을수록 슬롯 우선
-Q_SPEC = [("minervini", "std", True, 0),
+Q_SPEC = [("trend", "std", True, 0),
           ("meanrev", "b", False, 1)]
 
 
