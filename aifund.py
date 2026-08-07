@@ -1427,6 +1427,14 @@ def run_risk_review():
     return {"chars": len(out)}
 
 
+# 오너 승인 시드 평가 프레임 — S가 '병목 여부'를 재심사(이중 게이트)하며 전부 관망하던 것 교정.
+SEED_FRAME = ("[오너 승인 병목 워치리스트] 이 종목의 '병목 여부'는 오너가 이미 검토·승인했다. "
+              "병목인지 재심사하지 말고 다음만 평가하라: ① 진입 가격 — 시총이 병목 강도와 TAM 대비 "
+              "합리적인가(프리미엄이 '있다'는 이유가 아니라 '과한 정도'인지) ② 생존 리스크 — 희석·현금 "
+              "소진·고객 집중 ③ 타이밍 — 지금 담을 자리인가. '이미 알려졌다/비싸다'는 말로 기계적으로 "
+              "거르지 마라. 셋 다 감내 가능하면 매수, 하나가 치명적이면 그 이유로만 관망하라.")
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
@@ -1455,6 +1463,8 @@ def run_discovery_desk(market="US"):
     buys = []
     for code, name, bots in cands:
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
+        if bots == ["S"] and brief:                                  # 시드 재프레임: 병목 여부는 오너가 이미 승인 —
+            brief = (SEED_FRAME + "\n\n" + (brief[0] or ""), brief[1])   # S는 진입가·희석·타이밍만 평가
         biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)

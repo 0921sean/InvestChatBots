@@ -975,3 +975,28 @@ def test_run_workday_lock_prevents_double(monkeypatch):
         assert aifund.run_workday()["skipped"] == "already_working"   # 근무 중 재진입 no-op
     finally:
         aifund._workday_lock.release()
+
+
+def test_seed_track_injects_owner_frame(tmp_path, monkeypatch):
+    # S픽(시드)은 분석 패킷에 '오너 승인 워치리스트' 프레임 주입 — A픽은 미주입(기존 잣대)
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "sf.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US", quota=None: {"new": ["PEP"], "catalyst": [], "names": {"PEP": "PepsiCo"}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": ["POET"], "names": {"POET": "POET"}})
+    monkeypatch.setattr(aifund, "_s_sourcing_note", lambda *a, **k: "note")
+    monkeypatch.setattr(aifund, "build_research_brief", lambda code, name, tk, m="US": ("재무패킷", ""))
+    monkeypatch.setattr(aifund, "_business_brief", lambda name, code, biz: ("소개", True))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    seen = {}
+    def rec(code, name, tk, bot, m="US", brief=None):
+        seen[(code, bot)] = (brief or ("", ""))[0]; return "관망", ""
+    monkeypatch.setattr(aifund, "analyze_stock", rec)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 10.0)
+    aifund.run_discovery_desk()
+    assert "오너 승인 병목 워치리스트" in seen[("POET", "S")]      # 시드 → 프레임 주입
+    assert "오너 승인" not in seen[("PEP", "P")]                    # A픽 → 기존 잣대 유지
