@@ -1342,10 +1342,13 @@ def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
         decide_pending_buy(body.id, "approved")                  # 이미 보유 → 결재만 닫음
         return {"ok": True, "bought": False, "note": "이미 보유 중"}
     rz = f"오너 승인 매수 ({row.get('approvers') or ''})" + (f" · {row['reason']}" if row.get("reason") else "")
-    _, err = buy_shared_position(row["ticker"], row["code"], row["decision_price"],
-                                 row["amount"], rz, row["market"], account=row["account"])
+    pos_id, err = buy_shared_position(row["ticker"], row["code"], row["decision_price"],
+                                      row["amount"], rz, row["market"], account=row["account"])
     if err:
         raise HTTPException(400, f"체결 실패: {err}")             # pending 유지 → 재시도 가능
+    if pos_id and row.get("created_at"):                          # 매수 시각 = 결재 상신 시각(판단가와 정합)
+        from db import set_position_opened_at
+        set_position_opened_at(pos_id, row["created_at"])
     decide_pending_buy(body.id, "approved")
     return {"ok": True, "bought": True}
 
