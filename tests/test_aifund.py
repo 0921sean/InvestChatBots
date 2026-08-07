@@ -205,11 +205,11 @@ def test_execute_thesis_sell(monkeypatch):
 
 
 # ── Q 라이브 실행 신호 ────────────────────────────────────
-def test_q_entry_signal_prefers_minervini(monkeypatch):
+def test_q_entry_signal_prefers_trend(monkeypatch):
     import backtest as bt, trading_strategies as ts
-    monkeypatch.setattr(bt, "minervini_entry", lambda c, up: True)
+    monkeypatch.setattr(bt, "trend_entry", lambda c, up: True)
     assert aifund.q_entry_signal([1, 2, 3], True) == "M"          # M 우선
-    monkeypatch.setattr(bt, "minervini_entry", lambda c, up: False)
+    monkeypatch.setattr(bt, "trend_entry", lambda c, up: False)
     monkeypatch.setattr(ts, "meanrev_entry", lambda c: True)
     assert aifund.q_entry_signal([1, 2, 3], True) == "B"          # M 없으면 B
     monkeypatch.setattr(ts, "meanrev_entry", lambda c: False)
@@ -558,7 +558,7 @@ def test_run_largecap_execute_q_exit(monkeypatch):
     monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
     monkeypatch.setattr(aifund, "_q_explain", lambda *a, **k: "Q 설명")
     monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
-    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 볼린저 진입"}
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 평균회귀 진입"}
     monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
     monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [3, 2, 1]}})
     monkeypatch.setattr(aifund, "q_exit_signal", lambda closes, strat: True)

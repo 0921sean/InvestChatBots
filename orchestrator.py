@@ -626,7 +626,7 @@ def _rule_bot_message(agent_name: str, ohlc, context: str) -> tuple[str, str]:
                 return (f"차트 딱 보니까 MACD 골든크로스 떴고 RSI도 {r:.0f}이라 {sig}형 진입 자리야 — 타이밍 좋아, 나는 매수.\n[결정] 매수", "매수")
             return "차트상 아직 골든크로스도 안 났고 RSI도 조건 미달이야 — 진입 타이밍 아니라 이번엔 관망할게.\n[결정] 관망", "관망"
         if ts.meanrev_entry(closes):
-            return "볼린저 하단 찍고 다시 올라오는 게 확인됐어 — 과매도 반등 자리라 나는 매수 관점이야.\n[결정] 매수", "매수"
+            return "평균회귀 하단 찍고 다시 올라오는 게 확인됐어 — 과매도 반등 자리라 나는 매수 관점이야.\n[결정] 매수", "매수"
         return "아직 밴드 안에서 그냥 흐르는 중이라 복귀 신호가 안 보여 — 나는 관망할게.\n[결정] 관망", "관망"
     # context == "sell" (보유 점검)
     if strat == "momentum":
@@ -634,7 +634,7 @@ def _rule_bot_message(agent_name: str, ohlc, context: str) -> tuple[str, str]:
             return "MACD 데드크로스에 RSI도 50 밑으로 빠졌어 — 추세 꺾인 거라 나는 매도 관점이야.\n[결정] 매도", "매도"
         return "아직 추세는 살아있어 — 나는 홀드 유지할게.\n[결정] 관망", "관망"
     if ts.meanrev_exit(closes):
-        return "볼린저 중심선 회복했거나 하단 다시 이탈했어 — 청산 신호라 나는 매도 관점이야.\n[결정] 매도", "매도"
+        return "평균회귀 중심선 회복했거나 하단 다시 이탈했어 — 청산 신호라 나는 매도 관점이야.\n[결정] 매도", "매도"
     return "아직 밴드 안이라 나는 홀드할게.\n[결정] 관망", "관망"
 
 
@@ -1780,7 +1780,7 @@ def is_watchlist_disabled() -> bool:
 
 def run_telegram_watchlist(force: bool = False, market: str = None):
     """[트레이딩 계좌] 서브 사이클 = 규칙엔진 스캔(2026-07-09 컷오버).
-    차트천재(모멘텀)·역추세봇(볼린저) 규칙으로 유니버스 스캔 매수/매도. LLM·토큰 사용 없음.
+    차트천재(모멘텀)·역추세봇(평균회귀) 규칙으로 유니버스 스캔 매수/매도. LLM·토큰 사용 없음.
     구 5봇 LLM 경로는 `_run_telegram_watchlist_inner`에 보존(미사용). market=None이면 KR·US 둘 다."""
     if _watchlist_disabled and not force:
         logger.info("워치리스트 비활성 상태 — 이번 슬롯 스킵")

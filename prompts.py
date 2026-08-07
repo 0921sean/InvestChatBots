@@ -10,7 +10,7 @@ except ImportError:
     from strategy_private_example import AGENT_PROFILES, TRADING_PROFILES, _TRADE_DECISION
 
 AGENT_ORDER = ["실적왕", "드가자", "INTJ", "차트천재", "역추세봇"]  # 장기 위원회 5봇(2026-07-09 개편)
-# 실적왕=성장주(GARP)(펀더 주심)·드가자·INTJ=LLM 관점 / 차트천재(MACD+RSI)·역추세봇(볼린저)=규칙 기술신호
+# 실적왕=성장주(GARP)(펀더 주심)·드가자·INTJ=LLM 관점 / 차트천재(MACD+RSI)·역추세봇(평균회귀)=규칙 기술신호
 # 제거(프로필 보존, 투표 은퇴): 퀀트중독자·기본농부. 빅픽처는 역추세봇으로 개명.
 
 

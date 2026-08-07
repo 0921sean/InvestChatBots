@@ -143,7 +143,7 @@ def test_momentum_exit_on_dead_cross(monkeypatch):
 
 def test_meanrev_position_not_closed_by_momentum_rule(monkeypatch):
     monkeypatch.setattr(ts, "macd_series", lambda c: ([1.0, -0.5], [0.0, 0.0]))  # 모멘텀 데드크로스 상태
-    closes = [100.0] * 20 + [104 - 0.4 * i for i in range(20)]  # 종가 하단<c<중심선 → 볼린저 청산 미충족
+    closes = [100.0] * 20 + [104 - 0.4 * i for i in range(20)]  # 종가 하단<c<중심선 → 평균회귀 청산 미충족
     assert ts.momentum_exit(closes) is True          # 모멘텀 규칙으론 청산이지만
     assert ts.meanrev_exit(closes) is False          # 역추세 청산 조건 자체는 미충족
     exit_now, _ = ts.should_exit(ts.MEANREV, closes, pnl_pct=2.0)

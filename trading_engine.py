@@ -2,7 +2,7 @@
 트레이딩 계좌(account='sub') 규칙엔진 실행기 — 명세 §2. LLM 없이 유니버스 스캔 → 규칙 매수/매도.
 서브 사이클(12시 KR / 24시 US)에서 호출. 라이브 체결 = 실행 시점 현재가(§4).
 
-  · 매수: 유니버스 각 종목 스캔 → 차트천재(모멘텀)·역추세봇(볼린저) 신호 발화 시 매수(독립 병렬).
+  · 매수: 유니버스 각 종목 스캔 → 차트천재(모멘텀)·역추세봇(평균회귀) 신호 발화 시 매수(독립 병렬).
   · 매도: 보유 sub 포지션을 '연 전략' 청산규칙으로만 + -20% 하드스톱(should_exit).
   · 비중/상한: position_amount / MAX_POSITIONS (§4).
 
@@ -234,7 +234,7 @@ def _run_buys(market, dry_run) -> list:
             stop = ts.momentum_stop(lows)
             detail = f"MACD GC·RSI {ts.rsi(closes) or 0:.0f}·손절 {_pct(stop, price):+.0f}%"
         else:
-            stop, detail = None, "볼린저 하단복귀"
+            stop, detail = None, "평균회귀 하단복귀"
         if dry_run:
             out.append((bot, f"{name} 매수(DRY) — {detail}")); open_count += 1; continue
         if capital < amount:

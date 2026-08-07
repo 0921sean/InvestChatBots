@@ -612,11 +612,11 @@ def execute_thesis_sell(bot, position, verdict, price):
 
 # ── Q 라이브 실행 (B+M 블렌드 룰봇 — LLM 없음, 전 유니버스 자체 스캔) ──
 def q_entry_signal(closes, in_uptrend):
-    """Q 진입 신호(최신 바): M(미너비니, 시장필터) 우선 → B(볼린저 복귀확인).
+    """Q 진입 신호(최신 바): M(추세돌파, 시장필터) 우선 → B(평균회귀 복귀확인).
     반환: 'M' | 'B' | None (전략 태그)."""
     import backtest as bt
     from trading_strategies import meanrev_entry
-    if bt.minervini_entry(closes, in_uptrend):
+    if bt.trend_entry(closes, in_uptrend):
         return "M"
     if meanrev_entry(closes):
         return "B"
@@ -627,7 +627,7 @@ def q_exit_signal(closes, strat):
     """Q 청산 신호(최신 바): 진입 전략(M/B)의 청산 규칙."""
     import backtest as bt
     from trading_strategies import meanrev_exit
-    return bt.minervini_exit(closes) if strat == "M" else meanrev_exit(closes)
+    return bt.trend_exit(closes) if strat == "M" else meanrev_exit(closes)
 
 
 def q_veto(closes, in_uptrend):
@@ -667,7 +667,7 @@ def run_q_desk(market="US"):
         o = data.get(pos["code"])
         if not o:
             continue
-        strat = "M" if "미너비니" in (pos.get("reasoning") or "") else "B"
+        strat = "M" if "추세돌파" in (pos.get("reasoning") or "") else "B"
         if q_exit_signal(o["close"], strat):
             _, err = sell_shared_position(pos["id"], o["close"][-1], exit_reasoning=f"Q {strat} 청산")
             if not err:
@@ -682,7 +682,7 @@ def run_q_desk(market="US"):
         tag = q_entry_signal(o["close"], in_uptrend)
         if not tag:
             continue
-        label = "미너비니" if tag == "M" else "볼린저"
+        label = "추세돌파" if tag == "M" else "평균회귀"
         _, err = buy_shared_position(code, code, o["close"][-1], position_amount(FUND_SEED),
                                      f"Q {label} 매수", market, account="Q")
         if not err:
