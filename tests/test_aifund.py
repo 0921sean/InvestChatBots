@@ -524,7 +524,7 @@ def test_run_bottleneck_curation_researches_excludes_and_queues(tmp_path, monkey
     monkeypatch.setenv("DB_PATH", str(tmp_path / "cur.db"))
     db.init_db()
     monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
-    db.add_bottleneck_seed("COHR", "이미 다룸")               # 제외 대상(테이블에 이미 있음)
+    db.add_bottleneck_seed("COHR", "이미 다룸", source="manual")   # 제외 대상(agent 아님 — 하루1회 가드 미발동)
     db.decide_bottleneck_seed("COHR", "rejected")            # 이미 결재됨 — 재출현 금지 확인용
     narr, noti = [], []
     monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": narr.append((b, c)))

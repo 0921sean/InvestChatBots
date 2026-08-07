@@ -249,7 +249,7 @@ def submit_bottleneck_candidates(candidates, source="agent") -> list:
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
-        link = (site + "/owner/seeds") if site else "/owner/seeds"
+        link = (site + "/owner/approvals") if site else "/owner/approvals"   # 결재함 통합
         notify(f"🔩 병목 시드 결재 {len(added)}건", f"{lst}\n승인/반려: {link}",
                priority="default", cooldown=0)
     except Exception as e:
@@ -313,8 +313,13 @@ def run_bottleneck_curation(limit=None):
         return {"added": [], "skipped": "disabled"}
     limit = limit or BOTTLENECK_CURATION_QUOTA
     from db import get_bottleneck_seeds, get_bottleneck_seed_rows
-    if any((r.get("created_at") or "").startswith(_today_kst()) and r.get("source") == "agent"
-           for r in get_bottleneck_seed_rows()):                 # 하루 1콜(워크데이 재출근 중복 방지)
+    def _utc_ts_is_today_kst(ts):
+        try:
+            return (datetime.fromisoformat(ts) + timedelta(hours=9)).strftime("%Y-%m-%d") == _today_kst()
+        except Exception:
+            return False
+    if any(_utc_ts_is_today_kst(r.get("created_at") or "") and r.get("source") == "agent"
+           for r in get_bottleneck_seed_rows()):                 # 하루 1콜(워크데이 재출근 중복 방지, KST 기준)
         return {"added": [], "skipped": "already_today"}
     _bottleneck_seed()                                           # 빈 DB 첫 실행 대비: 하드코딩 시드 approved 백필 '먼저'
     #   (안 하면 큐레이션 pending이 테이블을 채워 백필이 영구 skip → 기존 S 워치리스트가 사라짐)

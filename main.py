@@ -225,10 +225,8 @@ async def owner_guard(request: Request, call_next):
 def owner_seeds_page(request: Request):
     """S 병목 시드 결재 페이지 (owner only) — 폰에서 pending 후보 ✅/❌.
     인증 안 됐으면 /admin 로그인으로 보낸다. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
-    if not is_owner(request):
-        return RedirectResponse("/admin")
-    return FileResponse("static/seeds.html",
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    # 결재함 통합(2026-08-07): 시드 결재도 /owner/approvals 한 페이지에서 — 옛 링크·북마크 호환 리다이렉트
+    return RedirectResponse("/owner/approvals")
 
 
 @app.get("/owner/approvals")

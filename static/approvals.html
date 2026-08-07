@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f1117">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<title>매수 결재 — InvestChatBots</title>
+<title>결재함 — InvestChatBots</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-  <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">매수 결재</span></div>
+  <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">결재함</span></div>
   <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
 
   <div id="briefing"></div>
@@ -55,6 +55,15 @@
 
   <div class="sec-title">📗 최근 처리</div>
   <div id="done"></div>
+
+  <div class="sec-title">🔩 병목 시드 결재 <span style="font-weight:400;text-transform:none">— 승인해도 매수 아님(F봇 분석 대상 편입만)</span></div>
+  <div id="seed-pending"></div>
+  <div class="add" style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 14px;margin-top:6px">
+    <input id="addTk" placeholder="티커 수동 추가 (예: AXTI)" autocapitalize="characters"
+      style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:9px 11px;color:#e2e8f0;font-size:13px;outline:none;margin-bottom:8px" />
+    <button onclick="addSeed()" style="background:#1f6feb;width:100%">pending으로 등록</button>
+  </div>
+  <details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:#6e7681">승인된 워치리스트 보기</summary><div id="seed-approved" style="margin-top:8px"></div></details>
 
   <a class="back" href="/admin">← 관리자 홈</a>
 
@@ -144,6 +153,44 @@ async function decide(id, status, btn) {
   load();
 }
 
+async function loadSeeds() {
+  try {
+    const r = await fetch('/api/bottleneck/seeds', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const items = (await r.json()).items || [];
+    const pend = items.filter(i => i.status === 'pending');
+    document.getElementById('seed-pending').innerHTML = pend.length ? pend.map(i => `
+      <div class="card" style="border-color:#9e6a03">
+        <div class="head"><span class="tk" style="font-size:14px">${esc(i.ticker)}</span></div>
+        ${i.rationale ? `<div class="txt" style="margin-top:4px">${esc(i.rationale)}</div>` : ''}
+        <div class="acts">
+          <button class="ok" onclick="decideSeed('${esc(i.ticker)}','approved',this)">✅ 워치리스트 편입</button>
+          <button class="no" onclick="decideSeed('${esc(i.ticker)}','rejected',this)">❌ 반려</button>
+        </div></div>`).join('') : '<div class="empty">대기 중인 시드 후보가 없습니다.</div>';
+    const app = items.filter(i => i.status === 'approved');
+    document.getElementById('seed-approved').innerHTML = app.map(i =>
+      `<span style="display:inline-block;background:#12331f;color:#56d364;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700;margin:0 4px 6px 0">${esc(i.ticker)}</span>`).join('') || '<div class="empty">없음</div>';
+  } catch (e) {}
+}
+async function decideSeed(ticker, status, btn) {
+  btn.disabled = true;
+  const r = await fetch('/api/bottleneck/seeds/decide', {
+    method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ticker, status }) });
+  if (!r.ok) { btn.disabled = false; alert('실패: ' + (await r.text())); return; }
+  loadSeeds();
+}
+async function addSeed() {
+  const ticker = document.getElementById('addTk').value.trim();
+  if (!ticker) return;
+  const r = await fetch('/api/bottleneck/seeds/add', {
+    method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ticker, rationale: '' }) });
+  if (!r.ok) { alert('실패: ' + (await r.text())); return; }
+  document.getElementById('addTk').value = '';
+  loadSeeds();
+}
+loadSeeds();
 load();
 </script>
 </body>
