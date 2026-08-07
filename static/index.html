@@ -1636,7 +1636,30 @@ function friendlyReason(raw) {
     const detail = m[3] ? ` ${m[2]} 봇의 판단: ${m[3].trim()}` : '';
     return lead + detail;
   }
+  m = r.match(/^오너 승인 매수\s*\([^)]*\)\s*(?:·\s*)*([\s\S]*)$/);
+  if (m) {
+    const detail = (m[1] || '').replace(/^·+\s*/, '').replace(/\n·/g, '\n· ').trim();
+    return "🙆 사장님이 직접 검토하고 승인해서 담은 종목이에요. 봇들이 올린 결재 사유는 이렇습니다:\n\n"
+      + (detail || "(상세 사유 없음)");
+  }
   return r;   // 알 수 없는 형식은 원본 그대로
+}
+
+// 매도(청산) 이유 — 봇 내부 용어를 친절한 한 문장으로.
+function friendlyExit(raw) {
+  const r = (raw || '').trim();
+  if (!r) return '';
+  if (/펀더\s*청산|논지\s*훼손|펀더매도/.test(r))
+    return "처음 살 때의 투자 이유(논리)가 무너졌다고 판단해서 정리했어요. 억지로 들고 가지 않는다는 원칙이에요.";
+  if (/지수.*(청산|반전)|50MA\s*반전/.test(r))
+    return "지수 추세가 반대 방향으로 꺾이는 신호가 나와서, 규칙대로 자동 정리했어요.";
+  if (/추세.*(익절|손절|청산)/.test(r))
+    return "타고 있던 상승 추세가 꺾이는 신호(주요 이동평균선 이탈)가 나와서, 퀀트 타이밍 봇이 정리했어요.";
+  if (/되돌림.*(익절|손절|청산)/.test(r))
+    return "짧은 반등을 노리고 담았던 자리에서 목표에 닿거나 힘이 빠져서, 퀀트 타이밍 봇이 정리했어요.";
+  if (/손절|스탑/.test(r))
+    return "정해둔 손절선에 닿아서 손실을 키우지 않으려고 정리했어요.";
+  return r;
 }
 function showPositionReason(idx) {
   const p = (window._posData || [])[idx];
@@ -1678,7 +1701,7 @@ function showPositionReason(idx) {
   bodyHtml += `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:6px;letter-spacing:.04em">🟢 매수 이유</div>
                <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
   if (p.status === 'closed') {
-    const sellReason = cipherLetters((p.exit_reasoning || '').trim());
+    const sellReason = cipherLetters(friendlyExit((p.exit_reasoning || '').trim()));
     bodyHtml += `<div style="height:14px"></div>
                  <div style="font-size:11px;font-weight:700;color:#f85149;margin-bottom:6px;letter-spacing:.04em">🔴 매도 이유</div>
                  <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(sellReason || '매도 이유 정보 없음 (옛 데이터)')}</div>`;
