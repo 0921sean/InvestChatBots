@@ -492,6 +492,12 @@ def get_latest_macro_briefing() -> dict:
         return dict(r) if r else None
 
 
+def set_position_opened_at(pos_id: int, ts: str):
+    """포지션 매수 시각 덮어쓰기 — 오너 승인 체결 시 '결재 상신 시각(봇 판단 시점)'으로 정합."""
+    with _conn() as con:
+        con.execute("UPDATE virtual_positions SET opened_at=? WHERE id=?", (ts, pos_id))
+
+
 def init_db():
     _migrate()
     with _conn() as con:
