@@ -34,7 +34,7 @@ def test_stock_prompt_has_compression_and_lens_rules():
     for intent in ("decision", "reason"):
         p = build_user_response_prompt("삼성전자 어때?", "(없음)", "드가자",
                                        stock_context=STOCK, spoken_names=[], intent=intent)
-        assert "1~2문장" in p                       # 길이 제한(압축)
+        assert "나열하지 말고" in p                  # 압축 규칙(수치 재나열 금지) — 현행 문구
         assert "다시 나열하지" in p or "반복" in p    # 팩트 재인용 금지
         assert "렌즈" in p                           # 렌즈 차별화
 

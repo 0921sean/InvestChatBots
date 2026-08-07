@@ -31,5 +31,6 @@ def test_build_market_summary_contains_ticker_names():
     news = [{"title": "반도체 급락", "summary": ""}]
     summary = build_market_summary(market_data, news)
     assert "NASDAQ" in summary
-    assert "KOSPI" in summary
+    # 현행 포맷: KR '지수'는 미표시(US-only 피벗) — 국내는 개별 종목명만 노출
+    assert "KOSPI" not in summary
     assert "반도체 급락" in summary
