@@ -47,6 +47,7 @@
   <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">결재함</span></div>
   <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
 
+  <div id="risk"></div>
   <div id="briefing"></div>
   <div id="weekly"></div>
 
@@ -94,6 +95,34 @@ function card(it) {
     </div></div>`;
 }
 
+async function loadRisk() {
+  try {
+    const r = await fetch('/api/risk', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.enabled) return;
+    const b = d.breakers || {};
+    const tripped = b.kill_switch || b.data_anomaly || (b.daily_loss_halted||[]).length;
+    const on = b.kill_switch;
+    const badge = tripped
+      ? `<span style="color:#f85149;font-weight:800">🛑 매매 중단</span> ` +
+        [b.kill_switch?'킬스위치':'', b.data_anomaly?'데이터이상':'',
+         (b.daily_loss_halted||[]).length?`일일손실(${b.daily_loss_halted.join('·')})`:''].filter(Boolean).join(' · ')
+      : `<span style="color:#56d364;font-weight:800">🟢 정상</span> — 회로차단기 대기`;
+    document.getElementById('risk').innerHTML =
+      `<div class="brief" style="border-color:${tripped?'#6e2f30':'#2b3550'};margin-bottom:14px">
+        <h3 style="color:#e0637c">🛡️ 리스크 가드</h3><div class="body" style="font-size:12px">${badge}</div>
+        <button onclick="toggleKill(${on?0:1})" style="margin-top:10px;width:100%;padding:9px;border:none;border-radius:7px;font-weight:800;cursor:pointer;color:#fff;background:${on?'#238636':'#6e2f30'}">
+          ${on?'✅ 매매 재개 (킬스위치 OFF)':'🛑 전체 매매 중단 (킬스위치 ON)'}</button>
+      </div>`;
+  } catch(e){}
+}
+async function toggleKill(on) {
+  if (!on && !confirm('킬스위치를 켜면 모든 신규매수가 즉시 중단됩니다 (승인해도 차단). 진행할까요?')) {}
+  const r = await fetch('/api/risk/kill-switch', {method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({on: !!on})});
+  if (r.ok) loadRisk();
+}
 async function loadBriefing() {
   try {
     const r = await fetch('/api/macro-briefing', { credentials: 'same-origin' });
@@ -120,6 +149,7 @@ async function loadWeekly() {
 }
 
 async function load() {
+  loadRisk();
   loadBriefing();
   loadWeekly();
   const [p, d] = await Promise.all([
