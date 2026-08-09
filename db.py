@@ -465,6 +465,19 @@ def set_risk_flag(name: str, value: int):
                     (name, value))
 
 
+def get_ops_state(name: str):
+    with _conn() as con:
+        r = con.execute("SELECT value FROM ops_state WHERE name=?", (name,)).fetchone()
+        return r[0] if r else None
+
+
+def set_ops_state(name: str, value: str):
+    with _conn() as con:
+        con.execute("INSERT INTO ops_state (name, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+                    (name, value))
+
+
 def record_fetch(source: str, ok: bool):
     """데이터 fetch 성공/실패 카운트(일자별). 반환: 오늘 (ok, fail) — 임계 알림 판단용. 실패해도 무해."""
     try:
@@ -696,6 +709,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS risk_flag (
             name TEXT PRIMARY KEY,
             value INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        -- 운영 상태(하트비트·마지막 백업 등 문자열 KV)
+        CREATE TABLE IF NOT EXISTS ops_state (
+            name TEXT PRIMARY KEY,
+            value TEXT,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         -- 데이터 소스 헬스(yfinance 등 실패 추적 — 실패율 경고)

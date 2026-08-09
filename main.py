@@ -118,6 +118,11 @@ async def lifespan(app: FastAPI):
         cleaned = con.execute("UPDATE rounds SET status='complete' WHERE status='running'").rowcount
         if cleaned:
             logger.info(f"시작 시 미완료 라운드 {cleaned}개 정리")
+    try:
+        import ops
+        ops.startup_check()          # 부팅 자가진단(DB 무결성·디스크) — 이상 시 세이프모드로 시작
+    except Exception as e:
+        logger.error(f"부팅 자가진단 오류: {e}")
     scheduler = start_scheduler()
     app.state.scheduler = scheduler  # 디버그 API에서 참조
 
@@ -1355,6 +1360,32 @@ def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
         set_position_opened_at(pos_id, row["created_at"])
     decide_pending_buy(body.id, "approved")
     return {"ok": True, "bought": True}
+
+
+@app.get("/health")
+def api_health():
+    """외부 모니터용 liveness/readiness — 인증 불필요. 문제 있으면 503."""
+    import ops
+    h = ops.health()
+    return JSONResponse(h, status_code=200 if h["ok"] else 503)
+
+
+@app.get("/api/ops")
+def api_ops(request: Request):
+    """운영 상세 (owner only) — 헬스 + 백업 상태 + 세이프모드."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import ops
+    return ops.health()
+
+
+@app.post("/api/ops/backup")
+def api_ops_backup(request: Request):
+    """지금 DB 백업 (owner only)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import ops
+    return ops.backup_db()
 
 
 @app.get("/api/risk")

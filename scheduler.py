@@ -61,5 +61,11 @@ def start_scheduler():
     scheduler.add_job(run_weekly_report,
                       CronTrigger(hour=9, minute=0, day_of_week='sat'),
                       id="weekly_report", misfire_grace_time=3600)
+    # 신뢰성: 매일 03:00 DB 백업(핫·무결성·회전·오프사이트) + 15분마다 워치독(디스크·DB → 세이프모드).
+    import ops
+    scheduler.add_job(ops.backup_db, CronTrigger(hour=3, minute=0),
+                      id="db_backup", misfire_grace_time=3600)
+    scheduler.add_job(lambda: (ops.beat(), ops.watchdog()), CronTrigger(minute="*/15"),
+                      id="watchdog", misfire_grace_time=600)
     scheduler.start()
     return scheduler
