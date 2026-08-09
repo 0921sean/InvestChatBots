@@ -1341,6 +1341,10 @@ def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
     if get_open_positions_by_symbol(row["ticker"], account=row["account"]):
         decide_pending_buy(body.id, "approved")                  # 이미 보유 → 결재만 닫음
         return {"ok": True, "bought": False, "note": "이미 보유 중"}
+    import risk                                                   # 결정론적 방어층 — 오너 승인도 회로차단기는 못 뚫음
+    allowed, why, breaker = risk.precheck_buy(row["account"], row["code"], row["amount"])
+    if not allowed:
+        return {"ok": False, "bought": False, "blocked": why, "circuit_breaker": breaker}  # pending 유지
     rz = f"오너 승인 매수 ({row.get('approvers') or ''})" + (f" · {row['reason']}" if row.get("reason") else "")
     pos_id, err = buy_shared_position(row["ticker"], row["code"], row["decision_price"],
                                       row["amount"], rz, row["market"], account=row["account"])
@@ -1351,6 +1355,29 @@ def api_buy_approvals_decide(request: Request, body: BuyDecideBody):
         set_position_opened_at(pos_id, row["created_at"])
     decide_pending_buy(body.id, "approved")
     return {"ok": True, "bought": True}
+
+
+@app.get("/api/risk")
+def api_risk(request: Request):
+    """리스크 회로차단기 상태 (owner only) — 브레이커·계좌 스냅샷·임계값."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import risk
+    return risk.snapshot()
+
+
+class KillSwitchBody(BaseModel):
+    on: bool
+
+
+@app.post("/api/risk/kill-switch")
+def api_kill_switch(request: Request, body: KillSwitchBody):
+    """전역 킬스위치 토글 (owner only) — ON이면 모든 신규매수 즉시 중단(승인해도 차단)."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import risk
+    risk.set_kill_switch(body.on)
+    return {"ok": True, "kill_switch": body.on}
 
 
 @app.get("/api/macro-briefing")

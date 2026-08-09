@@ -1090,6 +1090,11 @@ def run_q_index_desk():
         if not px:
             continue
         label = "추세 돌파 롱" if sig == "long" else "하락추세 인버스"
+        import risk
+        _ok, _why, _ = risk.precheck_buy("Q지수", code, Q_INDEX_SLOT)     # 자동 매수도 방어층 통과
+        if not _ok:
+            notes.append(f"{code} 진입 보류(리스크: {_why[:24]})")
+            continue
         _, err = buy_shared_position(code, code, px, Q_INDEX_SLOT,
                                      f"Q지수 {label} ({idx} 기준)", "US", account="Q지수")
         if not err:
@@ -1145,6 +1150,11 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
                          stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
     """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
     같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
+    import risk                                                   # 회로차단기 발동 중이면 오너를 번거롭게 안 함
+    _ok, _why, _breaker = risk.precheck_buy(account, code, amount)
+    if not _ok and _breaker:
+        _narrate(speaker or "A", f"{_tk(code, ticker)} 매수 건의하려 했지만 리스크 가드가 막았습니다 — {_why}. 오늘은 넘어갑니다.")
+        return False
     from db import add_pending_buy
     pid = add_pending_buy(ticker, code, desk, account, market, amount, price,
                           ",".join(approvers) if approvers else "", stock_desc, reason, q_comment)
