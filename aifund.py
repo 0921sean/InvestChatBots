@@ -1851,6 +1851,11 @@ def run_workday():
     if not _workday_lock.acquire(blocking=False):
         return {"skipped": "already_working"}
     try:
+        try:
+            import ops
+            ops.beat()                                   # 하트비트 — 워크데이가 돌고 있다는 증거
+        except Exception:
+            pass
         from agents import is_claude_token_exhausted
         first = _workday_date != _today_kst()
         _workday_date = _today_kst()

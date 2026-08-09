@@ -14,3 +14,5 @@ static/debates/
 strategy_private.py
 prompts_5bots_backup.py
 prompts_8bots_backup.py
+
+backups/

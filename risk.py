@@ -101,6 +101,12 @@ def precheck_buy(account, code, amount) -> tuple:
     is_circuit_breaker=True면 '절대 차단'(오너 승인도 무시). False면 한도 차단."""
     if not RISK_GUARD_ENABLED:
         return True, "", False
+    try:
+        import ops
+        if ops.is_safe_mode():
+            return False, "🛑 세이프모드 — 인프라 이상으로 매매 자동 중단", True
+    except Exception:
+        pass
     if is_kill_switch_on():
         return False, "🛑 킬스위치 ON — 전체 매매 수동 중단 상태", True
     if _data_anomaly():
@@ -111,8 +117,9 @@ def precheck_buy(account, code, amount) -> tuple:
                        f"{DAILY_LOSS_PCT*100:.0f}%) — 오늘 신규매수 중단"), True
     if st["positions"] >= MAX_POSITIONS:
         return False, f"⚠️ 포지션 수 상한 ({st['positions']}/{MAX_POSITIONS})", False
+    # 단일 종목 비중 상한 — Q지수는 2슬롯(각 50%) 전술 계좌라 설계상 제외.
     equity = st["equity"] or amount
-    if equity and (amount / equity) > MAX_WEIGHT:
+    if account != "Q지수" and equity and (amount / equity) > MAX_WEIGHT:
         return False, f"⚠️ 단일 종목 비중 상한 초과 ({amount/equity*100:.0f}% > {MAX_WEIGHT*100:.0f}%)", False
     return True, "", False
 
