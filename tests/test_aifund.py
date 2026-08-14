@@ -1009,3 +1009,65 @@ def test_curation_prompt_is_multi_trend_not_ai_only():
     for kw in ("전력망", "원자력", "방산", "바이오"):
         assert kw in p                                   # 비AI 트렌드 예시 포함
     assert "최대 2개" in p                                # AI/반도체 배치 상한
+
+
+# ── 우선순위 큐: 사용자 채팅 시 워크데이 선점 ──────────────
+def test_user_active_reads_orchestrator(monkeypatch):
+    import orchestrator
+    monkeypatch.setattr(orchestrator, "is_user_active", lambda: True)
+    assert aifund._user_active() is True
+    monkeypatch.setattr(orchestrator, "is_user_active", lambda: False)
+    assert aifund._user_active() is False
+
+
+def test_discovery_desk_yields_mid_round_to_user(tmp_path, monkeypatch):
+    # 라운드 중이라도 사용자가 활성이면 후보 루프를 즉시 중단(분석 안 함)
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "yield.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "source_today",
+                        lambda m="US", quota=None: {"new": ["NVDA", "AAPL"], "catalyst": [], "names": {}, "briefing": "b"})
+    monkeypatch.setattr(aifund, "source_bottleneck", lambda m="US": {"codes": [], "names": {}})
+    monkeypatch.setattr(aifund, "_user_active", lambda: True)          # 손님 도착
+    analyzed = []
+    monkeypatch.setattr(aifund, "analyze_stock", lambda *a, **k: analyzed.append(1) or ("관망", ""))
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("", ""))
+    r = aifund.run_discovery_desk()
+    assert analyzed == [] and r["buys"] == []                         # 즉시 양보 — 아무 분석 안 함
+
+
+def test_yield_to_user_narrates_once_per_window(monkeypatch):
+    said = []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": said.append(c))
+    monkeypatch.setattr(aifund, "_user_yield_narrated", 0.0)
+    aifund._yield_to_user_once(); aifund._yield_to_user_once()         # 연속 2회
+    assert len(said) == 1 and "집중" in said[0]                        # 한 번만(스팸 방지)
+
+
+def test_workday_yields_to_user_instead_of_rounds(monkeypatch):
+    # 사용자 활성이면 run_discovery_cycle 대신 양보(라운드 안 돎)
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "WORKDAY_ENABLED", True)
+    monkeypatch.setattr(aifund, "_workday_date", None)
+    monkeypatch.setattr(aifund, "WORKDAY_END_HOUR", 23)               # 루프 진입
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    for fn in ("run_macro_briefing", "run_bottleneck_curation", "run_largecap_cycle",
+               "run_q_index_desk", "run_risk_review"):
+        monkeypatch.setattr(aifund, fn, lambda *a, **k: None)
+    import agents
+    monkeypatch.setattr(agents, "is_claude_token_exhausted", lambda: False)
+    monkeypatch.setattr(aifund, "_user_active", lambda: True)
+    cycles, yields = [], []
+    monkeypatch.setattr(aifund, "run_discovery_cycle", lambda *a, **k: cycles.append(1))
+    monkeypatch.setattr(aifund, "_yield_to_user_once", lambda: yields.append(1))
+    def stop_sleep(_s):                                              # 첫 양보 sleep에서 루프 탈출
+        raise KeyboardInterrupt
+    monkeypatch.setattr(aifund._time, "sleep", stop_sleep)
+    try:
+        aifund.run_workday()
+    except KeyboardInterrupt:
+        pass
+    assert cycles == [] and yields == [1]                            # 라운드 대신 양보
