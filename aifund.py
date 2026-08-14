@@ -1476,6 +1476,9 @@ def run_discovery_desk(market="US"):
     today = _today_kst()
     buys = []
     for code, name, bots in cands:
+        if _user_active():                                           # 라운드 중이라도 손님 오면 즉시 양보
+            _narrate("A", "잠깐 — 대화 먼저 챙기겠습니다. 남은 후보는 이따 이어서 볼게요.")
+            break
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
         if bots == ["S"] and brief:                                  # 시드 재프레임: 병목 여부는 오너가 이미 승인 —
             brief = (SEED_FRAME + "\n\n" + (brief[0] or ""), brief[1])   # S는 진입가·희석·타이밍만 평가
@@ -1841,6 +1844,27 @@ _workday_lock = threading.Lock()
 _workday_date = None                                             # 오늘 첫 출근 여부(멘트 구분)
 
 
+_user_yield_narrated = 0.0                                        # 양보 멘트 중복 방지(활성 창당 1회)
+
+
+def _user_active() -> bool:
+    """사용자가 지금 채팅 중인가(고우선). 순환 import 회피 위해 지연 import."""
+    try:
+        from orchestrator import is_user_active
+        return is_user_active()
+    except Exception:
+        return False
+
+
+def _yield_to_user_once():
+    """워크데이가 사용자에게 양보할 때 한 번만 멘트(스팸 방지)."""
+    global _user_yield_narrated
+    now = _time.time()
+    if now - _user_yield_narrated > 300:                         # 활성 창(5분)당 1회
+        _user_yield_narrated = now
+        _narrate("A", "손님 오셨네요 — 하던 리서치 잠깐 접어두고 대화에 집중하겠습니다. 편하게 물어보세요 🙌")
+
+
 def run_workday():
     """워크데이 오케스트레이터 — keeper(매시)가 호출. 이미 근무 중이면 no-op.
     출근 → 아침 블록(전부 멱등·하루 1회 가드) → 종일 발굴 스터디 라운드 → WORKDAY_END_HOUR 퇴근.
@@ -1870,6 +1894,10 @@ def run_workday():
         while datetime.now(timezone(timedelta(hours=9))).hour < WORKDAY_END_HOUR:
             if is_claude_token_exhausted():                      # 토큰 소진 → 쉬었다가 충전되면 재개
                 _time.sleep(15 * 60)
+                continue
+            if _user_active():                                   # 우선순위 큐: 사용자 대화 중이면 라운드 양보(선점)
+                _yield_to_user_once()                            # → 토큰·주목이 채팅에 집중, 유휴 시 자동 재개
+                _time.sleep(30)
                 continue
             run_discovery_cycle()                                # 관찰 재점검 + 발굴 라운드(라운드 쿼터·딥스터디)
             rounds += 1
