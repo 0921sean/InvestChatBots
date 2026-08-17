@@ -617,14 +617,18 @@ def _refresh_prices_bg():
     global _price_cache, _price_cache_at
     from fetchers import fetch_position_prices
     from db import DESK_ACCOUNTS
-    open_pos = [p for p in get_open_positions() if p["status"] == "open"]
-    for _acct in DESK_ACCOUNTS:                       # 데스크 계좌(대형주·발굴주·Q지수)도 갱신 대상
-        open_pos += [p for p in get_open_positions(account=_acct) if p["status"] == "open"]
-    if not open_pos:
-        return
-    prices = fetch_position_prices(open_pos)
-    _price_cache = prices
-    _price_cache_at = time.time()
+    # 라이브 화면은 데스크 계좌(대형주·발굴주·Q지수)라 이쪽을 먼저 갱신한다.
+    # committee 옛 포지션까지 합치면 100+종목이라(종목당 ~1초) 데스크 시세가 영영 안 채워지던 문제.
+    desk_pos = []
+    for _acct in DESK_ACCOUNTS:
+        desk_pos += [p for p in get_open_positions(account=_acct) if p["status"] == "open"]
+    if desk_pos:
+        _price_cache = {**_price_cache, **fetch_position_prices(desk_pos)}   # 데스크 먼저 반영
+        _price_cache_at = time.time()
+    legacy = [p for p in get_open_positions() if p["status"] == "open"]
+    if legacy:
+        _price_cache = {**_price_cache, **fetch_position_prices(legacy)}     # 그 다음 committee
+        _price_cache_at = time.time()
 
 
 def _enrich_positions(positions):
