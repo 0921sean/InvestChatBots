@@ -2103,16 +2103,26 @@ function openSchedule() {
 function closeSchedule() {
   document.getElementById('schedule-modal').classList.remove('open');
 }
-function _openFundSchedule() {   // 통일 데스크 일정 (전부 일봉 종가 기준)
+function _openFundSchedule() {   // 워크데이 모델 — 고정 시간표 폐지, 출근제(2026-08 개편)
   const now = _kstNow();
   document.getElementById('sched-now').textContent =
     '현재 ' + now.toLocaleString('ko-KR', { timeZone: 'UTC', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + ' (KST)';
   const items = [
-    { title: '📈 대형주 (선정→집행)', time: '평일 06:00', next: _nextKstWeekdayAt(6),
-      desc: '올빼미 소싱 → 다람쥐·거북이·황소 관심종목 선정 → 매가 진입 타이밍 (US 종가 직후 일봉)' },
-    { title: '🔍 발굴주', time: '평일 12·18·24시', next: _nextKstDailyAt([12, 18, 0]),
-      desc: '올빼미·두더지 발굴 → 다람쥐·거북이·두더지 OR게이트 즉시 매수' },
-    { title: '주말 휴식', time: '토 · 일', next: null, desc: '모든 사이클 정지 · 월 06:00 재개' },
+    { title: '🌅 출근 · 아침 브리핑', time: '평일 05:30~', next: _nextKstWeekdayAt(5),
+      desc: 'Z 거시 브리핑(시장 국면·최신 이슈) → F 병목 후보 큐레이션(여러 트렌드 웹서치) → 사장님 결재함에 상신' },
+    { title: '📈 대형주 점검', time: '출근 직후', next: null,
+      desc: 'N 섹터별 데이터 → C·J·U 종목 판단 → D가 진입 타이밍 veto → 통과분만 매수 결재' },
+    { title: '📊 D 지수 계좌 · E 리스크 점검', time: '출근 직후', next: null,
+      desc: 'D가 지수(롱/인버스) 자동 스윙 · E가 포트폴리오 집중도·시나리오 리스크 점검' },
+    { title: '🔍 발굴 스터디 (종일 반복)', time: '~21:30, 라운드제', next: null,
+      desc: 'N·F 발굴 → C·J·F 분석 → 딥스터디(반대 논리 검증) → 며칠 관찰 → 확신 시에만 결재 상신' },
+    { title: '🫡 퇴근', time: '22:00', next: null,
+      desc: '토큰 소진 시엔 충전될 때까지 쉬었다 재개 · 서버가 죽어도 다음 시각에 자동 재출근' },
+    { title: '💬 사장님 우선', time: '상시', next: null,
+      desc: '채팅을 보내면 하던 리서치를 멈추고 대화에 집중 (유휴 5분 후 자동 재개)' },
+    { title: '🗄️ 백업 · 주간 리포트', time: '매일 03:00 · 토 09:00', next: null,
+      desc: 'DB 자동 백업(무결성 검증) · 주간 성과 리포트(봇 판단 채점·결재 부가가치)' },
+    { title: '주말 휴식', time: '토 · 일', next: null, desc: '발굴·매매 정지 · 월 05:30 재출근' },
   ];
   document.getElementById('sched-list').innerHTML = items.map(it => {
     const next = it.next ? _fmtKstRelative(it.next) : null;
@@ -2766,7 +2776,7 @@ function renderFundSector(p) {
   if (!p || !p.done) {                                   // 오늘 아직 시작 전 — 데스크 안내
     if (sn) sn.textContent = '대형주 · 발굴주 데스크';
     if (sc) sc.textContent = '';
-    if (sp) sp.textContent = '일봉 종가 기준 · 대형주 06 / 발굴 12·18·24';
+    if (sp) sp.textContent = '워크데이 · 평일 05:30 출근 → 종일 스터디 → 22시 퇴근';
     if (sf) sf.style.display = 'none';
     if (ss) ss.innerHTML = '';
     return;
