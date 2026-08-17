@@ -408,7 +408,7 @@ def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
 
         try:
             if market == "US":
-                # TradingView TA 우선(레이트리밋 없음), 실패 시 yfinance 폴백
+                # TradingView → yfinance → 토스증권(최종 폴백). yfinance 429 시 토스가 받아줌.
                 price = None
                 for exch in ("NASDAQ", "NYSE", "NYSE ARCA", "AMEX"):
                     try:
@@ -422,6 +422,13 @@ def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
                         pass
                 if not price:
                     price, _ = _yf_price(code or symbol)
+                if not price:
+                    try:
+                        import toss
+                        if toss.available():
+                            price = toss.get_price(code or symbol)
+                    except Exception:
+                        pass
                 if price:
                     result[key] = price
             else:
@@ -642,18 +649,8 @@ def _record_price_health(ok: bool):
 
 
 def fetch_stock_price(symbol: str) -> float | None:
-    """단일 종목 현재가. 소스 우선순위: 토스증권(미장) → TradingView(KR) → yfinance(폴백).
-    yfinance 429 rate limit 장애 이력 때문에 토스를 1순위로 둔다(자격증명 없으면 자동 스킵)."""
-    if "." not in symbol:                      # 미장 티커(005930.KS 같은 KR 심볼 제외)
-        try:
-            import toss
-            if toss.available():
-                p = toss.get_price(symbol)
-                if p:
-                    _record_price_health(True)
-                    return p
-        except Exception:
-            pass
+    """단일 종목 현재가. 소스 우선순위: TradingView → yfinance → 토스증권(최종 폴백).
+    yfinance 429 장애 시 토스가 받아준다(자격증명 없으면 자동 스킵)."""
     try:
         h = TA_Handler(symbol=symbol, screener="korea", exchange="KRX",
                        interval=Interval.INTERVAL_1_DAY)
@@ -665,5 +662,12 @@ def fetch_stock_price(symbol: str) -> float | None:
     except Exception:
         pass
     price, _ = _yf_price(symbol)
+    if not price and "." not in symbol:        # 최종 폴백: 토스증권(미장 티커만)
+        try:
+            import toss
+            if toss.available():
+                price = toss.get_price(symbol)
+        except Exception:
+            pass
     _record_price_health(price is not None)
     return price

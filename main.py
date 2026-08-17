@@ -616,7 +616,10 @@ def _refresh_prices_bg():
     """백그라운드에서 현재가 갱신."""
     global _price_cache, _price_cache_at
     from fetchers import fetch_position_prices
+    from db import DESK_ACCOUNTS
     open_pos = [p for p in get_open_positions() if p["status"] == "open"]
+    for _acct in DESK_ACCOUNTS:                       # 데스크 계좌(대형주·발굴주·Q지수)도 갱신 대상
+        open_pos += [p for p in get_open_positions(account=_acct) if p["status"] == "open"]
     if not open_pos:
         return
     prices = fetch_position_prices(open_pos)
