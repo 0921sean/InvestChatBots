@@ -42,14 +42,16 @@ def ensure_desk_accounts():
                         (_ACCT_ID[acct], ACCT_SEED[acct]))
 
 
-def add_to_watch(code: str, name: str, approved_by: str):
-    """대형주 관심종목 캐시에 추가(P/W/H 선정). 이미 있으면 찬성봇·상태만 갱신(재관심)."""
+def add_to_watch(code: str, name: str, approved_by: str, thesis: str = ""):
+    """대형주 관심종목 캐시에 추가(P/W/H 선정). 이미 있으면 찬성봇·논지·상태 갱신(재관심).
+    thesis: 봇별 판단 논지(결재 상신 때 사유로 그대로 전달 — 정형 문구 대체)."""
     with _conn() as con:
         con.execute(
-            "INSERT INTO largecap_watch (code, name, approved_by, status) VALUES (?,?,?,'watching') "
+            "INSERT INTO largecap_watch (code, name, approved_by, thesis, status) VALUES (?,?,?,?,'watching') "
             "ON CONFLICT(code) DO UPDATE SET name=excluded.name, approved_by=excluded.approved_by, "
+            "thesis=excluded.thesis, "
             "status=CASE WHEN largecap_watch.status='bought' THEN 'bought' ELSE 'watching' END",
-            (code, name, approved_by))
+            (code, name, approved_by, thesis))
 
 
 def get_watchlist(status: str = "watching") -> list:
@@ -168,6 +170,7 @@ def _migrate():
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
             "ALTER TABLE benchmark_daily ADD COLUMN spy REAL",
+            "ALTER TABLE largecap_watch ADD COLUMN thesis TEXT",
         ]:
             try:
                 con.execute(sql)
@@ -735,6 +738,7 @@ def init_db():
             code TEXT PRIMARY KEY,                     -- 대형주 관심종목 캐시(P/W/H가 선정 → Q가 진입 타이밍 감시)
             name TEXT,
             approved_by TEXT,                          -- 매수 찬성 봇들(예 'P,H')
+            thesis TEXT,                               -- 찬성 봇별 판단 논지(결재 사유로 전달)
             status TEXT DEFAULT 'watching',            -- watching(진입대기) / bought / dropped
             added_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
