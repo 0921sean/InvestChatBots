@@ -51,17 +51,18 @@ def test_get_closes_paginates_and_orders_oldest_first(monkeypatch):
     assert calls[1] == "cursor"                                   # 커서 전달
 
 
-def test_fetch_stock_price_prefers_toss(monkeypatch):
+def test_fetch_stock_price_prefers_yfinance_over_toss(monkeypatch):
+    # 우선순위: TradingView → yfinance → 토스(최종 폴백)
     import fetchers
     monkeypatch.setattr(toss, "available", lambda: True)
     monkeypatch.setattr(toss, "get_price", lambda s: 111.0)
-    monkeypatch.setattr(fetchers, "_yf_price", lambda s: (999.0, None))   # 폴백은 안 쓰여야
-    assert fetchers.fetch_stock_price("NVDA") == 111.0
+    monkeypatch.setattr(fetchers, "_yf_price", lambda s: (999.0, None))
+    assert fetchers.fetch_stock_price("NVDA") == 999.0        # yfinance가 먼저
 
 
-def test_fetch_stock_price_falls_back_when_toss_fails(monkeypatch):
+def test_fetch_stock_price_uses_toss_when_others_fail(monkeypatch):
     import fetchers
     monkeypatch.setattr(toss, "available", lambda: True)
-    monkeypatch.setattr(toss, "get_price", lambda s: None)               # 토스 실패
-    monkeypatch.setattr(fetchers, "_yf_price", lambda s: (999.0, None))
-    assert fetchers.fetch_stock_price("NVDA") == 999.0                   # yfinance 폴백
+    monkeypatch.setattr(toss, "get_price", lambda s: 111.0)
+    monkeypatch.setattr(fetchers, "_yf_price", lambda s: (None, None))    # yfinance 429 상황
+    assert fetchers.fetch_stock_price("NVDA") == 111.0        # 토스가 받아줌
