@@ -1052,7 +1052,7 @@ def test_workday_yields_to_user_instead_of_rounds(monkeypatch):
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "WORKDAY_ENABLED", True)
     monkeypatch.setattr(aifund, "_workday_date", None)
-    monkeypatch.setattr(aifund, "WORKDAY_END_HOUR", 23)               # 루프 진입
+    monkeypatch.setattr(aifund, "WORKDAY_END_HOUR", 24)               # 루프 진입(실행 시각 무관 — 항상 hour<24)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     for fn in ("run_macro_briefing", "run_bottleneck_curation", "run_largecap_cycle",
                "run_q_index_desk", "run_risk_review"):
