@@ -22,7 +22,7 @@ logger = logging.getLogger("investchat")
 API = "https://openapi.tossinvest.com"
 CRED_PATH = os.getenv("TOSS_ENV_PATH", os.path.expanduser(
     "~/Desktop/CSB/MyApps/InvestData/.env"))
-_MIN_INTERVAL = 0.25                       # 4 TPS (규정 5 TPS 대비 여유)
+_MIN_INTERVAL = float(os.getenv("TOSS_MIN_INTERVAL", "0.22"))   # ~4.5 TPS (한도 6 TPS 대비 여유)
 
 _lock = threading.Lock()
 _token = None

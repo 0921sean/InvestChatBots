@@ -587,7 +587,8 @@ def api_chat_queue():
 
 _price_cache: dict = {}          # {symbol: price}
 _price_cache_at: float = 0.0
-_PRICE_CACHE_TTL = 180           # 3분 캐시
+_PRICE_CACHE_TTL = 900           # 15분 캐시 — 계좌 화면은 분단위 실시간이 불필요하고
+                                 # 외부 API 레이트리밋(토스 6TPS 등) 여유를 확보한다.
 
 # 옛 봇 이름 → 새 봇 이름 매핑 (포트폴리오 모달의 매수 근거 표시용)
 # 형식: "구)<옛이름>" 표기로 과거 봇 이름임을 명시
@@ -612,23 +613,33 @@ def _remap_old_bot_names(text: str) -> str:
         return text
     return _OLD_BOT_PAT.sub(lambda m: f"{_OLD_BOT_MAP[m.group(1)]}(구)", text)
 
+_price_refresh_lock = threading.Lock()    # 동시 요청이 갱신 스레드를 중복 생성하지 않게
+
+
 def _refresh_prices_bg():
-    """백그라운드에서 현재가 갱신."""
+    """백그라운드에서 현재가 갱신(한 번에 하나만 — 레이트리밋 보호)."""
     global _price_cache, _price_cache_at
-    from fetchers import fetch_position_prices
-    from db import DESK_ACCOUNTS
-    # 라이브 화면은 데스크 계좌(대형주·발굴주·Q지수)라 이쪽을 먼저 갱신한다.
-    # committee 옛 포지션까지 합치면 100+종목이라(종목당 ~1초) 데스크 시세가 영영 안 채워지던 문제.
-    desk_pos = []
-    for _acct in DESK_ACCOUNTS:
-        desk_pos += [p for p in get_open_positions(account=_acct) if p["status"] == "open"]
-    if desk_pos:
-        _price_cache = {**_price_cache, **fetch_position_prices(desk_pos)}   # 데스크 먼저 반영
-        _price_cache_at = time.time()
-    legacy = [p for p in get_open_positions() if p["status"] == "open"]
-    if legacy:
-        _price_cache = {**_price_cache, **fetch_position_prices(legacy)}     # 그 다음 committee
-        _price_cache_at = time.time()
+    if not _price_refresh_lock.acquire(blocking=False):
+        return                                # 이미 갱신 중 → 중복 호출 무시
+    try:
+        from fetchers import fetch_position_prices
+        from db import DESK_ACCOUNTS
+        # 라이브 화면은 데스크 계좌(대형주·발굴주·Q지수)라 이쪽을 먼저 갱신한다.
+        # committee 옛 포지션까지 합치면 100+종목이라(종목당 ~1초) 데스크가 영영 안 채워지던 문제.
+        desk_pos = []
+        for _acct in DESK_ACCOUNTS:
+            desk_pos += [p for p in get_open_positions(account=_acct) if p["status"] == "open"]
+        if desk_pos:
+            _price_cache = {**_price_cache, **fetch_position_prices(desk_pos)}   # 데스크 먼저 반영
+            _price_cache_at = time.time()
+        legacy = [p for p in get_open_positions() if p["status"] == "open"]
+        if legacy:
+            _price_cache = {**_price_cache, **fetch_position_prices(legacy)}     # 그 다음 committee
+            _price_cache_at = time.time()
+    except Exception as e:
+        logger.warning(f"현재가 갱신 실패: {e}")
+    finally:
+        _price_refresh_lock.release()
 
 
 def _enrich_positions(positions):
