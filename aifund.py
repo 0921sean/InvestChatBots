@@ -1773,7 +1773,8 @@ def run_largecap_select(market="US"):
                 _narrate(bot, verdict_message(rz, v, name), model="sonnet")
             approvers = [b for b in LARGECAP_BOTS if verdicts.get(b) == "매수"]
             if approvers:
-                add_to_watch(code, name, ",".join(approvers))
+                add_to_watch(code, name, ",".join(approvers),
+                             thesis=_compose_buy_report(approvers, reasonings))   # 봇별 논지 보존
                 watched.append(code)
                 _narrate(approvers[0], random.choice(_HANDOFF_LINES).format(name=name))   # 핸드오프 → Q
             held = get_open_positions_by_symbol(name, account="대형주")   # 강한 펀더매도(2인+) 안전판
@@ -1831,9 +1832,10 @@ def run_largecap_execute(market="US"):
         appr = w.get("approved_by") or ""                     # 관심등록 찬성봇(P/W/H) — 픽 성과 크레딧용
         if BUY_APPROVAL_REQUIRED:                             # 즉시 체결 대신 오너 결재로(Q 멘트까지 전달)
             appr_ko = "·".join(_ROLE_KO.get(a, a) for a in appr.split(",") if a)
-            report = (f"· 펀더 심사 — {appr_ko} 담당이 이 종목을 관심종목으로 선정했습니다"
-                      f"(재무·성장 기준 통과).\n· 진입 타이밍 — 아래 타이밍 담당 코멘트 참고. "
-                      f"지금이 매수 자리라 판단합니다.")
+            thesis = (w.get("thesis") or "").strip()              # 선정 당시 봇별 논지(있으면 그대로)
+            report = (thesis if thesis else
+                      f"· 펀더 심사 — {appr_ko} 담당이 이 종목을 관심종목으로 선정했습니다(재무·성장 기준 통과).")
+            report += "\n· 진입 타이밍 — 아래 타이밍 담당 코멘트 참고. 지금이 매수 자리라 판단합니다."
             _submit_buy_approval("대형주", "대형주", w["name"], w["code"], o["close"][-1],
                                  _desk_amount("대형주"), [a for a in appr.split(",") if a], market,
                                  stock_desc=_report_summary(w["code"]),

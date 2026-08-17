@@ -368,7 +368,7 @@ def test_run_largecap_select_2stage_daily(monkeypatch):
     monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
     monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
     watched = []
-    monkeypatch.setattr(db, "add_to_watch", lambda code, name, approved: watched.append((code, approved)))
+    monkeypatch.setattr(db, "add_to_watch", lambda code, name, approved, thesis="": watched.append((code, approved)))
     r = aifund.run_largecap_select()
     assert cleared == [True]                          # 매일 watch 초기화
     assert r["sectors"] == ["반도체"]                  # 섹터 토론 수행
@@ -1124,3 +1124,38 @@ def test_observation_expires_after_max_days(tmp_path, monkeypatch):
     r = aifund.run_observation_review()
     assert r["dropped"] == ["OLD"] and calls == []                 # 만료 철회(LLM 호출 없이)
     assert db.get_observations("dropped") and any("결정 못 하는 것도 결정" in x for x in said)
+
+
+def test_largecap_watch_carries_bot_thesis(tmp_path, monkeypatch):
+    # 대형주: 선정 시 봇별 논지를 관심종목에 저장 → 결재 사유로 전달(정형 97자 대체)
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "lw.db"))
+    db.init_db()
+    db.add_to_watch("NVDA", "NVIDIA", "P,H",
+                    thesis="· 성장주 담당 의견 — PEG 0.9로 저평가\n· 실적 담당 의견 — EPS +40% 지속")
+    w = db.get_watchlist("watching")[0]
+    assert "PEG 0.9" in w["thesis"] and "실적 담당" in w["thesis"]
+    db.add_to_watch("NVDA", "NVIDIA", "W", thesis="· 가치 담당 의견 — 해자 견고")   # 재선정 시 갱신
+    assert "해자 견고" in db.get_watchlist("watching")[0]["thesis"]
+
+
+def test_largecap_execute_uses_thesis_in_approval(tmp_path, monkeypatch):
+    import db, backtest as bt
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "le.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "_q_say", lambda *a, **k: "돌파 신호")
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(aifund, "q_veto", lambda closes, up: (False, ""))
+    monkeypatch.setattr(aifund, "_report_summary", lambda code: "AI 반도체 회사")
+    db.add_to_watch("NVDA", "NVIDIA", "P,H", thesis="· 성장주 담당 의견 — PEG 0.9 저평가에 스토리 명확")
+    monkeypatch.setattr(bt, "_fetch", lambda codes, period="2y": {"NVDA": {"close": [100.0 + i for i in range(260)]}})
+    captured = {}
+    monkeypatch.setattr(aifund, "_submit_buy_approval",
+                        lambda desk, acct, name, code, price, amt, bots, m, **k: (captured.update(k), True)[1])
+    aifund.run_largecap_execute()
+    assert "PEG 0.9 저평가" in captured["reason"]              # 봇 논지가 결재 사유에 실림
+    assert "진입 타이밍" in captured["reason"]                  # 타이밍 안내도 유지
+    assert captured["q_comment"] == "돌파 신호"
