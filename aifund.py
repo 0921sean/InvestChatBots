@@ -1512,6 +1512,47 @@ SEED_FRAME = ("[오너 승인 병목 워치리스트] 이 종목의 '병목 여�
               "거르지 마라. 셋 다 감내 가능하면 매수, 하나가 치명적이면 그 이유로만 관망하라.")
 
 
+def answer_approval_question(pid: int, question: str) -> dict:
+    """오너가 결재함에서 던진 질문에 담당 봇이 '한 번 더 검토'해 답하고 사유를 보강한다.
+    반환 {'ok','answer','bot'}. 실패해도 결재는 그대로(질문만 유실)."""
+    from db import get_pending_buy, add_pending_buy_qna
+    row = get_pending_buy(pid)
+    if not row:
+        return {"ok": False, "error": "결재 없음"}
+    code, name = row["code"], row["ticker"]
+    bot = ((row.get("approvers") or "S").split(",") or ["S"])[0].strip() or "S"
+    # 최신 데이터로 다시 본다(질문 시점 기준) — 판단가가 아니라 '지금' 사실로 답하게
+    try:
+        brief = build_research_brief(code, name, code, row.get("market") or "US")
+        packet = (brief or ("", ""))[0]
+    except Exception:
+        packet = ""
+    prompt = (f"사장님이 {name} ({code}) 매수 결재를 검토하다 이렇게 물으셨다:\n"
+              f"\"{question}\"\n\n"
+              f"[네가 올린 매수 사유]\n{(row.get('reason') or '')[:1200]}\n\n"
+              f"[현재 데이터]\n{packet or '(데이터 부족 — 아는 범위에서만)'}\n\n"
+              "이 질문에 대해 한 번 더 검토해서 답해라. 요구사항:\n"
+              "① 질문에 직접 답한다(수요·구조·경쟁·리스크 등 물어본 그 지점을 파고든다).\n"
+              "② 아는 사실과 추정을 구분하고, 모르면 모른다고 한다. 지어내지 마라.\n"
+              "③ 이 검토로 기존 매수 논지가 강해지는지/약해지는지 마지막에 한 줄로 밝힌다.\n"
+              "정중한 보고체(존댓말), 4~6문장. 투자 권유 표현·수익 보장 금지.")
+    try:
+        from agents import call_agent
+        from prompts import AGENT_PROFILES
+        ans = (call_agent(bot, AGENT_PROFILES[bot]["system"], prompt,
+                          model="sonnet", timeout=180, trim=False) or "").strip()
+    except Exception as e:
+        logger.warning(f"결재 질문 답변 실패 {code}: {e}")
+        return {"ok": False, "error": str(e)}
+    if not ans:
+        return {"ok": False, "error": "빈 응답"}
+    ans = _clean_md(ans)
+    add_pending_buy_qna(pid, question, ans)
+    log_decision("결재질문", bot, code, name, "추가검토", f"Q: {question}\nA: {ans}", packet=packet)
+    _narrate(bot, f"📣 사장님 질문 — {_tk(code, name)}: \"{question[:60]}\"\n{ans[:400]}", model="sonnet")
+    return {"ok": True, "answer": ans, "bot": pub_letter(bot)}
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""

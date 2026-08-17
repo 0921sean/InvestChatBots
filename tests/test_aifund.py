@@ -1159,3 +1159,54 @@ def test_largecap_execute_uses_thesis_in_approval(tmp_path, monkeypatch):
     assert "PEG 0.9 저평가" in captured["reason"]              # 봇 논지가 결재 사유에 실림
     assert "진입 타이밍" in captured["reason"]                  # 타이밍 안내도 유지
     assert captured["q_comment"] == "돌파 신호"
+
+
+# ── 결재 질문 → 봇 추가 검토 ──────────────────────────
+def test_add_pending_buy_qna_appends(tmp_path, monkeypatch):
+    import db, json
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "qna.db"))
+    db.init_db()
+    pid = db.add_pending_buy("Mueller", "MWA", "발굴주", "발굴주", "US", 2_500_000, 26.0, "S", "d", "r", None)
+    assert db.add_pending_buy_qna(pid, "수요는 왜 오르나?", "노후 상수도관 교체 때문입니다.") is True
+    db.add_pending_buy_qna(pid, "경쟁사는?", "소수 업체 과점입니다.")
+    arr = json.loads(db.get_pending_buy(pid)["qna"])
+    assert len(arr) == 2 and arr[0]["q"] == "수요는 왜 오르나?" and "상수도관" in arr[0]["a"]
+    assert arr[1]["q"] == "경쟁사는?" and arr[0].get("at")          # 시각 기록
+    assert db.add_pending_buy_qna(99999, "x", "y") is False          # 없는 결재
+
+
+def test_answer_approval_question_reviews_and_records(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "aq.db"))
+    db.init_db()
+    pid = db.add_pending_buy("Mueller Water", "MWA", "발굴주", "발굴주", "US", 2_500_000, 26.0,
+                             "S", "수도 인프라", "· 병목 담당 의견 — 밸브 과점", None)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "S", {"system": "병목"})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("현재 재무", ""))
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    cap = {}
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda bot, sys_, prompt, **k: (cap.update(bot=bot, p=prompt),
+                                                        "노후관 교체와 EPA 시한 때문입니다. 논지는 강화됩니다.")[1])
+    r = aifund.answer_approval_question(pid, "수도관 수요는 지금 왜 올라가나요?")
+    assert r["ok"] is True and "EPA" in r["answer"]
+    assert r["bot"] == "F"                                   # 공개 이니셜(ROT13)로 반환
+    assert cap["bot"] == "S"                                 # 담당(찬성) 봇이 답변
+    assert "수도관 수요는 지금 왜" in cap["p"] and "현재 재무" in cap["p"]   # 질문+최신데이터 주입
+    assert "매수 사유" in cap["p"]                            # 기존 사유도 문맥에
+    import json
+    saved = json.loads(db.get_pending_buy(pid)["qna"])
+    assert len(saved) == 1 and "EPA" in saved[0]["a"]         # 결재에 누적 기록
+    assert db.get_pending_buy(pid)["status"] == "pending"     # 결재 상태는 그대로
+
+
+def test_answer_approval_question_handles_failure(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "aqf.db"))
+    db.init_db()
+    pid = db.add_pending_buy("X", "XX", "발굴주", "발굴주", "US", 1, 1.0, "S", "", "", None)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "S", {"system": "병목"})
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("", ""))
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("LLM down")))
+    assert aifund.answer_approval_question(pid, "질문")["ok"] is False    # 예외 삼키고 실패 반환
+    assert aifund.answer_approval_question(99999, "질문")["ok"] is False  # 없는 결재

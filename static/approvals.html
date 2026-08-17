@@ -37,6 +37,15 @@
   .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; margin-left: auto; }
   .b-app { background: #12331f; color: #56d364; } .b-rej { background: #3a2224; color: #f0757c; }
   a.back { display: inline-block; margin-top: 24px; font-size: 11px; color: #6e7681; text-decoration: none; }
+  .askbox { margin-top: 10px; }
+  .askbox input { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 7px;
+    padding: 9px 11px; color: #e2e8f0; font-size: 12.5px; outline: none; margin-bottom: 6px; }
+  .askbox input:focus { border-color: #8957e5; }
+  .askbox .ask { width: 100%; background: #6f42c1; font-size: 12.5px; padding: 9px; }
+  .qna { background: #14121c; border-left: 2px solid #8957e5; border-radius: 6px;
+    padding: 8px 10px; margin-bottom: 8px; }
+  .qna .q { font-size: 12px; font-weight: 800; color: #d2a8ff; margin-bottom: 4px; }
+  .qna .qat { font-size: 10px; color: #6e7681; margin-top: 4px; }
   .brief { background: #12161f; border: 1px solid #2b3550; border-radius: 12px; padding: 14px 15px; margin-bottom: 18px; }
   .brief h3 { font-size: 12px; font-weight: 800; color: #8b8cf0; margin-bottom: 4px; letter-spacing: .02em; }
   .brief .date { font-size: 10px; color: #6e7681; margin-bottom: 8px; }
@@ -89,9 +98,15 @@ function card(it) {
     ${co ? `<div class="sec s-co">🏢 회사 소개</div><div class="txt">${esc(co)}</div>` : ''}
     ${why ? `<div class="sec s-why">📈 매수 사유 (담당 봇 의견)</div><div class="txt">${esc(why)}</div>` : ''}
     ${q ? `<div class="sec s-q">⏱️ 진입 타이밍</div><div class="txt">${esc(q)}</div>` : ''}
+    ${qnaHtml(it)}
     <div class="acts">
       <button class="ok" onclick="decide(${it.id},'approved',this)">✅ 승인 (매수)</button>
       <button class="no" onclick="decide(${it.id},'rejected',this)">❌ 거부 (매수 X)</button>
+    </div>
+    <div class="askbox">
+      <input id="ask-${it.id}" placeholder="궁금한 점을 물어보세요 (예: 수도관 수요는 왜 올라가나요?)"
+             onkeydown="if(event.key==='Enter')askBot(${it.id})" />
+      <button class="ask" onclick="askBot(${it.id})">💬 담당 봇에게 물어보기</button>
     </div></div>`;
 }
 
@@ -146,6 +161,40 @@ async function loadWeekly() {
       `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#56d364">📊 주간 성과 리포트 (${esc(w.date||'')}) — 펼쳐보기</summary>` +
       `<div class="body" style="margin-top:8px">${esc(w.content)}</div></details>`;
   } catch (e) { /* 없어도 무시 */ }
+}
+
+function qnaHtml(it) {
+  let arr = [];
+  try { arr = JSON.parse(it.qna || '[]'); } catch (e) {}
+  if (!arr.length) return '';
+  return `<div class="sec" style="color:#d2a8ff">💬 사장님 질문 · 추가 검토</div>` +
+    arr.map(x => `<div class="qna"><div class="q">Q. ${esc(x.q)}</div>` +
+      `<div class="txt">${esc(x.a)}</div>` +
+      `<div class="qat">${esc(x.at || '')}</div></div>`).join('');
+}
+
+async function askBot(id) {
+  const el = document.getElementById('ask-' + id);
+  const q = (el.value || '').trim();
+  if (!q) return;
+  el.disabled = true;
+  const box = el.parentElement;
+  const old = box.querySelector('.ask').textContent;
+  box.querySelector('.ask').textContent = '🤔 담당 봇이 다시 검토 중… (최대 1~2분)';
+  box.querySelector('.ask').disabled = true;
+  try {
+    const r = await fetch('/api/buy-approvals/ask', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, question: q }),
+    });
+    if (!r.ok) { alert('실패: ' + (await r.text())); }
+    else { el.value = ''; }
+  } catch (e) { alert('오류: ' + e); }
+  el.disabled = false;
+  box.querySelector('.ask').textContent = old;
+  box.querySelector('.ask').disabled = false;
+  load();
 }
 
 async function load() {

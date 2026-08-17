@@ -1429,6 +1429,27 @@ def api_kill_switch(request: Request, body: KillSwitchBody):
     return {"ok": True, "kill_switch": body.on}
 
 
+class BuyQuestionBody(BaseModel):
+    id: int
+    question: str
+
+
+@app.post("/api/buy-approvals/ask")
+def api_buy_approvals_ask(request: Request, body: BuyQuestionBody):
+    """결재 종목에 대해 질문 → 담당 봇이 한 번 더 검토해 답하고 사유에 누적 (owner only).
+    ⚠️ LLM 1콜(구독 토큰). 결재 상태는 그대로 pending 유지."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    q = (body.question or "").strip()
+    if not q:
+        raise HTTPException(400, "질문이 비었습니다")
+    from aifund import answer_approval_question
+    r = answer_approval_question(body.id, q[:500])
+    if not r.get("ok"):
+        raise HTTPException(400, r.get("error") or "답변 실패")
+    return r
+
+
 @app.get("/api/macro-briefing")
 def api_macro_briefing(request: Request):
     """오늘의 M 거시 브리핑 (owner only) — 결재 페이지 상단 표시용."""

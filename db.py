@@ -171,6 +171,7 @@ def _migrate():
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
             "ALTER TABLE benchmark_daily ADD COLUMN spy REAL",
             "ALTER TABLE largecap_watch ADD COLUMN thesis TEXT",
+            "ALTER TABLE pending_buy ADD COLUMN qna TEXT DEFAULT '[]'",
         ]:
             try:
                 con.execute(sql)
@@ -336,6 +337,24 @@ def add_pending_buy(ticker, code, desk, account, market, amount, decision_price,
             (ticker, code, desk, account, market, amount, decision_price,
              approvers, stock_desc, reason, q_comment))
         return cur.lastrowid
+
+
+def add_pending_buy_qna(pid: int, question: str, answer: str):
+    """결재 질의응답 1건 append(오너 질문 → 봇 추가검토). 사유 보강용."""
+    import json
+    from datetime import datetime, timezone, timedelta
+    at = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
+    with _conn() as con:
+        row = con.execute("SELECT qna FROM pending_buy WHERE id=?", (pid,)).fetchone()
+        if not row:
+            return False
+        try:
+            arr = json.loads(row[0] or "[]")
+        except Exception:
+            arr = []
+        arr.append({"q": question, "a": answer, "at": at})
+        con.execute("UPDATE pending_buy SET qna=? WHERE id=?", (json.dumps(arr, ensure_ascii=False), pid))
+        return True
 
 
 def get_pending_buys(status: str = "pending") -> list:
@@ -664,6 +683,7 @@ def init_db():
             reason TEXT,                               -- 매수 판단 이유(친절)
             q_comment TEXT,                            -- 대형주 Q 타이밍 멘트
             status TEXT DEFAULT 'pending',             -- pending / approved / rejected
+            qna TEXT DEFAULT '[]',                     -- 오너 질문·봇 추가검토 JSON 배열: q·a·at
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             decided_at DATETIME
         );
