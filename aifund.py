@@ -30,7 +30,10 @@ MACRO_BRIEFING_ENABLED = os.getenv("MACRO_BRIEFING_ENABLED", "").lower() in ("1"
 # 관찰 단계 게이트(.env). on이면 발굴주 매수 판단이 즉시 결재/체결이 아니라 '관찰 등록' →
 # 사이클마다 재관찰(자기 논지 vs 현재) → 최소 OBSERVATION_MIN_REVIEWS회 후에도 확신이면 그때 결재.
 OBSERVATION_REQUIRED = os.getenv("OBSERVATION_REQUIRED", "").lower() in ("1", "true", "yes")
-OBSERVATION_MIN_REVIEWS = 2     # 확신 상신 전 최소 재관찰 횟수(발굴 사이클 0/12/18 기준 ≈ 하루)
+OBSERVATION_MIN_REVIEWS = 2     # 확신 상신 전 최소 재점검 '일수'(하루 1회로 제한 — 아래 참조)
+# 워크데이는 20분마다 라운드를 돌아 같은 종목이 하루 수십 회 재점검되던 문제(관찰 113회, 토큰 낭비)를
+# 해결: 재점검은 '하루 최대 1회'(같은 날 중복 스킵) → review_count = 실제 관찰 일수.
+OBSERVATION_MAX_DAYS = int(os.getenv("OBSERVATION_MAX_DAYS", "7"))   # N일 지나도 확신 없으면 자동 철회
 # 워크데이 모델(.env WORKDAY_ENABLED): 고정 시간표 폐지 — 출근(아침 블록) 후 종일 스터디 라운드.
 # 토큰 소진 시 쉬었다가 충전되면 재출근(keeper가 매시 확인). P/W 공부 시간이 길어짐(라운드×딥스터디).
 WORKDAY_ENABLED = os.getenv("WORKDAY_ENABLED", "").lower() in ("1", "true", "yes")
@@ -1181,6 +1184,31 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
 _OBS_RE = re.compile(r"\[관찰\]\s*(확신|유지|철회)")
 
 
+def _reviewed_today(obs, today) -> bool:
+    """오늘 이미 재점검했나 — reviews JSON의 마지막 날짜로 판정(하루 1회 규칙)."""
+    import json
+    try:
+        arr = json.loads(obs.get("reviews") or "[]")
+        return bool(arr) and arr[-1].get("date") == today
+    except Exception:
+        return False
+
+
+def _observation_days(obs, today) -> int:
+    """관찰 시작일로부터 경과 일수(KST 날짜 기준)."""
+    from datetime import date
+    try:
+        s = (obs.get("started_at") or "")[:10]
+        y1, m1, d1 = map(int, s.split("-")); y2, m2, d2 = map(int, today.split("-"))
+        return (date(y2, m2, d2) - date(y1, m1, d1)).days
+    except Exception:
+        return 0
+
+
+def _observation_expired(obs, today) -> bool:
+    return _observation_days(obs, today) >= OBSERVATION_MAX_DAYS
+
+
 def _register_observation(desk, name, code, price, approvers, reasonings, stock_desc, market):
     """매수 판단 종목을 '관찰'로 등록 — 바로 안 사고 지켜보기 시작. 중복 등록은 조용히 skip."""
     from db import add_observation
@@ -1220,6 +1248,16 @@ def run_observation_review(market="US"):
     today = _today_kst()
     for obs in obs_list:
         code, name = obs["code"], obs.get("name") or obs["code"]
+        if _reviewed_today(obs, today):                                # 하루 1회 — 같은 날 재점검 스킵(토큰 절약)
+            continue
+        if _observation_expired(obs, today):                           # 상한: N일 지나도 확신 없으면 철회
+            record_observation_review(obs["id"], {"date": today, "verdicts": {}, "notes": {},
+                                                  "note": f"{OBSERVATION_MAX_DAYS}일 관찰 만료"},
+                                      status="dropped")
+            dropped.append(code)
+            _narrate((obs.get("bots") or "S").split(",")[0],
+                     f"{_tk(code, name)} — {OBSERVATION_MAX_DAYS}일을 지켜봤는데 확신이 안 섭니다. 결정 못 하는 것도 결정이니 관찰 접겠습니다.")
+            continue
         brief = build_research_brief(code, name, code, market)          # 현재 데이터로 재평가
         packet = (brief or ("", ""))[0]
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
@@ -1248,7 +1286,7 @@ def run_observation_review(market="US"):
             record_observation_review(obs["id"], review, status="dropped")
             dropped.append(code)
             _narrate(bots[0], f"{_tk(code, name)} — 지켜본 결과 논지가 훼손됐습니다. 관찰 중단합니다. 무리해서 살 이유가 없죠.")
-        elif conv and n_now >= OBSERVATION_MIN_REVIEWS:                 # 확신 + 충분히 지켜봄 → 결재
+        elif conv and n_now >= OBSERVATION_MIN_REVIEWS:                 # 확신 + 충분한 일수 지켜봄 → 결재
             record_observation_review(obs["id"], review, status="convinced")
             convinced.append(code)
             story = _observation_story(obs, review, n_now)
@@ -1395,6 +1433,31 @@ def run_weekly_report():
                 lines.append(f"  {lbl}: {len(rets)}건 · 평균 {sum(rets)/len(rets)*100:+.1f}%")
     obs_c = len(get_observations("convinced")); obs_d = len(get_observations("dropped"))
     lines += ["", f"■ 관찰 단계: 확신 전환 {obs_c} · 철회 {obs_d}"]
+    # 가설 검증: '빨리 확신한 종목이 더 좋은가?' — 관찰 일수 구간별 사후 성과(승인분 기준)
+    conv = get_observations("convinced")
+    if conv:
+        pb = {p["code"]: p for p in get_pending_buys(None) if p["status"] == "approved"}
+        cpx = _fetch_closes_dated([o["code"] for o in conv if o["code"] in pb])
+        fast, slow = [], []
+        for o in conv:
+            p = pb.get(o["code"])
+            if not p or o["code"] not in cpx or not p.get("decision_price"):
+                continue
+            closes = cpx[o["code"]][1]
+            if not closes:
+                continue
+            r = closes[-1] / p["decision_price"] - 1
+            (fast if (o.get("review_count") or 0) <= 2 else slow).append(r)
+        if fast or slow:
+            lines += ["", "■ 관찰 기간 가설 (빠른 확신 vs 오래 관찰, 승인분 사후 성과)"]
+            if fast:
+                lines.append(f"  빠른 확신(≤2일): {len(fast)}건 · 평균 {sum(fast)/len(fast)*100:+.1f}%")
+            if slow:
+                lines.append(f"  오래 관찰(3일+): {len(slow)}건 · 평균 {sum(slow)/len(slow)*100:+.1f}%")
+            if fast and slow:
+                d = (sum(fast)/len(fast) - sum(slow)/len(slow)) * 100
+                lines.append(f"  → 차이 {d:+.1f}%p " + ("(빠른 확신 우세)" if d > 0 else "(오래 관찰 우세)")
+                             + " ※ 표본 적으면 참고만")
     fh = get_fetch_health(7)
     if fh:
         tot_ok = sum(r["ok"] for r in fh); tot_fail = sum(r["fail"] for r in fh)

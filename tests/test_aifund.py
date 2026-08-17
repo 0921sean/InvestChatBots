@@ -1071,3 +1071,56 @@ def test_workday_yields_to_user_instead_of_rounds(monkeypatch):
     except KeyboardInterrupt:
         pass
     assert cycles == [] and yields == [1]                            # 라운드 대신 양보
+
+
+# ── 관찰 하루 1회 + 만료 ────────────────────────────────
+def test_reviewed_today_and_days_helpers():
+    import json
+    obs = {"reviews": json.dumps([{"date": "2026-08-17"}, {"date": "2026-08-18"}]),
+           "started_at": "2026-08-12 09:00:00"}
+    assert aifund._reviewed_today(obs, "2026-08-18") is True      # 오늘 이미 봄
+    assert aifund._reviewed_today(obs, "2026-08-19") is False     # 새 날
+    assert aifund._observation_days(obs, "2026-08-19") == 7
+    assert aifund._observation_expired(obs, "2026-08-19") is True   # 7일 상한
+    assert aifund._observation_expired(obs, "2026-08-15") is False
+
+
+def test_observation_review_skips_same_day(tmp_path, monkeypatch):
+    # 하루 1회 규칙: 같은 날 두 번째 라운드는 LLM 호출 없이 스킵
+    import db, agents
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "od.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("pkt", ""))
+    import fetchers
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 100.0)
+    calls = []
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda *a, **k: (calls.append(1), "[관찰] 유지 | 이유: 더 봄")[1])
+    db.add_observation("NVDA", "NVIDIA", "발굴주", "US", "S", "논지", "회사", 100.0)
+    r1 = aifund.run_observation_review()
+    assert r1["reviewed"] == ["NVDA"] and len(calls) == 1          # 첫 라운드: 점검함
+    r2 = aifund.run_observation_review()
+    assert r2["reviewed"] == [] and len(calls) == 1                # 같은 날 두 번째: 스킵(LLM 0콜)
+
+
+def test_observation_expires_after_max_days(tmp_path, monkeypatch):
+    import db, agents
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "oe.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_MAX_DAYS", 7)
+    said = []
+    monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": said.append(c))
+    calls = []
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: (calls.append(1), "[관찰] 유지")[1])
+    db.add_observation("OLD", "Old Co", "발굴주", "US", "S", "논지", "회사", 10.0)
+    with db._conn() as con:                                        # 시작일을 8일 전으로 조작
+        con.execute("UPDATE observation SET started_at='2026-08-01 00:00:00' WHERE code='OLD'")
+    monkeypatch.setattr(aifund, "_today_kst", lambda: "2026-08-09")
+    r = aifund.run_observation_review()
+    assert r["dropped"] == ["OLD"] and calls == []                 # 만료 철회(LLM 호출 없이)
+    assert db.get_observations("dropped") and any("결정 못 하는 것도 결정" in x for x in said)
