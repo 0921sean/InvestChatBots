@@ -642,7 +642,18 @@ def _record_price_health(ok: bool):
 
 
 def fetch_stock_price(symbol: str) -> float | None:
-    """단일 종목 현재가."""
+    """단일 종목 현재가. 소스 우선순위: 토스증권(미장) → TradingView(KR) → yfinance(폴백).
+    yfinance 429 rate limit 장애 이력 때문에 토스를 1순위로 둔다(자격증명 없으면 자동 스킵)."""
+    if "." not in symbol:                      # 미장 티커(005930.KS 같은 KR 심볼 제외)
+        try:
+            import toss
+            if toss.available():
+                p = toss.get_price(symbol)
+                if p:
+                    _record_price_health(True)
+                    return p
+        except Exception:
+            pass
     try:
         h = TA_Handler(symbol=symbol, screener="korea", exchange="KRX",
                        interval=Interval.INTERVAL_1_DAY)
