@@ -1406,6 +1406,15 @@ def api_ops_backup(request: Request):
     return ops.backup_db()
 
 
+@app.get("/api/experimental")
+def api_experimental(request: Request):
+    """실험 계좌(Q지수) 성과 (owner only) — 메인 성적표와 분리해 백그라운드 검증."""
+    if not is_owner(request):
+        raise HTTPException(403, "owner only")
+    import benchmark
+    return benchmark.experimental_summary()
+
+
 @app.get("/api/risk")
 def api_risk(request: Request):
     """리스크 회로차단기 상태 (owner only) — 브레이커·계좌 스냅샷·임계값."""

@@ -58,7 +58,7 @@ def test_bot_nav_uses_desk_accounts_not_committee(tmp_path, monkeypatch):
     nav = benchmark.bot_combined_nav()
     seed = benchmark.desk_seed_total()
     assert nav == seed                       # 데스크 시드 그대로(committee 999M 미포함)
-    assert seed == 110_000_000               # 대형주5천+발굴주5천+Q지수1천
+    assert seed == 100_000_000               # 코어(대형주5천+발굴주5천) — Q지수는 은퇴
 
 
 def test_alpha_is_excess_over_index():
@@ -73,17 +73,15 @@ def test_alpha_is_excess_over_index():
 def test_bot_return_normalized_by_seed_excludes_capital_inflow():
     """계좌 신설로 자본이 유입돼도 수익률로 잡히면 안 된다(Q지수 개설 +1,000만 사례)."""
     import benchmark
-    base = {"date": "2026-08-01", "bot_nav": 100_000_000.0}    # 시드 1억
-    latest = {"date": "2026-08-10", "bot_nav": 110_000_000.0}  # 시드 1.1억(신설분 유입), 수익 0
-    assert benchmark._cum(base, latest, "bot_nav") == 0.0       # 유입은 수익 아님
-    latest2 = {"date": "2026-08-10", "bot_nav": 112_200_000.0}  # 시드 1.1억 대비 +2%
-    assert benchmark._cum(base, latest2, "bot_nav") == 2.0
+    base = {"date": "2026-08-01", "bot_nav": 100_000_000.0}    # 코어 시드 1억
+    latest = {"date": "2026-08-10", "bot_nav": 102_000_000.0}  # 시드 대비 +2%
+    assert benchmark._cum(base, latest, "bot_nav") == 2.0
     # 지수는 정규화 없이 가격 비율 그대로
     assert benchmark._cum({"spy": 100.0}, {"spy": 105.0}, "spy") == 5.0
 
 
-def test_seed_at_boundary():
+def test_seed_at_is_core_seed():
     import benchmark
-    assert benchmark._seed_at("2026-08-06") == 100_000_000.0
-    assert benchmark._seed_at("2026-08-07") == 110_000_000.0    # Q지수 개설일
+    assert benchmark._seed_at("2026-08-06") == 100_000_000.0    # 코어 시드 고정(Q지수 은퇴)
+    assert benchmark._seed_at("2026-08-19") == 100_000_000.0
     assert benchmark._seed_at(None) is None

@@ -13,7 +13,12 @@ _ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6,
 FUND_ACCOUNTS = ("P", "W", "S", "Q")   # (레거시) 4봇 경쟁 계좌 — 통일 데스크로 대체 중
 FUND_SEED = 100_000_000                # 봇당 가상 1억
 # 통일 데스크(대형주/발굴주/Q지수) — v1 대체. 설계 docs/AIFUND_PIVOT.md
-DESK_ACCOUNTS = ("대형주", "발굴주", "Q지수")
+# 2026-08-19: Q지수 실험 종료(오너 지시) — 계좌·상수는 보존하되 운용 대상에서 제외.
+#   되살리려면 DESK_ACCOUNTS에 "Q지수" 추가 + .env Q_INDEX_ENABLED=true.
+DESK_ACCOUNTS = ("대형주", "발굴주")
+CORE_ACCOUNTS = ("대형주", "발굴주")     # 성적표(벤치마크·알파) 산정 대상
+EXPERIMENTAL_ACCOUNTS = ()               # 현재 운용 중인 실험 계좌 없음
+RETIRED_ACCOUNTS = ("Q지수",)            # 은퇴(기록 보존)
 DESK_SEED = 50_000_000                 # 데스크당 가상 5,000만
 Q_INDEX_SEED = 10_000_000              # Q 지수 스윙 소액 계좌(1,000만) — 봇 개성 실험
 ACCT_SEED = {"대형주": DESK_SEED, "발굴주": DESK_SEED, "Q지수": Q_INDEX_SEED}

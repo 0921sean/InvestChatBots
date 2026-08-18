@@ -43,7 +43,7 @@ def bot_combined_nav() -> float:
     ⚠️ 2026-08: committee(main/sub) 은퇴 후에도 그쪽을 재고 있어 벤치마크가 왜곡됐다
     (계좌 이관·매수로 NAV가 부풀어 '+82%' 같은 허위 수익률). 현행 데스크만 집계한다."""
     nav = 0.0
-    for acct in db.DESK_ACCOUNTS:
+    for acct in db.CORE_ACCOUNTS:            # 실험 계좌(Q지수) 제외 — 메인 성적 오염 방지
         pf = db.get_shared_portfolio(acct) or {}
         nav += pf.get("balance", 0) or 0
         for p in db.get_open_positions(account=acct):
@@ -56,8 +56,8 @@ def bot_combined_nav() -> float:
 
 
 def desk_seed_total() -> float:
-    """데스크 총 시드(수익률 기준선)."""
-    return float(sum(db.ACCT_SEED.get(a, db.DESK_SEED) for a in db.DESK_ACCOUNTS))
+    """성적 산정 대상(코어 데스크) 총 시드 — 실험 계좌 제외."""
+    return float(sum(db.ACCT_SEED.get(a, db.DESK_SEED) for a in db.CORE_ACCOUNTS))
 
 
 def capture_snapshot(date: str) -> dict:
@@ -85,10 +85,8 @@ def _cum(base, latest, key):
 
 
 def _seed_at(date_str):
-    """그 시점의 데스크 총 시드 — Q지수 계좌는 2026-08-07 개설(+1,000만)."""
-    if not date_str:
-        return None
-    return 110_000_000.0 if date_str >= "2026-08-07" else 100_000_000.0
+    """그 시점의 코어 데스크 시드. Q지수(실험)는 성적에서 빼므로 상수 1억."""
+    return 100_000_000.0 if date_str else None
 
 
 def compute_benchmark() -> dict:
@@ -118,3 +116,30 @@ def _alpha(base, latest, key):
     b_ = _cum(base, latest, "bot_nav")
     i_ = _cum(base, latest, key)
     return None if (b_ is None or i_ is None) else round(b_ - i_, 2)
+
+
+def experimental_summary() -> dict:
+    """실험 계좌(Q지수) 성과 — 메인 성적과 분리 추적. 검증되면 코어 승격 판단."""
+    out = {}
+    for acct in db.EXPERIMENTAL_ACCOUNTS:
+        pf = db.get_shared_portfolio(acct) or {}
+        seed = db.ACCT_SEED.get(acct, db.DESK_SEED)
+        nav = pf.get("balance", 0) or 0
+        pos = []
+        for p in db.get_open_positions(account=acct):
+            price = _position_price(p.get("code", ""), p.get("market", "US"))
+            nav += (p["quantity"] * price) if (price and p.get("quantity")) else (p.get("amount") or 0)
+            if price and p.get("entry_price"):
+                pos.append({"code": p.get("code"), "entry": p["entry_price"], "current": price,
+                            "ret_pct": round((price / p["entry_price"] - 1) * 100, 2),
+                            "opened_at": (p.get("opened_at") or "")[:10]})
+        closed = [x for x in db.get_all_positions(200, account=acct) if x.get("status") == "closed"]
+        out[acct] = {
+            "seed": seed, "nav": round(nav, 0),
+            "return_pct": round((nav / seed - 1) * 100, 2) if seed else None,
+            "positions": pos,
+            "wins": sum(1 for x in closed if (x.get("pnl") or 0) > 0),
+            "losses": sum(1 for x in closed if (x.get("pnl") or 0) <= 0),
+            "realized": pf.get("total_pnl", 0) or 0,
+        }
+    return out
