@@ -461,6 +461,26 @@ def get_decision_logs(before_date: str = None, source: str = None, limit: int = 
         return [dict(r) for r in con.execute(q, args).fetchall()]
 
 
+def save_position_snapshot(date, account, code, name, bots, entry, current, ret_pct, held_days, amount):
+    """주간 포지션 스냅샷 저장(같은 날 재실행은 갱신)."""
+    with _conn() as con:
+        con.execute("""INSERT INTO position_snapshot
+            (date, account, code, name, bots, entry_price, current_price, ret_pct, held_days, amount)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(date, account, code) DO UPDATE SET
+              current_price=excluded.current_price, ret_pct=excluded.ret_pct,
+              held_days=excluded.held_days, amount=excluded.amount""",
+            (date, account, code, name, bots, entry, current, ret_pct, held_days, amount))
+
+
+def get_position_snapshots(weeks: int = 26) -> list:
+    """최근 스냅샷(장기 추세 분석용)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM position_snapshot ORDER BY date DESC LIMIT ?", (weeks * 60,)).fetchall()]
+
+
 def save_weekly_report(date: str, content: str):
     with _conn() as con:
         con.execute("INSERT INTO weekly_report (date, content) VALUES (?,?) "
@@ -722,6 +742,20 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_decision_log_date ON decision_log(date);
         CREATE INDEX IF NOT EXISTS idx_decision_log_code ON decision_log(code);
+        -- 주간 포지션 스냅샷(장기 분포 분석 — 무엇이 오르고 무엇이 허수인지 판단할 원천)
+        CREATE TABLE IF NOT EXISTS position_snapshot (
+            date TEXT NOT NULL,
+            account TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            bots TEXT,                                 -- 매수 찬성 봇(내부 레터)
+            entry_price REAL,
+            current_price REAL,
+            ret_pct REAL,                              -- 진입가 대비 %
+            held_days INTEGER,
+            amount REAL,
+            PRIMARY KEY (date, account, code)
+        );
         -- 주간 성과 리포트(오너 전용 — 매매용 정확도 지표는 관전과 분리, 결재식 보고)
         CREATE TABLE IF NOT EXISTS weekly_report (
             date TEXT PRIMARY KEY,

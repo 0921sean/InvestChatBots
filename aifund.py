@@ -1383,6 +1383,71 @@ def _ret_after(dates, closes, decision_date, ndays=5):
     return closes[idx + ndays] / closes[idx] - 1
 
 
+def _distribution_section(today) -> list:
+    """보유 포지션의 수익률 분포·집중도·봇별 성과를 계산하고 주간 스냅샷을 남긴다(LLM 0).
+    장기 축적용 — 몇 주 쌓이면 '어떤 픽이 진짜 오르고 어떤 게 허수인지' 판별 근거가 된다."""
+    import statistics
+    from datetime import date as _date
+    from db import DESK_ACCOUNTS, get_open_positions, save_position_snapshot
+    from fetchers import fetch_position_prices
+    out = ["", "■ 성과 분포 (멱법칙 관찰 — 소수가 전체를 만드는가)"]
+    by_bot = {}
+    for acct in DESK_ACCOUNTS:
+        pos = [p for p in get_open_positions(account=acct) if p.get("entry_price")]
+        if not pos:
+            continue
+        try:
+            px = fetch_position_prices(pos)
+        except Exception:
+            px = {}
+        rows = []
+        for p in pos:
+            cur = px.get(p["symbol"])
+            if not cur:
+                continue
+            ret = cur / p["entry_price"] - 1
+            try:
+                y, m, d = (p.get("opened_at") or "")[:10].split("-")
+                held = (_date.today() - _date(int(y), int(m), int(d))).days
+            except Exception:
+                held = 0
+            code = p.get("code") or p["symbol"]
+            bots = ""
+            rz = p.get("reasoning") or ""
+            mm = re.search(r"\(([A-Z,]+)\)", rz)                  # "…매수 (S)" / "(P,W)"
+            if mm:
+                bots = mm.group(1)
+            rows.append((code, ret, held, p.get("amount") or 0, bots))
+            try:
+                save_position_snapshot(today, acct, code, p["symbol"], bots,
+                                       p["entry_price"], cur, round(ret * 100, 2), held, p.get("amount") or 0)
+            except Exception:
+                pass
+            for b in [x for x in bots.split(",") if x]:
+                by_bot.setdefault(b, []).append(ret)
+        if not rows:
+            continue
+        rets = sorted((r for _, r, _, _, _ in rows), reverse=True)
+        n = len(rets)
+        total = sum(rets)
+        top3 = sum(rets[:3])
+        wins = sum(1 for x in rets if x > 0)
+        out.append(f"  [{acct}] {n}종목 · 평균 {total/n*100:+.1f}% · 중앙값 {statistics.median(rets)*100:+.1f}% "
+                   f"· 승률 {wins/n*100:.0f}%")
+        out.append(f"    최고 {rets[0]*100:+.1f}% / 최저 {rets[-1]*100:+.1f}% · "
+                   + (f"상위3 기여 {top3/total*100:.0f}%" if abs(total) > 1e-9 else "상위3 기여 —"))
+        best = max(rows, key=lambda x: x[1]); worst = min(rows, key=lambda x: x[1])
+        out.append(f"    최고 {best[0]}({best[1]*100:+.1f}%, {best[2]}일) · 최저 {worst[0]}({worst[1]*100:+.1f}%, {worst[2]}일)")
+    if by_bot:
+        out.append("  [봇별 픽 성과] 어느 봇의 발굴이 실제로 오르는가")
+        for b, rs in sorted(by_bot.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])):
+            w = sum(1 for x in rs if x > 0)
+            out.append(f"    {_ROLE_KO.get(b, b)}({b}): {len(rs)}종목 · 평균 {sum(rs)/len(rs)*100:+.1f}% "
+                       f"· 승률 {w/len(rs)*100:.0f}% · 최고 {max(rs)*100:+.1f}%")
+    out.append("  ※ 표본이 쌓일수록 신뢰도 상승 — 주간 스냅샷(position_snapshot)에 누적 중")
+    return out
+
+
 def run_weekly_report():
     """P0 주간 성과 리포트(오너 전용·결정적 계산·LLM 0) — 봇별 판단 채점 + 결재 부가가치 + 데이터 헬스.
     저장(weekly_report) + 오너 ntfy. 반환 dict."""
@@ -1431,6 +1496,8 @@ def run_weekly_report():
             if rets:
                 lbl = "승인(매수)" if st == "approved" else "거부(패스)"
                 lines.append(f"  {lbl}: {len(rets)}건 · 평균 {sum(rets)/len(rets)*100:+.1f}%")
+    # ── 성과 분포(멱법칙) 분석 + 주간 스냅샷 저장 — "무엇이 오르고 무엇이 허수인가" ──
+    lines += _distribution_section(today)
     obs_c = len(get_observations("convinced")); obs_d = len(get_observations("dropped"))
     lines += ["", f"■ 관찰 단계: 확신 전환 {obs_c} · 철회 {obs_d}"]
     # 가설 검증: '빨리 확신한 종목이 더 좋은가?' — 관찰 일수 구간별 사후 성과(승인분 기준)
