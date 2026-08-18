@@ -1243,3 +1243,40 @@ def test_distribution_section_empty_is_safe(tmp_path, monkeypatch):
     db.init_db(); db.ensure_desk_accounts()
     lines = aifund._distribution_section("2026-08-19")
     assert "성과 분포" in "\n".join(lines)          # 보유 없어도 안전(섹션만)
+
+
+# ── 거시 컨텍스트가 종목 판단에 주입되는가 ──────────────
+def test_macro_context_uses_today_briefing_only(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "mc2.db"))
+    db.init_db()
+    assert aifund.macro_context() == ""                       # 브리핑 없으면 빈 문자열
+    db.save_macro_briefing("2000-01-01", "옛날 브리핑")
+    assert aifund.macro_context() == ""                       # 오늘자 아니면 미사용(과거 시황 방지)
+    db.save_macro_briefing(aifund._today_kst(), "**시장 국면**\n유동성 축소 · 지정학 긴장 고조")
+    m = aifund.macro_context()
+    assert "유동성 축소" in m and "**" not in m               # 마크다운 정리
+    assert len(aifund.macro_context(10)) <= 10                # 길이 제한
+
+
+def test_analysis_prompt_includes_macro_as_context_not_veto():
+    p = aifund.build_analysis_prompt("NVIDIA", "NVDA", "재무패킷", "AI 반도체",
+                                     macro="지정학 긴장 고조, 유동성 축소 국면")
+    assert "지정학 긴장 고조" in p
+    assert "참고 맥락" in p and "기계적으로 관망하지 말고" in p    # 거시는 재료지 차단 스위치 아님
+    assert "수혜/무관/역풍" in p                                # 종목 위치를 판단하게
+    p2 = aifund.build_analysis_prompt("X", "X", "패킷")          # 거시 없으면 섹션 자체가 없음
+    assert "시장 환경" not in p2
+
+
+def test_analyze_stock_injects_macro(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "ais.db"))
+    db.init_db()
+    db.save_macro_briefing(aifund._today_kst(), "지정학 리스크 확대 국면입니다.")
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "S", {"system": "병목"})
+    cap = {}
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda bot, sys_, prompt, **k: (cap.update(p=prompt), "[결정] 관망 | 이유: x")[1])
+    aifund.analyze_stock("NVDA", "NVIDIA", "NVDA", "S", brief=("패킷", "사업"))
+    assert "지정학 리스크 확대" in cap["p"]                     # 종목 판단에 거시가 실림
