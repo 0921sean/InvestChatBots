@@ -44,3 +44,46 @@ def test_compute_marks_missing_index_none(monkeypatch):
     r = bm.compute_benchmark()
     assert r["qqq"] is None          # baseline 결측 → 데이터 없음(가짜 금지)
     assert r["bot"] == 10.0 and r["schd"] == 10.0 and r["kospi"] == 0.0
+
+
+def test_bot_nav_uses_desk_accounts_not_committee(tmp_path, monkeypatch):
+    """벤치마크 NAV는 라이브 데스크 기준 — 은퇴한 committee(main/sub)를 재면 안 된다."""
+    import db, benchmark
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "bm.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    # committee 계좌에 큰 금액이 있어도 NAV에 안 잡혀야
+    with db._conn() as con:
+        con.execute("UPDATE shared_portfolio SET balance=999_000_000 WHERE id=1")
+    monkeypatch.setattr(benchmark, "_position_price", lambda code, market: None)
+    nav = benchmark.bot_combined_nav()
+    seed = benchmark.desk_seed_total()
+    assert nav == seed                       # 데스크 시드 그대로(committee 999M 미포함)
+    assert seed == 110_000_000               # 대형주5천+발굴주5천+Q지수1천
+
+
+def test_alpha_is_excess_over_index():
+    import benchmark
+    base = {"bot_nav": 100.0, "spy": 100.0, "qqq": 100.0}
+    latest = {"bot_nav": 110.0, "spy": 105.0, "qqq": 112.0}
+    assert benchmark._alpha(base, latest, "spy") == 5.0      # +10% vs +5% → +5%p
+    assert benchmark._alpha(base, latest, "qqq") == -2.0     # 시장에 짐
+    assert benchmark._alpha(base, {"bot_nav": None, "spy": 105.0}, "spy") is None
+
+
+def test_bot_return_normalized_by_seed_excludes_capital_inflow():
+    """계좌 신설로 자본이 유입돼도 수익률로 잡히면 안 된다(Q지수 개설 +1,000만 사례)."""
+    import benchmark
+    base = {"date": "2026-08-01", "bot_nav": 100_000_000.0}    # 시드 1억
+    latest = {"date": "2026-08-10", "bot_nav": 110_000_000.0}  # 시드 1.1억(신설분 유입), 수익 0
+    assert benchmark._cum(base, latest, "bot_nav") == 0.0       # 유입은 수익 아님
+    latest2 = {"date": "2026-08-10", "bot_nav": 112_200_000.0}  # 시드 1.1억 대비 +2%
+    assert benchmark._cum(base, latest2, "bot_nav") == 2.0
+    # 지수는 정규화 없이 가격 비율 그대로
+    assert benchmark._cum({"spy": 100.0}, {"spy": 105.0}, "spy") == 5.0
+
+
+def test_seed_at_boundary():
+    import benchmark
+    assert benchmark._seed_at("2026-08-06") == 100_000_000.0
+    assert benchmark._seed_at("2026-08-07") == 110_000_000.0    # Q지수 개설일
+    assert benchmark._seed_at(None) is None

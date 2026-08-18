@@ -39,18 +39,25 @@ def fetch_index_prices() -> dict:
 
 
 def bot_combined_nav() -> float:
-    """장기+트레이딩 합산 NAV = 두 계좌 현금 + 보유 시가평가(실패 시 원가)."""
+    """라이브 데스크 합산 NAV = 데스크 계좌 현금 + 보유 시가평가(실패 시 원가).
+    ⚠️ 2026-08: committee(main/sub) 은퇴 후에도 그쪽을 재고 있어 벤치마크가 왜곡됐다
+    (계좌 이관·매수로 NAV가 부풀어 '+82%' 같은 허위 수익률). 현행 데스크만 집계한다."""
     nav = 0.0
-    for acct in ("main", "sub"):
-        pf = db.get_shared_portfolio(acct)
+    for acct in db.DESK_ACCOUNTS:
+        pf = db.get_shared_portfolio(acct) or {}
         nav += pf.get("balance", 0) or 0
-    for p in db.get_open_positions():   # 두 계좌 전체
-        price = _position_price(p.get("code", ""), p.get("market", "KRX"))
-        if price and p.get("quantity"):
-            nav += p["quantity"] * price
-        else:
-            nav += p.get("amount") or 0   # 원가 fallback
+        for p in db.get_open_positions(account=acct):
+            price = _position_price(p.get("code", ""), p.get("market", "US"))
+            if price and p.get("quantity"):
+                nav += p["quantity"] * price
+            else:
+                nav += p.get("amount") or 0   # 원가 fallback
     return round(nav, 0)
+
+
+def desk_seed_total() -> float:
+    """데스크 총 시드(수익률 기준선)."""
+    return float(sum(db.ACCT_SEED.get(a, db.DESK_SEED) for a in db.DESK_ACCOUNTS))
 
 
 def capture_snapshot(date: str) -> dict:
@@ -63,11 +70,25 @@ def capture_snapshot(date: str) -> dict:
 
 
 def _cum(base, latest, key):
-    """baseline 대비 누적% (정규화). 데이터 없으면 None."""
+    """baseline 대비 누적% (정규화). 데이터 없으면 None.
+    bot_nav는 '시드 대비 수익률'로 계산한다 — 계좌 신설·자본 유입(예: Q지수 개설 +1,000만)이
+    수익으로 잡히던 왜곡 방지. 지수는 그대로 가격 비율."""
     b, l = base.get(key), latest.get(key)
     if not b or l is None:
         return None
+    if key == "bot_nav":
+        seed_b = _seed_at(base.get("date"))
+        seed_l = _seed_at(latest.get("date"))
+        if seed_b and seed_l:
+            return round(((l / seed_l) / (b / seed_b) - 1) * 100, 2)
     return round((l / b - 1) * 100, 2)
+
+
+def _seed_at(date_str):
+    """그 시점의 데스크 총 시드 — Q지수 계좌는 2026-08-07 개설(+1,000만)."""
+    if not date_str:
+        return None
+    return 110_000_000.0 if date_str >= "2026-08-07" else 100_000_000.0
 
 
 def compute_benchmark() -> dict:
@@ -86,4 +107,14 @@ def compute_benchmark() -> dict:
         "schd": _cum(base, latest, "schd"),
         "kospi": _cum(base, latest, "kospi"),
         "kosdaq": _cum(base, latest, "kosdaq"),
+        # 알파 = 시장 초과수익(%p). "시장을 이기는가"의 직접 지표.
+        "alpha_spy": _alpha(base, latest, "spy"),
+        "alpha_qqq": _alpha(base, latest, "qqq"),
     }
+
+
+def _alpha(base, latest, key):
+    """봇 누적% − 지수 누적%(%p). 둘 중 하나라도 없으면 None."""
+    b_ = _cum(base, latest, "bot_nav")
+    i_ = _cum(base, latest, key)
+    return None if (b_ is None or i_ is None) else round(b_ - i_, 2)
