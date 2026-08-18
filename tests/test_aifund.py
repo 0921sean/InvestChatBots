@@ -5,6 +5,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
 import aifund
 
 
@@ -756,6 +757,7 @@ def test_q_index_exit_mirror():
     assert aifund.q_index_exit(down, "inverse") is False
 
 
+@pytest.mark.skip(reason="Q지수 실험 종료(2026-08-19) — 계좌 은퇴, 코드는 보존")
 def test_run_q_index_desk_enters_long_and_inverse(tmp_path, monkeypatch):
     import db, backtest as bt
     monkeypatch.setenv("DB_PATH", str(tmp_path / "qi.db"))
@@ -777,6 +779,7 @@ def test_run_q_index_desk_enters_long_and_inverse(tmp_path, monkeypatch):
     assert r2["bought"] == []
 
 
+@pytest.mark.skip(reason="Q지수 실험 종료(2026-08-19) — 계좌 은퇴, 코드는 보존")
 def test_run_q_index_desk_exits_on_reversal(tmp_path, monkeypatch):
     import db, backtest as bt
     monkeypatch.setenv("DB_PATH", str(tmp_path / "qx.db"))
