@@ -1210,3 +1210,36 @@ def test_answer_approval_question_handles_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "call_agent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("LLM down")))
     assert aifund.answer_approval_question(pid, "질문")["ok"] is False    # 예외 삼키고 실패 반환
     assert aifund.answer_approval_question(99999, "질문")["ok"] is False  # 없는 결재
+
+
+# ── 성과 분포(멱법칙) 지표 ─────────────────────────────
+def test_distribution_section_computes_and_snapshots(tmp_path, monkeypatch):
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "dist.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    # 멱법칙 형태: 한 종목이 크게 오르고 나머지는 소폭 손실
+    db.buy_shared_position("Big Winner", "WIN", 100.0, 2_500_000, "발굴주 매수 (S)", "US", account="발굴주")
+    db.buy_shared_position("Meh Co", "MEH", 100.0, 2_500_000, "발굴주 매수 (S)", "US", account="발굴주")
+    db.buy_shared_position("Loser Co", "LOSE", 100.0, 2_500_000, "발굴주 매수 (P,W)", "US", account="발굴주")
+    monkeypatch.setattr(fetchers, "fetch_position_prices",
+                        lambda pos: {"Big Winner": 200.0, "Meh Co": 98.0, "Loser Co": 90.0})
+    lines = aifund._distribution_section("2026-08-19")
+    txt = "\n".join(lines)
+    assert "성과 분포" in txt and "발굴주" in txt
+    assert "승률 33%" in txt                      # 3종목 중 1승
+    assert "최고 WIN(+100.0%" in txt and "최저 LOSE(-10.0%" in txt
+    assert "봇별 픽 성과" in txt and "병목(S)" in txt   # 봇별 분해(역할라벨)
+    # 스냅샷 저장 확인(장기 축적)
+    snaps = db.get_position_snapshots()
+    got = {s["code"]: s for s in snaps}
+    assert got["WIN"]["ret_pct"] == 100.0 and got["WIN"]["bots"] == "S"
+    assert got["LOSE"]["bots"] == "P,W" and got["LOSE"]["ret_pct"] == -10.0
+    assert all(s["date"] == "2026-08-19" for s in snaps)
+
+
+def test_distribution_section_empty_is_safe(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "dist2.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    lines = aifund._distribution_section("2026-08-19")
+    assert "성과 분포" in "\n".join(lines)          # 보유 없어도 안전(섹션만)
