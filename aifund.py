@@ -457,11 +457,30 @@ def build_research_brief(code, name, yf_ticker, market="US"):
     return packet, data.get("business_summary", "")
 
 
-def build_analysis_prompt(name, code, packet_text, business_summary="") -> str:
-    """발굴봇 1인에게 줄 종목 분석 프롬프트. 데이터 패킷 + '꿈꾸는 것'(사업요약)."""
+def macro_context(max_chars: int = 500) -> str:
+    """오늘 거시 브리핑 요지 — 종목 판단에 넣을 '지금 세계에서 무슨 일이 벌어지나'.
+    브리핑 재사용이라 추가 LLM 호출 0. 없으면 빈 문자열(무해)."""
+    try:
+        from db import get_latest_macro_briefing
+        b = get_latest_macro_briefing()
+        if not b or b.get("date") != _today_kst():
+            return ""
+        txt = _clean_md((b.get("content") or "").strip())
+        return txt[:max_chars]
+    except Exception:
+        return ""
+
+
+def build_analysis_prompt(name, code, packet_text, business_summary="", macro="") -> str:
+    """발굴봇 1인에게 줄 종목 분석 프롬프트. 데이터 패킷 + 사업요약 + 거시 환경.
+    macro: 오늘 거시 브리핑 요지 — 재무만 보고 판단하지 않게 '지금 세계' 맥락을 함께 준다."""
     parts = [f"[분석 종목] {name} ({code})", "", packet_text]
     if business_summary:
         parts += ["", f"[사업 개요] {business_summary}"]
+    if macro:
+        parts += ["", f"[오늘 시장 환경(거시 자문 브리핑)]\n{macro}",
+                  "※ 거시는 '참고 맥락'이다. 이걸로 기계적으로 관망하지 말고, 이 종목이 지금 환경에서 "
+                  "어떤 위치인지(수혜/무관/역풍) 네 원칙으로 판단해라."]
     parts += [
         "",
         "위 종목을 네 투자 원칙으로 평가해줘. 팀 채팅에 올리는 것처럼 **마크다운·소제목(##·**) 없이 자연스러운 3~4문장**으로,",
@@ -546,7 +565,7 @@ def analyze_stock(code, name, yf_ticker, bot, market="US", brief=None):
     from db import save_thesis
 
     packet, business = brief if brief else build_research_brief(code, name, yf_ticker, market)
-    prompt = build_analysis_prompt(name, code, packet, business)
+    prompt = build_analysis_prompt(name, code, packet, business, macro=macro_context())
     # trim=False: 끝줄 [결정]이 문장단위 트림에 잘리지 않게(잘리면 관망 오폴백·메시지 끊김)
     reasoning = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet", trim=False)
     verdict = _parse_verdict(reasoning)
@@ -1224,14 +1243,16 @@ def _register_observation(desk, name, code, price, approvers, reasonings, stock_
 def _observation_prompt(obs, brief_packet, cur_price) -> str:
     """재관찰 프롬프트 — 자기 과거 논지 + 당시 가격 vs 현재 데이터로 확신 재평가."""
     days = (obs.get("review_count") or 0) + 1
+    _macro = macro_context(400)
     return (f"[관찰 재점검 {days}회차] 너는 앞서 {obs['name']} ({obs['code']})를 매수 후보로 보고 "
             f"이런 논지를 남겼다 (당시 가격 {obs.get('price_at') or '?'}):\n{obs.get('thesis') or '(논지 기록 없음)'}\n\n"
             f"현재 가격: {cur_price or '?'}\n현재 데이터:\n{brief_packet or '(데이터 부족 — 보수적으로)'}\n\n"
-            "그때의 논지가 지금도 유지·강화되고 있나? 서두를 필요 없다 — 확신이 없으면 더 지켜보고, "
-            "논지가 훼손됐으면 솔직하게 철회해라. 반드시 아래 형식으로:\n"
-            "[관찰] 확신 | 이유: ...  (이제 사도 된다고 확신)\n"
-            "[관찰] 유지 | 이유: ...  (계속 지켜본다)\n"
-            "[관찰] 철회 | 이유: ...  (논지 훼손 — 관찰 중단)")
+            + (f"[오늘 시장 환경]\n{_macro}\n\n" if _macro else "")
+            + "그때의 논지가 지금도 유지·강화되고 있나? 서두를 필요 없다 — 확신이 없으면 더 지켜보고, "
+            + "논지가 훼손됐으면 솔직하게 철회해라. 반드시 아래 형식으로:\n"
+            + "[관찰] 확신 | 이유: ...  (이제 사도 된다고 확신)\n"
+            + "[관찰] 유지 | 이유: ...  (계속 지켜본다)\n"
+            + "[관찰] 철회 | 이유: ...  (논지 훼손 — 관찰 중단)")
 
 
 def run_observation_review(market="US"):
@@ -1998,9 +2019,13 @@ def _deep_study(bot, code, name, first_reasoning, brief):
         from agents import call_agent
         from prompts import AGENT_PROFILES
         packet = (brief or ("", ""))[0]
+        _macro = macro_context(400)
         prompt = (f"방금 너는 {name} ({code})에 매수 판단을 내렸다:\n{first_reasoning}\n\n"
-                  f"데이터:\n{packet}\n\n이제 반대편에 서라. 이 매수가 틀릴 수 있는 시나리오를 "
-                  "구체적으로 2~3개 들고(밸류에이션·경쟁·수요 둔화 등), 각각에 네 논지가 버티는지 따져라. "
+                  f"데이터:\n{packet}\n\n"
+                  + (f"[오늘 시장 환경]\n{_macro}\n\n" if _macro else "")
+                  + "이제 반대편에 서라. 이 매수가 틀릴 수 있는 시나리오를 "
+                  "구체적으로 2~3개 들고(밸류에이션·경쟁·수요 둔화·거시/지정학 역풍 등), "
+                  "각각에 네 논지가 버티는지 따져라. "
                   "버티면 [딥스터디] 유지 | 이유: … / 반박이 더 세면 [딥스터디] 철회 | 이유: … 로 끝내라.")
         out = call_agent(bot, AGENT_PROFILES[bot]["system"], prompt, model="sonnet", trim=False) or ""
         m = _DEEP_RE.search(out)
