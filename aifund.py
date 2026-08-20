@@ -659,8 +659,13 @@ def q_exit_signal(closes, strat):
 def q_veto(closes, in_uptrend):
     """Q veto(보조지표) — 대형주에서 '지금 사면 안 되는 자리'만 막는다. 하드 진입게이트 아님:
     veto 아니면 P/W/H 확신을 따라 매수('장기 메인 + 퀀트 보조지표' 철학).
-    veto 조건(명백한 위험만): ①약세장(SPY<200MA) ②종목 200일선 아래(장기추세 이탈=낙하칼 회피).
+    veto 조건(명백한 위험만): ①약세장(SPY<200MA) ②종목 200일선 아래(장기추세 이탈=낙하칼 회피)
+    ③종목 50일선 아래(청산 기준과 대칭 — 아래 참조).
     과매수(볼밴 상단)는 veto 안 함 — 건강한 상승추세도 밴드 상단을 타서 오판 위험. 장기픽은 타이밍보다 종목이 중요.
+
+    ⚠️ ③이 있는 이유(2026-08-20): 청산은 50MA 이탈인데 매수는 200MA만 봐서, 두 선 사이 종목은
+    '매수 조건과 청산 조건을 동시에 충족' → 사자마자 팔리는 무의미 회전이 반복됐다
+    (GOOGL·TSM 4건이 진입가=청산가로 2.9~11시간 만에 청산). 진입·청산 기준을 대칭으로 맞춘다.
     반환 (veto: bool, 이유: str)."""
     import backtest as bt
     if not in_uptrend:
@@ -669,6 +674,10 @@ def q_veto(closes, in_uptrend):
         s200 = bt._sma(closes, 200)
         if s200 and closes[-1] < s200:
             return True, "200일선 아래(장기추세 이탈)"
+    if len(closes) >= 50:
+        s50 = bt._sma(closes, 50)
+        if s50 and closes[-1] < s50:
+            return True, "50일선 아래(사자마자 청산될 자리)"
     return False, ""
 
 

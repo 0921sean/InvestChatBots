@@ -1283,3 +1283,37 @@ def test_analyze_stock_injects_macro(tmp_path, monkeypatch):
                         lambda bot, sys_, prompt, **k: (cap.update(p=prompt), "[결정] 관망 | 이유: x")[1])
     aifund.analyze_stock("NVDA", "NVIDIA", "NVDA", "S", brief=("패킷", "사업"))
     assert "지정학 리스크 확대" in cap["p"]                     # 종목 판단에 거시가 실림
+
+
+# ── q_veto 50MA 대칭(사자마자 청산 방지) ──────────────────
+def _series(px, s50_target, s200_target):
+    """마지막 종가 px, 50MA≈s50_target, 200MA≈s200_target인 시계열 구성."""
+    # 앞 150봉은 s200 수준, 뒤 49봉은 s50 수준, 마지막이 px
+    head = [s200_target * 2 - s50_target] * 150     # 200MA를 목표치로 끌어올릴 값
+    tail = [s50_target] * 49
+    return head + tail + [px]
+
+
+def test_q_veto_blocks_below_50ma_even_above_200ma():
+    """두 선 사이(200MA 위·50MA 아래)는 매수 차단 — 청산 조건과 동시 충족되던 회전 방지."""
+    import backtest as bt
+    closes = _series(px=100.0, s50_target=110.0, s200_target=90.0)
+    s50, s200 = bt._sma(closes, 50), bt._sma(closes, 200)
+    assert closes[-1] < s50 and closes[-1] > s200          # 전제: 두 선 사이
+    veto, why = aifund.q_veto(closes, True)
+    assert veto is True and "50일선" in why
+
+
+def test_q_veto_passes_above_both():
+    import backtest as bt
+    closes = _series(px=130.0, s50_target=110.0, s200_target=90.0)
+    s50, s200 = bt._sma(closes, 50), bt._sma(closes, 200)
+    assert closes[-1] > s50 and closes[-1] > s200
+    assert aifund.q_veto(closes, True) == (False, "")
+
+
+def test_q_veto_200ma_takes_precedence():
+    closes = _series(px=50.0, s50_target=110.0, s200_target=90.0)
+    veto, why = aifund.q_veto(closes, True)
+    assert veto is True and "200일선" in why               # 더 심각한 사유 우선
+    assert aifund.q_veto(closes, False)[1].startswith("약세장")   # 시장 필터가 최우선
