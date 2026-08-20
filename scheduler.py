@@ -7,6 +7,22 @@ from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_cura
                     run_workday, WORKDAY_ENABLED)
 
 
+def _refresh_market_snapshot():
+    """사이드바 'Live' 시황(지수·뉴스·TA) 갱신 — committee 은퇴(2026-08) 후 갱신 주체가
+    사라져 7/31 데이터가 계속 Live로 표시되던 문제. LLM 미사용(데이터 조회만)."""
+    import json
+    from orchestrator import fetch_market_data, fetch_news, fetch_technical_analysis
+    from db import save_market_snapshot
+    data = fetch_market_data()
+    news = fetch_news(max_items=8)
+    try:
+        ta = fetch_technical_analysis()
+    except Exception:
+        ta = {}
+    if data:
+        save_market_snapshot(json.dumps({"data": data, "news": news, "ta": ta}))
+
+
 def _capture_benchmark():
     """지수 벤치마크 일일 스냅샷 — committee 스케줄러 은퇴 후 여기서 담당(데스크 게이트와 무관)."""
     from datetime import datetime, timezone, timedelta
@@ -63,6 +79,10 @@ def start_scheduler():
                       id="weekly_report", misfire_grace_time=3600)
     # 신뢰성: 매일 03:00 DB 백업(핫·무결성·회전·오프사이트) + 15분마다 워치독(디스크·DB → 세이프모드).
     import ops
+    # 시황 스냅샷(사이드바 Live 지수·뉴스) — 평일 30분마다. 미장·국장 모두 커버.
+    scheduler.add_job(_refresh_market_snapshot,
+                      CronTrigger(minute="*/30"),
+                      id="market_snapshot", misfire_grace_time=900)
     scheduler.add_job(ops.backup_db, CronTrigger(hour=3, minute=0),
                       id="db_backup", misfire_grace_time=3600)
     scheduler.add_job(lambda: (ops.beat(), ops.watchdog()), CronTrigger(minute="*/15"),
