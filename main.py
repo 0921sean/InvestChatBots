@@ -587,8 +587,15 @@ def api_chat_queue():
 
 _price_cache: dict = {}          # {symbol: price}
 _price_cache_at: float = 0.0
-_PRICE_CACHE_TTL = 900           # 15분 캐시 — 계좌 화면은 분단위 실시간이 불필요하고
-                                 # 외부 API 레이트리밋(토스 6TPS 등) 여유를 확보한다.
+def _price_cache_ttl() -> int:
+    """장중엔 짧게(3분), 장외·주말엔 길게(30분) — 체감 최신성과 API 레이트리밋을 함께 만족.
+    미장 정규장 = 22:30~05:00 KST(서머타임 기준 근사)."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=9)))
+    if now.weekday() >= 5:                     # 주말: 시세 안 움직임
+        return 1800
+    h = now.hour
+    return 180 if (h >= 22 or h < 5) else 1800
 
 # 옛 봇 이름 → 새 봇 이름 매핑 (포트폴리오 모달의 매수 근거 표시용)
 # 형식: "구)<옛이름>" 표기로 과거 봇 이름임을 명시
@@ -665,7 +672,7 @@ def api_portfolio():
     global _price_cache, _price_cache_at
 
     # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
-    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:
+    if _time_module.time() - _price_cache_at > _price_cache_ttl():
         threading.Thread(target=_refresh_prices_bg, daemon=True).start()
 
     # 메인(장기) 계좌
@@ -699,7 +706,7 @@ def api_fund_report(limit: int = 60):
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
     global _price_cache, _price_cache_at
-    if _time_module.time() - _price_cache_at > _PRICE_CACHE_TTL:   # 현재가 캐시 만료 시 백그라운드 갱신
+    if _time_module.time() - _price_cache_at > _price_cache_ttl():   # 현재가 캐시 만료 시 백그라운드 갱신
         threading.Thread(target=_refresh_prices_bg, daemon=True).start()
     from db import (DESK_ACCOUNTS, DESK_SEED, ACCT_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
