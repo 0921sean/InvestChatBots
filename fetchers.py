@@ -394,6 +394,29 @@ def format_stock_news(stock_name: str, news_items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+_tv_blocked_until = 0.0          # TradingView 429 감지 시 이 시각까지 건너뛴다(레이트리밋 회복 대기)
+
+
+def _tv_price(code_or_symbol):
+    """TradingView 시세. 429면 일정 시간 차단 표시하고 None(폴백 유도)."""
+    global _tv_blocked_until
+    import time as _t
+    if _t.time() < _tv_blocked_until:
+        return None
+    for exch in ("NASDAQ", "NYSE", "NYSE ARCA", "AMEX"):
+        try:
+            a = TA_Handler(symbol=code_or_symbol, screener="america",
+                           exchange=exch, interval=Interval.INTERVAL_1_DAY).get_analysis()
+            close = a.indicators.get("close") or a.indicators.get("Close")
+            if close:
+                return float(close)
+        except Exception as e:
+            if "429" in str(e):                 # 리밋 → 10분간 TradingView 건너뛰기
+                _tv_blocked_until = _t.time() + 600
+                return None
+    return None
+
+
 def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
     """
     보유 포지션 현재가 일괄 조회.
@@ -409,17 +432,7 @@ def fetch_position_prices(positions: list[dict]) -> dict[str, float]:
         try:
             if market == "US":
                 # TradingView → yfinance → 토스증권(최종 폴백). yfinance 429 시 토스가 받아줌.
-                price = None
-                for exch in ("NASDAQ", "NYSE", "NYSE ARCA", "AMEX"):
-                    try:
-                        a = TA_Handler(symbol=code or symbol, screener="america",
-                                       exchange=exch, interval=Interval.INTERVAL_1_DAY).get_analysis()
-                        close = a.indicators.get("close") or a.indicators.get("Close")
-                        if close:
-                            price = float(close)
-                            break
-                    except Exception:
-                        pass
+                price = _tv_price(code or symbol)      # 429면 즉시 None → 폴백
                 if not price:
                     price, _ = _yf_price(code or symbol)
                 if not price:

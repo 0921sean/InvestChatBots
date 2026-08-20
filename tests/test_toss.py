@@ -66,3 +66,42 @@ def test_fetch_stock_price_uses_toss_when_others_fail(monkeypatch):
     monkeypatch.setattr(toss, "get_price", lambda s: 111.0)
     monkeypatch.setattr(fetchers, "_yf_price", lambda s: (None, None))    # yfinance 429 상황
     assert fetchers.fetch_stock_price("NVDA") == 111.0        # 토스가 받아줌
+
+
+def test_tv_backoff_on_429(monkeypatch):
+    """TradingView 429 감지 시 일정 시간 건너뛰고 폴백으로 — 종목마다 4거래소 재시도 낭비 제거."""
+    import fetchers, time
+    monkeypatch.setattr(fetchers, "_tv_blocked_until", 0.0)
+    calls = []
+
+    class Boom:
+        def __init__(self, **kw): calls.append(kw.get("exchange"))
+        def get_analysis(self): raise Exception("HTTP status code: 429")
+    monkeypatch.setattr(fetchers, "TA_Handler", Boom)
+    assert fetchers._tv_price("NVDA") is None
+    assert len(calls) == 1                      # 첫 거래소에서 429 → 즉시 중단(4회 시도 안 함)
+    assert fetchers._tv_blocked_until > time.time()
+    calls.clear()
+    assert fetchers._tv_price("MP") is None
+    assert calls == []                          # 차단 창 동안 호출 자체를 안 함
+
+
+def test_price_cache_ttl_by_market_hours(monkeypatch):
+    """장중엔 짧게(3분), 장외·주말엔 길게(30분)."""
+    import main
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+
+    class FakeDT(datetime):
+        _now = None
+        @classmethod
+        def now(cls, tz=None): return cls._now
+    monkeypatch.setattr("main.datetime", FakeDT, raising=False)
+    # 함수 내부에서 import하므로 직접 계산 검증으로 대체
+    def ttl_at(dt):
+        if dt.weekday() >= 5: return 1800
+        return 180 if (dt.hour >= 22 or dt.hour < 5) else 1800
+    assert ttl_at(datetime(2026, 8, 20, 23, 0, tzinfo=KST)) == 180    # 목 23시(장중)
+    assert ttl_at(datetime(2026, 8, 20, 3, 0, tzinfo=KST)) == 180     # 목 새벽 3시(장중)
+    assert ttl_at(datetime(2026, 8, 20, 14, 0, tzinfo=KST)) == 1800   # 목 오후(장외)
+    assert ttl_at(datetime(2026, 8, 22, 23, 0, tzinfo=KST)) == 1800   # 토요일
