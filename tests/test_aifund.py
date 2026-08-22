@@ -1317,3 +1317,52 @@ def test_q_veto_200ma_takes_precedence():
     veto, why = aifund.q_veto(closes, True)
     assert veto is True and "200일선" in why               # 더 심각한 사유 우선
     assert aifund.q_veto(closes, False)[1].startswith("약세장")   # 시장 필터가 최우선
+
+
+# ── J 전용 지수 풀 ────────────────────────────────────
+def test_j_index_prompt_uses_market_lens_not_stock_lens():
+    p = aifund._j_index_prompt("EWJ", "일본", "PER 15배 · PBR 1.2", macro="유동성 축소")
+    assert "일본 지수 ETF (EWJ)" in p
+    assert "시장 전체 밸류에이션" in p and "통화·정치·규제" in p and "미국 대비 상대 매력" in p
+    assert "해자·경영진 대신" in p              # 개별주 잣대 배제 명시
+    assert "유동성 축소" in p                   # 거시 주입
+    assert "[결정] 관망 | 이유:" in p           # 출력 포맷 강제
+
+
+def test_j_index_review_picks_only_on_buy(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "jidx.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("지수 패킷", ""))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "W", {"system": "가치"})
+    monkeypatch.setattr(aifund, "J_INDEX_POOL", {"EWJ": "일본", "MCHI": "중국"})
+    monkeypatch.setattr(aifund, "J_INDEX_QUOTA", 2)
+    verdicts = {"EWJ": "[결정] 매수 | 이유: PER 15배로 미국 대비 싸다",
+                "MCHI": "[결정] 관망 | 이유: 정치 리스크가 밸류 할인 정당화"}
+    monkeypatch.setattr(agents, "call_agent",
+                        lambda bot, sys_, prompt, **k: next(v for k2, v in verdicts.items() if k2 in prompt))
+    r = aifund.run_j_index_review()
+    assert set(r["reviewed"]) == {"EWJ", "MCHI"}
+    assert r["picked"] == ["EWJ"]                        # 매수 판단만 관심종목行
+    w = {x["code"]: x for x in db.get_watchlist("watching")}
+    assert "EWJ" in w and "MCHI" not in w
+    assert w["EWJ"]["approved_by"] == "W" and "PER 15배" in (w["EWJ"]["thesis"] or "")
+    logs = [x for x in db.get_decision_logs() if x["source"] == "지수검토"]
+    assert len(logs) == 2                                # 판단 기록(채점 가능)
+
+
+def test_j_index_review_skips_held_and_done(tmp_path, monkeypatch):
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "jidx2.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "J_INDEX_POOL", {"EWJ": "일본"})
+    db.buy_shared_position("일본 지수", "EWJ", 95.0, 5_000_000, "t", "US", account="대형주")
+    called = []
+    monkeypatch.setattr(agents, "call_agent", lambda *a, **k: called.append(1) or "[결정] 매수")
+    r = aifund.run_j_index_review()
+    assert r["reviewed"] == [] and called == []          # 이미 보유 → 검토 안 함(토큰 절약)

@@ -1650,6 +1650,90 @@ def answer_approval_question(pid: int, question: str) -> dict:
     return {"ok": True, "answer": ans, "bot": pub_letter(bot)}
 
 
+# ── J(가치) 전용 지수 풀 ──────────────────────────────
+# 가치투자자는 자국이 비싸면 해외에서 기회를 찾는다(일본 상사 투자 등이 그 사례).
+# J가 미국 개별주에서 안전마진을 못 찾을 때(803판단 중 매수 3건) 대안으로 검토할 국가·지역·테마 지수.
+# ETF는 개별주 잣대(해자·ROE)가 아니라 '시장 전체의 밸류·성장·정치리스크'로 평가해야 한다 → 전용 프롬프트.
+J_INDEX_POOL = {
+    "EWJ": "일본", "EWY": "한국", "MCHI": "중국", "KWEB": "중국 인터넷",
+    "INDA": "인도", "EWG": "독일", "EWU": "영국", "VGK": "유럽",
+    "EWZ": "브라질", "EWW": "멕시코", "EEM": "신흥국", "VXUS": "미국 외 전세계",
+    "EWT": "대만", "EWC": "캐나다", "EWA": "호주", "EWS": "싱가포르",
+}
+J_INDEX_QUOTA = 4          # 한 사이클에 검토할 지수 수(토큰 절약 — 매일 순환)
+
+
+def _j_index_prompt(code, name, packet, macro="") -> str:
+    """J의 지수 평가 프롬프트 — 개별주 잣대가 아니라 '시장 단위' 관점으로."""
+    parts = [f"[검토 대상] {name} 지수 ETF ({code})", "", packet or "(데이터 부족 — 아는 범위에서)"]
+    if macro:
+        parts += ["", f"[오늘 시장 환경]\n{macro}"]
+    parts += [
+        "",
+        "너는 미국 개별주에서 안전마진을 찾기 어려운 국면이라 해외·지역 지수로 눈을 돌렸다.",
+        "지수는 개별 기업이 아니므로 해자·경영진 대신 다음을 봐라:",
+        "① 시장 전체 밸류에이션(그 나라 지수의 PER·PBR이 역사적으로 싼가)",
+        "② 통화·정치·규제 리스크(자본 통제, 지정학, 환율)",
+        "③ 구조적 성장 동력(인구·산업 전환·기업지배구조 개선 등)",
+        "④ 미국 대비 상대 매력 — '지금 미국 대신 여기를 살 이유'가 있는가",
+        "안전마진이 없으면 주저 없이 관망해라. 억지로 사지 마라.",
+        "3~4문장으로 근거를 말하고, **마지막 줄만** `[결정] 관망 | 이유: (한 줄)` 형식으로. 매수/관망/매도 중 하나.",
+    ]
+    return "\n".join(parts)
+
+
+def run_j_index_review(market="US"):
+    """J가 국가·테마 지수를 검토 — 미국 개별주가 비쌀 때의 대안 탐색.
+    매수 판단이 나오면 대형주 관심종목에 올려 기존 결재 흐름을 그대로 탄다.
+    반환 {'reviewed','picked'}."""
+    if not NEW_DESK_ENABLED:
+        return {"reviewed": [], "picked": []}
+    from db import add_to_watch, get_open_positions_by_symbol, get_fund_reports
+    from agents import call_agent
+    from prompts import AGENT_PROFILES
+    today = _today_kst()
+    done = {r["code"] for r in get_fund_reports(200) if r.get("date") == today}
+    held = {(p.get("code") or p["symbol"]) for p in _all_desk_positions()}
+    pool = [(c, n) for c, n in J_INDEX_POOL.items() if c not in done and c not in held]
+    if not pool:
+        return {"reviewed": [], "picked": []}
+    rng = random.Random(today)                       # 날짜 시드 — 매일 다른 지수를 순환 검토
+    rng.shuffle(pool)
+    pool = pool[:J_INDEX_QUOTA]
+    macro = macro_context(400)
+    reviewed, picked = [], []
+    _narrate("W", f"미국 개별주에서 안전마진 찾기가 어려운 국면이라, 오늘은 해외 지수를 봅니다 — "
+                  + ", ".join(n for _, n in pool) + ".")
+    for code, name in pool:
+        try:
+            brief = build_research_brief(code, name, code, market)
+            packet = (brief or ("", ""))[0]
+            out = call_agent("W", AGENT_PROFILES["W"]["system"],
+                             _j_index_prompt(code, name, packet, macro),
+                             model="sonnet", trim=False) or ""
+        except Exception as e:
+            logger.warning(f"J 지수 검토 실패 {code}: {e}")
+            continue
+        v = _parse_verdict(out)
+        reviewed.append(code)
+        _narrate("W", verdict_message(out, v, f"{name} 지수"), model="sonnet")
+        log_decision("지수검토", "W", code, f"{name} 지수", v, out, packet=packet)
+        _store_report(today, code, f"{name} 지수", brief, "대형주", summary=f"{name} 시장 전체에 투자하는 지수 ETF")
+        if v == "매수" and not get_open_positions_by_symbol(name, account="대형주"):
+            _thesis = _compose_buy_report(["W"], {"W": out}) or f"· 가치 담당 의견 — {_verdict_reason(out)}"
+            add_to_watch(code, f"{name} 지수", "W", thesis=_thesis)
+            picked.append(code)
+    return {"reviewed": reviewed, "picked": picked}
+
+
+def _all_desk_positions():
+    from db import DESK_ACCOUNTS, get_open_positions
+    out = []
+    for a in DESK_ACCOUNTS:
+        out += get_open_positions(account=a)
+    return out
+
+
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
@@ -2095,6 +2179,7 @@ def run_workday():
         run_macro_briefing()                                     # 하루 1회 가드 내장
         run_bottleneck_curation()                                # 하루 1회 가드 내장
         run_largecap_cycle()                                     # 오늘 완료 섹터는 idempotent 스킵
+        run_j_index_review()                                     # J: 미국이 비쌀 때 해외 지수 대안 검토
         run_q_index_desk()                                       # 멱등(중복 보유 방지)
         run_risk_review()                                        # 하루 1회 가드 내장
         rounds = 0
