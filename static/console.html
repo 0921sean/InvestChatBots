@@ -324,19 +324,26 @@ async function loadVisits() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = (await r.json()).verified || {};
     const t = d.totals || {};
-    const days = (d.by_day || []).slice(-14);
+    // by_day는 최신순(DESC)이고 방문 없는 날은 행 자체가 없다.
+    // 최근 14일을 날짜축으로 깔고 채운다 — 아무도 안 온 날도 보여야 추이가 안 왜곡됨.
+    const byDay = Object.fromEntries((d.by_day || []).map(x => [x.day, x]));
+    const anchor = d.today || (d.by_day || [{}])[0].day;
+    const days = anchor ? [...Array(14)].map((_, i) => {
+      const day = new Date(Date.parse(anchor + 'T00:00:00Z') - i * 86400000).toISOString().slice(0, 10);
+      return byDay[day] || { day, uv: 0, new_uv: 0, returning_uv: 0, pv: 0 };
+    }) : [];
     const peak = Math.max(1, ...days.map(x => x.uv || 0));
     const bars = days.map(x => {
       const nw = Math.round(((x.new_uv || 0) / peak) * 100);
       const rt = Math.round(((x.returning_uv || 0) / peak) * 100);
-      return `<div class="row"><span class="d">${esc((x.day || '').slice(5))}</span>` +
+      return `<div class="row"${x.uv ? '' : ' style="opacity:.4"'}><span class="d">${esc((x.day || '').slice(5))}</span>` +
         `<span class="bar"><i style="width:${nw}%;background:#3b82f6"></i><i style="width:${rt}%;background:#22c55e"></i></span>` +
-        `<span class="n">신규 ${x.new_uv || 0} · 재방문 ${x.returning_uv || 0}</span></div>`;
+        `<span class="n">${x.uv ? `신규 ${x.new_uv || 0} · 재방문 ${x.returning_uv || 0}` : '방문 없음'}</span></div>`;
     }).join('') || '<div class="empty">아직 방문 기록이 없습니다.</div>';
     const src = (d.by_source || []).map(x =>
       `<div class="row"><span class="d">${esc(x.source || '?')}</span>` +
       `<span class="n" style="min-width:auto">UV ${x.uv || 0} · ${x.pv || 0}PV</span></div>`).join('');
-    const coh = (d.cohorts || []).slice(-7).map(x =>
+    const coh = (d.cohorts || []).slice(0, 7).map(x =>
       `<div class="row"><span class="d">${esc((x.cohort || '').slice(5))}</span>` +
       `<span class="n" style="min-width:auto">신규 ${x.cohort_size || 0} → D1 ${x.d1 || 0} · D7 ${x.d7 || 0}</span></div>`).join('');
     el.innerHTML =
@@ -348,7 +355,7 @@ async function loadVisits() {
        </div>
        <div class="ptitle">날짜별 (최근 14일 · 파랑=신규 초록=재방문)</div><div class="rows">${bars}</div>
        ${src ? `<div class="ptitle">유입 출처</div><div class="rows">${src}</div>` : ''}
-       ${coh ? `<div class="ptitle">재방문 코호트 — 관전 후 다시 오나?</div><div class="rows">${coh}</div>` : ''}`;
+       ${coh ? `<div class="ptitle">재방문 코호트 — 관전 후 다시 오나? (전체 D1 ${(d.retention||{}).d1_rate ?? 0}% · D7 ${(d.retention||{}).d7_rate ?? 0}%)</div><div class="rows">${coh}</div>` : ''}`;
   } catch (e) { el.innerHTML = `<div class="empty">불러오지 못함: ${esc(e.message)}</div>`; }
 }
 
