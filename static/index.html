@@ -189,6 +189,7 @@
   .btn-play { background: #1a7f37; color: #fff; }
   .btn-play.playing { background: #b62324; color: #fff; }
   .btn-group { display: flex; gap: 6px; }
+  a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow-anchor: none; }
   #msg-anchor { height: 1px; flex-shrink: 0; }
@@ -747,9 +748,7 @@
       <button class="btn btn-ghost" id="btn-summary" onclick="requestSummary()">📋 요약</button>
       <button class="btn btn-ghost" id="btn-main-run" onclick="runMainCycle()" title="오늘 메인 프로세스 실행">▶ 메인 실행</button>
       <button class="btn btn-ghost" id="btn-sub-run" onclick="runSubCycle()" title="서브 사이클 즉시 실행">▶ 서브 실행</button>
-      <button class="btn btn-ghost owner-only" id="btn-stats" onclick="openStats()" title="방문 통계">📊 통계</button>
-      <button class="btn btn-ghost owner-only" id="btn-feedback-list" onclick="openFeedbackList()" title="피드백 목록">📨 피드백 <span id="fb-badge" style="display:none"></span></button>
-      <button class="btn btn-ghost owner-only" id="btn-chatlog" onclick="openChatLog()" title="사용자 채팅 기록">🗨 채팅기록</button>
+      <a class="btn btn-ghost owner-only" id="btn-console" href="/admin" title="운영 콘솔 — 결재·리스크가드·통계">🛠️ 콘솔 <span id="fb-badge" style="display:none"></span></a>
       <button class="btn btn-feedback visitor-only" id="btn-feedback-send" onclick="openFeedbackSend()" title="피드백 보내기">💬 피드백</button>
       <button id="mobile-right-btn" class="mobile-only" onclick="toggleRightDrawer()" aria-label="패널">💼</button>
     </div>

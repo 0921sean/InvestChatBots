@@ -230,18 +230,14 @@ async def owner_guard(request: Request, call_next):
 def owner_seeds_page(request: Request):
     """S 병목 시드 결재 페이지 (owner only) — 폰에서 pending 후보 ✅/❌.
     인증 안 됐으면 /admin 로그인으로 보낸다. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
-    # 결재함 통합(2026-08-07): 시드 결재도 /owner/approvals 한 페이지에서 — 옛 링크·북마크 호환 리다이렉트
-    return RedirectResponse("/owner/approvals")
+    # 결재함 통합: 시드 결재도 운영 콘솔 한 페이지에서 — 옛 링크·북마크 호환 리다이렉트
+    return RedirectResponse("/admin")
 
 
 @app.get("/owner/approvals")
 def owner_approvals_page(request: Request):
-    """매수 결재 페이지 (owner only) — 봇 매수 판단을 종목설명·이유·Q멘트와 함께 ✅승인/❌거부.
-    미인증 → /admin. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
-    if not is_owner(request):
-        return RedirectResponse("/admin")
-    return FileResponse("static/approvals.html",
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    """옛 결재함 URL — 운영 콘솔(/admin)로 통합(2026-08-23). 북마크 호환용 리다이렉트."""
+    return RedirectResponse("/admin")
 
 
 @app.get("/owner/{token}")
@@ -273,11 +269,12 @@ def whoami(request: Request):
 # ── /admin 로그인 페이지 ────────────────────────────────
 @app.get("/admin")
 def admin_page(request: Request):
-    """인증 완료면 메인 SPA를 /admin URL 그대로 유지하며 서빙.
-    인증 안 됐으면 로그인 폼."""
+    """인증 완료면 운영 콘솔(결재·리스크가드·서비스지표). 인증 안 됐으면 로그인 폼.
+    2026-08-23 전에는 여기서 공개 SPA를 서빙했는데 관전 화면과 운영 화면이 섞여
+    용도가 애매해졌다. 관전은 '/', 운영은 '/admin'으로 분리한다."""
     if is_owner(request):
         return FileResponse(
-            "static/index.html",
+            "static/console.html",
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",

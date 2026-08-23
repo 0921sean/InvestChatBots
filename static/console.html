@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f1117">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<title>결재함 — InvestChatBots</title>
+<title>운영 콘솔 — InvestChatBots</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -50,10 +50,37 @@
   .brief h3 { font-size: 12px; font-weight: 800; color: #8b8cf0; margin-bottom: 4px; letter-spacing: .02em; }
   .brief .date { font-size: 10px; color: #6e7681; margin-bottom: 8px; }
   .brief .body { font-size: 12.5px; line-height: 1.7; color: #c9d1d9; white-space: pre-wrap; }
+  /* ── 관전 지표 패널 (방문/피드백/채팅) ── */
+  .panel { background: #12161f; border: 1px solid #21262d; border-radius: 12px; margin-bottom: 10px; }
+  .panel > summary { cursor: pointer; padding: 13px 15px; font-size: 12.5px; font-weight: 800; color: #c9d1d9; list-style: none; }
+  .panel > summary::-webkit-details-marker { display: none; }
+  .panel > summary::before { content: '▸ '; color: #6e7681; }
+  .panel[open] > summary::before { content: '▾ '; }
+  .panel .pbody { padding: 0 15px 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .kpi { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 9px 6px; text-align: center; }
+  .kpi .n { font-size: 17px; font-weight: 800; color: #e2e8f0; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 9px; color: #6e7681; margin-top: 2px; }
+  .rows { display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; color: #8b949e; font-variant-numeric: tabular-nums; }
+  .row .d { min-width: 46px; color: #c9d1d9; }
+  .row .bar { flex: 1; height: 7px; background: #0d1117; border-radius: 4px; overflow: hidden; display: flex; }
+  .row .bar i { display: block; height: 100%; }
+  .row .n { min-width: 108px; text-align: right; font-size: 10.5px; }
+  .ptitle { font-size: 10px; font-weight: 700; color: #6e7681; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 6px; }
+  .fb { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 9px 11px; margin-bottom: 6px; }
+  .fb.unread { border-color: #9e6a03; }
+  .fb .t { font-size: 12.5px; color: #e2e8f0; line-height: 1.55; white-space: pre-wrap; }
+  .fb .m { font-size: 10px; color: #6e7681; margin-top: 5px; }
+  .cl { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 10px 12px; margin-bottom: 7px; }
+  .cl .q { font-size: 12.5px; font-weight: 800; color: #6cb6ff; }
+  .cl .ts { font-size: 10px; color: #6e7681; margin: 3px 0 6px; }
+  .cl .a { font-size: 11.5px; color: #8b949e; line-height: 1.55; margin-top: 5px; }
+  .cl .a b { color: #c9d1d9; }
 </style>
 </head>
 <body>
-  <div class="brand"><span class="brand-emoji">🧾</span><span class="brand-text">결재함</span></div>
+  <div class="brand"><span class="brand-emoji">🛠️</span><span class="brand-text">운영 콘솔</span></div>
   <div class="sub">담당 봇들이 매수를 <b>건의</b>드린 종목입니다. 회사 소개·매수 사유·진입 타이밍을 검토하시고 결재해 주세요. <b>승인하면 봇 판단 시점 가격으로 체결</b>, 거부하면 매수하지 않습니다. 사이클은 결재와 무관하게 계속 돕니다. (청산·손절은 자동)</div>
 
   <div id="risk"></div>
@@ -75,7 +102,24 @@
   </div>
   <details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:#6e7681">승인된 워치리스트 보기</summary><div id="seed-approved" style="margin-top:8px"></div></details>
 
-  <a class="back" href="/admin">← 관리자 홈</a>
+  <div class="sec-title" style="margin-top:26px">📈 서비스 지표</div>
+
+  <details class="panel" ontoggle="if(this.open)loadVisits()">
+    <summary>📊 방문 통계</summary>
+    <div class="pbody" id="visits">불러오는 중…</div>
+  </details>
+
+  <details class="panel" ontoggle="if(this.open)loadFeedback()">
+    <summary>📨 피드백 <span id="fb-badge" style="color:#f0a752"></span></summary>
+    <div class="pbody" id="feedback">불러오는 중…</div>
+  </details>
+
+  <details class="panel" ontoggle="if(this.open)loadChats()">
+    <summary>🗨 사용자 채팅 기록</summary>
+    <div class="pbody" id="chats">불러오는 중…</div>
+  </details>
+
+  <a class="back" href="/">← 관전 화면으로</a>
 
 <script>
 const esc = s => (s||"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -269,6 +313,78 @@ async function addSeed() {
   document.getElementById('addTk').value = '';
   loadSeeds();
 }
+// ───── 서비스 지표 (방문·피드백·채팅) — 펼칠 때만 로드 ─────
+const fmtTs = t => t ? new Date(t.replace(' ', 'T') + 'Z').toLocaleString('ko-KR',
+  { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }) : '—';
+
+async function loadVisits() {
+  const el = document.getElementById('visits');
+  try {
+    const r = await fetch('/api/admin/visits?days=30', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = (await r.json()).verified || {};
+    const t = d.totals || {};
+    const days = (d.by_day || []).slice(-14);
+    const peak = Math.max(1, ...days.map(x => x.uv || 0));
+    const bars = days.map(x => {
+      const nw = Math.round(((x.new_uv || 0) / peak) * 100);
+      const rt = Math.round(((x.returning_uv || 0) / peak) * 100);
+      return `<div class="row"><span class="d">${esc((x.day || '').slice(5))}</span>` +
+        `<span class="bar"><i style="width:${nw}%;background:#3b82f6"></i><i style="width:${rt}%;background:#22c55e"></i></span>` +
+        `<span class="n">신규 ${x.new_uv || 0} · 재방문 ${x.returning_uv || 0}</span></div>`;
+    }).join('') || '<div class="empty">아직 방문 기록이 없습니다.</div>';
+    const src = (d.by_source || []).map(x =>
+      `<div class="row"><span class="d">${esc(x.source || '?')}</span>` +
+      `<span class="n" style="min-width:auto">UV ${x.uv || 0} · ${x.pv || 0}PV</span></div>`).join('');
+    const coh = (d.cohorts || []).slice(-7).map(x =>
+      `<div class="row"><span class="d">${esc((x.cohort || '').slice(5))}</span>` +
+      `<span class="n" style="min-width:auto">신규 ${x.cohort_size || 0} → D1 ${x.d1 || 0} · D7 ${x.d7 || 0}</span></div>`).join('');
+    el.innerHTML =
+      `<div class="kpis">
+         <div class="kpi"><div class="n">${t.unique_visitors ?? 0}</div><div class="l">고유 방문자</div></div>
+         <div class="kpi"><div class="n">${t.page_views ?? 0}</div><div class="l">페이지뷰</div></div>
+         <div class="kpi"><div class="n">${t.returning_visitors ?? 0}</div><div class="l">재방문자</div></div>
+         <div class="kpi"><div class="n">${t.returning_rate ?? 0}%</div><div class="l">재방문율</div></div>
+       </div>
+       <div class="ptitle">날짜별 (최근 14일 · 파랑=신규 초록=재방문)</div><div class="rows">${bars}</div>
+       ${src ? `<div class="ptitle">유입 출처</div><div class="rows">${src}</div>` : ''}
+       ${coh ? `<div class="ptitle">재방문 코호트 — 관전 후 다시 오나?</div><div class="rows">${coh}</div>` : ''}`;
+  } catch (e) { el.innerHTML = `<div class="empty">불러오지 못함: ${esc(e.message)}</div>`; }
+}
+
+async function loadFeedback() {
+  const el = document.getElementById('feedback');
+  try {
+    const r = await fetch('/api/admin/feedback?limit=50', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const items = d.items || [];
+    document.getElementById('fb-badge').textContent = d.unread_count ? `· 안읽음 ${d.unread_count}` : '';
+    el.innerHTML = (items.length
+      ? items.map(x => `<div class="fb${x.is_read ? '' : ' unread'}"><div class="t">${esc(x.content)}</div>` +
+          `<div class="m">${fmtTs(x.ts)}${x.is_read ? '' : ' · 🆕'}</div></div>`).join('')
+      : '<div class="empty">아직 피드백이 없습니다.</div>')
+      + (d.unread_count ? '<button onclick="readAllFeedback()" style="background:#1f6feb;width:100%;margin-top:6px;font-size:12.5px;padding:9px">전체 읽음 처리</button>' : '');
+  } catch (e) { el.innerHTML = `<div class="empty">불러오지 못함: ${esc(e.message)}</div>`; }
+}
+async function readAllFeedback() {
+  await fetch('/api/admin/feedback/read?id=0', { method: 'POST', credentials: 'same-origin' });
+  loadFeedback();
+}
+
+async function loadChats() {
+  const el = document.getElementById('chats');
+  try {
+    const r = await fetch('/api/admin/chats?limit=30', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const items = (await r.json()).items || [];
+    el.innerHTML = items.length ? items.map(x =>
+      `<div class="cl"><div class="q">${esc(x.question)}</div><div class="ts">${fmtTs(x.ts)}</div>` +
+      (x.answers || []).map(a => `<div class="a"><b>${esc(a.agent)}</b> ${esc(a.content)}</div>`).join('') +
+      `</div>`).join('') : '<div class="empty">아직 사용자 채팅이 없습니다.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty">불러오지 못함: ${esc(e.message)}</div>`; }
+}
+
 loadSeeds();
 load();
 </script>
