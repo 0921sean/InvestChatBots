@@ -226,26 +226,17 @@ async def owner_guard(request: Request, call_next):
 
 
 # ── owner 로그인 / 신원 확인 ────────────────────────────────
-@app.get("/owner/seeds")
-def owner_seeds_page(request: Request):
-    """S 병목 시드 결재 페이지 (owner only) — 폰에서 pending 후보 ✅/❌.
-    인증 안 됐으면 /admin 로그인으로 보낸다. (동적 /owner/{token}보다 먼저 선언해 선점.)"""
-    # 결재함 통합: 시드 결재도 운영 콘솔 한 페이지에서 — 옛 링크·북마크 호환 리다이렉트
-    return RedirectResponse("/admin")
-
-
-@app.get("/owner/approvals")
-def owner_approvals_page(request: Request):
-    """옛 결재함 URL — 운영 콘솔(/admin)로 통합(2026-08-23). 북마크 호환용 리다이렉트."""
-    return RedirectResponse("/admin")
-
+# 옛 결재 페이지(/owner/approvals · /owner/seeds)는 운영 콘솔(/admin)로 통합돼 폐지(2026-08-23).
+# 폰에 남은 옛 알림을 눌러도 막다른 403이 되지 않게 아래 owner_login에서 /admin으로 흘린다.
 
 @app.get("/owner/{token}")
 def owner_login(token: str):
     """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
     이 URL은 본인만 알아야 하므로 .env에 OWNER_TOKEN을 직접 두고 사용."""
     if token != OWNER_TOKEN:
-        raise HTTPException(status_code=403, detail="invalid owner token")
+        # 옛 /owner/approvals·/owner/seeds 링크가 여기로 떨어진다 → 로그인 화면으로.
+        # (쿠키는 발급 안 되므로 인증 우회가 아니다.)
+        return RedirectResponse("/admin")
     resp = RedirectResponse(url="/")
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,

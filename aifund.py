@@ -236,7 +236,7 @@ def _s_sourcing_note(codes, names) -> str:
 def submit_bottleneck_candidates(candidates, source="agent") -> list:
     """②d 큐레이션 산출물을 결재 큐에 올림 — pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy.
     candidates: [{'ticker','rationale'}] 또는 [ticker,...]. 반환: 새로 올라간 티커 목록.
-    ※ 승인은 사람(Admin /owner/seeds). 여기선 소싱만 — 매수·평가 안 함."""
+    ※ 승인은 사람(운영 콘솔 /admin). 여기선 소싱만 — 매수·평가 안 함."""
     from db import add_bottleneck_seed
     norm = []
     for c in candidates or []:
