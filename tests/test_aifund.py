@@ -1339,6 +1339,7 @@ def test_j_index_review_picks_only_on_buy(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
     monkeypatch.setitem(prompts.AGENT_PROFILES, "W", {"system": "가치"})
     monkeypatch.setattr(aifund, "J_INDEX_POOL", {"EWJ": "일본", "MCHI": "중국"})
+    monkeypatch.setattr(aifund, "J_ASSET_POOL", {})
     monkeypatch.setattr(aifund, "J_INDEX_QUOTA", 2)
     verdicts = {"EWJ": "[결정] 매수 | 이유: PER 15배로 미국 대비 싸다",
                 "MCHI": "[결정] 관망 | 이유: 정치 리스크가 밸류 할인 정당화"}
@@ -1361,8 +1362,53 @@ def test_j_index_review_skips_held_and_done(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(aifund, "J_INDEX_POOL", {"EWJ": "일본"})
+    monkeypatch.setattr(aifund, "J_ASSET_POOL", {})
     db.buy_shared_position("일본 지수", "EWJ", 95.0, 5_000_000, "t", "US", account="대형주")
     called = []
     monkeypatch.setattr(agents, "call_agent", lambda *a, **k: called.append(1) or "[결정] 매수")
     r = aifund.run_j_index_review()
     assert r["reviewed"] == [] and called == []          # 이미 보유 → 검토 안 함(토큰 절약)
+
+
+# ── J 실물자산·채권 풀 (금·은 등) ──────────────────────
+def test_j_asset_prompt_uses_real_asset_lens_not_equity_lens():
+    p = aifund._j_asset_prompt("GLD", "금", "현재가 423.36", macro="실질금리 하락")
+    assert "금 (GLD)" in p and "주식이 아닌 대체 자산" in p
+    assert "실질금리·통화가치" in p and "역사적 위치" in p
+    assert "해자·ROE·PER로 보지 마라" in p        # 기업 잣대 배제
+    assert "현금보다 나은가" in p                  # 대안은 현금이라는 기준점
+    assert "실질금리 하락" in p
+    assert "[결정] 관망 | 이유:" in p
+
+
+def test_j_review_mixes_assets_with_indices(tmp_path, monkeypatch):
+    """금·은 같은 대체 자산도 같은 검토 흐름을 타되, 자산군 프롬프트로 평가된다."""
+    import db, agents, prompts
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "jasset.db"))
+    db.init_db()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("패킷", ""))
+    monkeypatch.setattr(aifund, "_store_report", lambda *a, **k: None)
+    monkeypatch.setitem(prompts.AGENT_PROFILES, "W", {"system": "가치"})
+    monkeypatch.setattr(aifund, "J_INDEX_POOL", {"EWJ": "일본"})
+    monkeypatch.setattr(aifund, "J_ASSET_POOL", {"GLD": "금"})
+    monkeypatch.setattr(aifund, "J_INDEX_QUOTA", 1)
+    monkeypatch.setattr(aifund, "J_ASSET_QUOTA", 1)
+    seen = {}
+
+    def _agent(bot, sys_, prompt, **k):
+        if "GLD" in prompt:
+            seen["asset"] = prompt
+            return "[결정] 매수 | 이유: 실질금리 하락 국면"
+        seen["index"] = prompt
+        return "[결정] 관망 | 이유: 고평가"
+
+    monkeypatch.setattr(agents, "call_agent", _agent)
+    r = aifund.run_j_index_review()
+    assert set(r["reviewed"]) == {"EWJ", "GLD"}
+    assert r["picked"] == ["GLD"]
+    assert "해자·ROE·PER로 보지 마라" in seen["asset"]      # 자산군 렌즈
+    assert "시장 전체 밸류에이션" in seen["index"]           # 지수 렌즈(섞이지 않음)
+    w = {x["code"]: x for x in db.get_watchlist("watching")}
+    assert w["GLD"]["name"] == "금"                         # 지수처럼 "금 지수"로 안 붙음
