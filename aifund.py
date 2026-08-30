@@ -22,7 +22,7 @@ NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "y
 # 6시 병목 큐레이션 게이트(.env). off면 큐레이션 no-op — 웹서치=구독 토큰 추가 소모라 명시 활성화(로드맵 ②d).
 BOTTLENECK_CURATION_ENABLED = os.getenv("BOTTLENECK_CURATION_ENABLED", "").lower() in ("1", "true", "yes")
 BOTTLENECK_CURATION_QUOTA = 8   # 하루 1콜로 올리는 후보 상한(여러 트렌드 분산 위해 소폭 상향). 운영값.
-# 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/owner/approvals).
+# 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/admin).
 # 사이클은 결재만 올리고 계속 진행(논블로킹). 청산·손절은 자동(매수만 결재). off면 기존처럼 자동 매수.
 BUY_APPROVAL_REQUIRED = os.getenv("BUY_APPROVAL_REQUIRED", "").lower() in ("1", "true", "yes")
 # M 거시 브리핑 게이트(.env). on이면 매일 아침 블로그 새 글 크롤 + 거시 브리핑 생성(구독 토큰).
@@ -236,7 +236,7 @@ def _s_sourcing_note(codes, names) -> str:
 def submit_bottleneck_candidates(candidates, source="agent") -> list:
     """②d 큐레이션 산출물을 결재 큐에 올림 — pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy.
     candidates: [{'ticker','rationale'}] 또는 [ticker,...]. 반환: 새로 올라간 티커 목록.
-    ※ 승인은 사람(Admin /owner/seeds). 여기선 소싱만 — 매수·평가 안 함."""
+    ※ 승인은 사람(운영 콘솔 /admin). 여기선 소싱만 — 매수·평가 안 함."""
     from db import add_bottleneck_seed
     norm = []
     for c in candidates or []:
@@ -252,7 +252,7 @@ def submit_bottleneck_candidates(candidates, source="agent") -> list:
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
-        link = (site + "/owner/approvals") if site else "/owner/approvals"   # 결재함 통합
+        link = (site + "/admin") if site else "/admin"   # 결재함 = 운영 콘솔
         notify(f"🔩 병목 시드 결재 {len(added)}건", f"{lst}\n승인/반려: {link}",
                priority="default", cooldown=0)
     except Exception as e:
@@ -1198,7 +1198,7 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
-        link = (site + "/owner/approvals") if site else "/owner/approvals"
+        link = (site + "/admin") if site else "/admin"
         head = (reason or "").splitlines()[0][:80] if reason else stock_desc[:80]
         notify(f"🧾 매수 결재 건의 — {ticker} ({desk})",
                f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n{head}\n검토·승인: {link}",
@@ -1566,7 +1566,7 @@ def run_weekly_report():
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
-        notify("📊 주간 성과 리포트", f"봇 판단 채점 도착 — {(site or '') + '/owner/approvals'}", cooldown=0)
+        notify("📊 주간 성과 리포트", f"봇 판단 채점 도착 — {(site or '') + '/admin'}", cooldown=0)
     except Exception:
         pass
     return {"date": today, "graded": sum(len(v) for v in stats.values()), "chars": len(content)}
@@ -1923,7 +1923,7 @@ def _fetch_new_blog_posts() -> int:
 
 def run_macro_briefing():
     """매일 아침 M 거시 브리핑 — 블로그 새 글 크롤 → 최근 글 + 현재 지수 → M이 오너 보고 작성 → 저장.
-    /owner/approvals 상단에 표시. MACRO_BRIEFING_ENABLED=False면 no-op. 실패/토큰소진 시 skip."""
+    운영 콘솔(/admin) 상단에 표시. MACRO_BRIEFING_ENABLED=False면 no-op. 실패/토큰소진 시 skip."""
     if not MACRO_BRIEFING_ENABLED:
         return {"skipped": "disabled"}
     from db import (get_recent_blog_posts, save_macro_briefing, get_benchmark_snapshots,
