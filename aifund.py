@@ -1655,12 +1655,21 @@ def answer_approval_question(pid: int, question: str) -> dict:
 # J가 미국 개별주에서 안전마진을 못 찾을 때(803판단 중 매수 3건) 대안으로 검토할 국가·지역·테마 지수.
 # ETF는 개별주 잣대(해자·ROE)가 아니라 '시장 전체의 밸류·성장·정치리스크'로 평가해야 한다 → 전용 프롬프트.
 J_INDEX_POOL = {
+    # 국가·지역 주식 지수
     "EWJ": "일본", "EWY": "한국", "MCHI": "중국", "KWEB": "중국 인터넷",
     "INDA": "인도", "EWG": "독일", "EWU": "영국", "VGK": "유럽",
     "EWZ": "브라질", "EWW": "멕시코", "EEM": "신흥국", "VXUS": "미국 외 전세계",
     "EWT": "대만", "EWC": "캐나다", "EWA": "호주", "EWS": "싱가포르",
 }
+# 실물자산·채권 — 주식이 전반적으로 비쌀 때 가치투자자가 보는 대안(현금 대신 둘 곳).
+# PER이 없어 주식 지수와 평가 렌즈가 다르다(실질금리·통화가치·수급).
+J_ASSET_POOL = {
+    "GLD": "금", "SLV": "은", "GDX": "금광기업", "PPLT": "백금",
+    "DBC": "원자재", "URA": "우라늄",
+    "TLT": "미국 장기국채", "TIP": "물가연동채", "VNQ": "리츠",
+}
 J_INDEX_QUOTA = 4          # 한 사이클에 검토할 지수 수(토큰 절약 — 매일 순환)
+J_ASSET_QUOTA = 2          # 실물자산·채권 검토 수
 
 
 def _j_index_prompt(code, name, packet, macro="") -> str:
@@ -1682,8 +1691,27 @@ def _j_index_prompt(code, name, packet, macro="") -> str:
     return "\n".join(parts)
 
 
+def _j_asset_prompt(code, name, packet, macro="") -> str:
+    """실물자산·채권 평가 — 주식이 아니라 PER이 없다. 다른 렌즈로 본다."""
+    parts = [f"[검토 대상] {name} ({code}) — 주식이 아닌 대체 자산", "", packet or "(가격 데이터 위주)"]
+    if macro:
+        parts += ["", f"[오늘 시장 환경]\n{macro}"]
+    parts += [
+        "",
+        "너는 주식이 전반적으로 비싸 안전마진을 찾기 어려운 국면이라 대체 자산을 검토한다.",
+        "이건 기업이 아니므로 해자·ROE·PER로 보지 마라. 대신:",
+        "① 실질금리·통화가치 — 금·은은 실질금리가 낮고 통화 신뢰가 흔들릴 때 유리",
+        "② 수급 구조 — 채굴·생산 원가, 재고, 중앙은행 매입 같은 구조적 수요",
+        "③ 역사적 위치 — 지금 가격이 역사적 밴드에서 어디인가(고점 추격인가)",
+        "④ 역할 — 이걸 사는 게 '주식 대신 기다리는 자리'로 합리적인가, 아니면 그냥 현금이 나은가",
+        "'현금보다 나은가'가 핵심 질문이다. 확신 없으면 관망해라 — 현금도 훌륭한 포지션이다.",
+        "3~4문장으로 근거를 말하고, **마지막 줄만** `[결정] 관망 | 이유: (한 줄)` 형식으로. 매수/관망/매도 중 하나.",
+    ]
+    return "\n".join(parts)
+
+
 def run_j_index_review(market="US"):
-    """J가 국가·테마 지수를 검토 — 미국 개별주가 비쌀 때의 대안 탐색.
+    """J가 국가 지수 + 실물자산·채권을 검토 — 미국 개별주가 비쌀 때의 대안 탐색.
     매수 판단이 나오면 대형주 관심종목에 올려 기존 결재 흐름을 그대로 탄다.
     반환 {'reviewed','picked'}."""
     if not NEW_DESK_ENABLED:
@@ -1694,34 +1722,40 @@ def run_j_index_review(market="US"):
     today = _today_kst()
     done = {r["code"] for r in get_fund_reports(200) if r.get("date") == today}
     held = {(p.get("code") or p["symbol"]) for p in _all_desk_positions()}
-    pool = [(c, n) for c, n in J_INDEX_POOL.items() if c not in done and c not in held]
+    def _avail(src):
+        return [(c, n) for c, n in src.items() if c not in done and c not in held]
+    rng = random.Random(today)                       # 날짜 시드 — 매일 다른 대상을 순환 검토
+    idx_pool, asset_pool = _avail(J_INDEX_POOL), _avail(J_ASSET_POOL)
+    rng.shuffle(idx_pool); rng.shuffle(asset_pool)
+    pool = ([(c, n, "index") for c, n in idx_pool[:J_INDEX_QUOTA]]
+            + [(c, n, "asset") for c, n in asset_pool[:J_ASSET_QUOTA]])
     if not pool:
         return {"reviewed": [], "picked": []}
-    rng = random.Random(today)                       # 날짜 시드 — 매일 다른 지수를 순환 검토
-    rng.shuffle(pool)
-    pool = pool[:J_INDEX_QUOTA]
     macro = macro_context(400)
     reviewed, picked = [], []
-    _narrate("W", f"미국 개별주에서 안전마진 찾기가 어려운 국면이라, 오늘은 해외 지수를 봅니다 — "
-                  + ", ".join(n for _, n in pool) + ".")
-    for code, name in pool:
+    _narrate("W", f"미국 개별주에서 안전마진 찾기가 어려운 국면이라, 오늘은 해외 지수와 대체 자산을 봅니다 — "
+                  + ", ".join(n for _, n, _k in pool) + ".")
+    for code, name, kind in pool:
+        label = f"{name} 지수" if kind == "index" else name
         try:
             brief = build_research_brief(code, name, code, market)
             packet = (brief or ("", ""))[0]
-            out = call_agent("W", AGENT_PROFILES["W"]["system"],
-                             _j_index_prompt(code, name, packet, macro),
+            prompt = (_j_index_prompt if kind == "index" else _j_asset_prompt)(code, name, packet, macro)
+            out = call_agent("W", AGENT_PROFILES["W"]["system"], prompt,
                              model="sonnet", trim=False) or ""
         except Exception as e:
             logger.warning(f"J 지수 검토 실패 {code}: {e}")
             continue
         v = _parse_verdict(out)
         reviewed.append(code)
-        _narrate("W", verdict_message(out, v, f"{name} 지수"), model="sonnet")
-        log_decision("지수검토", "W", code, f"{name} 지수", v, out, packet=packet)
-        _store_report(today, code, f"{name} 지수", brief, "대형주", summary=f"{name} 시장 전체에 투자하는 지수 ETF")
-        if v == "매수" and not get_open_positions_by_symbol(name, account="대형주"):
+        _narrate("W", verdict_message(out, v, label), model="sonnet")
+        log_decision("지수검토", "W", code, label, v, out, packet=packet)
+        _store_report(today, code, label, brief, "대형주",
+                      summary=(f"{name} 시장 전체에 투자하는 지수 ETF" if kind == "index"
+                               else f"{name}에 연동되는 대체 자산 ETF"))
+        if v == "매수" and not get_open_positions_by_symbol(label, account="대형주"):
             _thesis = _compose_buy_report(["W"], {"W": out}) or f"· 가치 담당 의견 — {_verdict_reason(out)}"
-            add_to_watch(code, f"{name} 지수", "W", thesis=_thesis)
+            add_to_watch(code, label, "W", thesis=_thesis)
             picked.append(code)
     return {"reviewed": reviewed, "picked": picked}
 
