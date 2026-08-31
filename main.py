@@ -157,54 +157,44 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="InvestChatBots", lifespan=lifespan)
+# docs/openapi 비활성 — 전체 라우트 인벤토리가 공개되면 가드 누락 라우트를 찾는 지도가 된다
+app = FastAPI(title="InvestChatBots", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ── owner-only 미들웨어 ────────────────────────────────────
-# 아래 (method, path) 조합은 토큰 소비/시스템 변경을 일으키는 작업이라
-# OWNER_TOKEN 쿠키 없는 익명 접속자는 호출 차단.
-_OWNER_ONLY_ROUTES = {
-    ("POST", "/api/conversation/start"),
-    ("POST", "/api/conversation/stop"),
-    # /api/user-message — 채팅 공개: 방문자도 호출 가능(서버 하드캡 30/일 + FIFO 큐로 보호)
-    ("POST", "/api/positions/evaluate"),
-    ("POST", "/api/holdings/review"),
-    ("POST", "/api/summary/request"),
-    ("POST", "/api/stop-on-credit/on"),
-    ("POST", "/api/stop-on-credit/off"),
-    ("POST", "/api/cycle/reset"),
-    ("POST", "/api/main-cycle/run"),
-    ("POST", "/api/lecture-note"),
-    ("DELETE", "/api/lecture-notes"),
-    ("POST", "/api/owner/logout"),
-    ("POST", "/api/donations"),
-    # /api/admin/login은 공개 (비번 검증 자체가 인증)
-    ("POST", "/api/watchlist/run"),
-    ("POST", "/api/main-cycle/measure"),
-    ("POST", "/api/watchlist/pause"),
-    ("POST", "/api/watchlist/resume"),
-    ("POST", "/api/main/pause"),
-    ("POST", "/api/main/resume"),
-    ("POST", "/api/random-speak/on"),
-    ("POST", "/api/random-speak/off"),
+# deny-by-default: 상태를 바꾸거나 토큰을 쓰는 메서드는 기본 차단이고,
+# 아래 공개 목록에 명시한 것만 익명 허용한다.
+# (옛 허용목록 방식은 새 라우트 등록을 빠뜨리면 조용히 공개됐다 —
+#  실제로 /api/main-cycle/resume-force·/api/sub-cycle/measure가 무인증 노출돼 반전함)
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+_PUBLIC_MUTATING_ROUTES = {
+    ("POST", "/api/admin/login"),    # 비번 검증 자체가 인증
+    ("POST", "/api/visit"),          # 방문 비콘
+    ("POST", "/api/user-message"),   # 채팅 공개 — 서버 하드캡 30/일로 보호
+    ("POST", "/api/feedback"),
+    ("POST", "/api/contact"),
+    ("POST", "/api/note"),
 }
 
-# /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
-_OWNER_ONLY_PREFIXES = [
-    ("DELETE", "/api/donations/"),
-]
+# 읽기 전용이지만 내부 운영 정보라 오너만 봐야 하는 GET
+# (/api/token-usage는 후원 게이지가 쓰는 방문자 UI라 의도적으로 공개 유지)
+_OWNER_ONLY_GETS = {
+    "/api/_debug/state",
+    "/api/_debug/jobs",
+    "/api/lecture-notes",
+}
 
 
 @app.middleware("http")
 async def owner_guard(request: Request, call_next):
     method, path = request.method, request.url.path
-    is_owner_only = (method, path) in _OWNER_ONLY_ROUTES
-    if not is_owner_only:
-        for m, prefix in _OWNER_ONLY_PREFIXES:
-            if method == m and path.startswith(prefix):
-                is_owner_only = True
-                break
+    if method in _MUTATING_METHODS:
+        is_owner_only = (method, path) not in _PUBLIC_MUTATING_ROUTES
+    else:
+        is_owner_only = path in _OWNER_ONLY_GETS
 
     # 피드백 관련 요청만 상세 로그 (디버그)
     is_fb = "feedback" in path
