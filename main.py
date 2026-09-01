@@ -609,6 +609,33 @@ def _remap_old_bot_names(text: str) -> str:
     return _OLD_BOT_PAT.sub(lambda m: f"{_OLD_BOT_MAP[m.group(1)]}(구)", text)
 
 _price_refresh_lock = threading.Lock()    # 동시 요청이 갱신 스레드를 중복 생성하지 않게
+_price_miss_at: float = 0.0               # 캐시에 없는 종목 때문에 강제 갱신한 마지막 시각
+_PRICE_MISS_COOLDOWN = 60                 # 조회가 계속 실패해도 매 요청마다 외부 API를 때리지 않게
+
+
+def _ensure_prices(positions):
+    """현재가 캐시 갱신 트리거(백그라운드).
+
+    TTL 만료 시 갱신하는 건 기존과 같고, 여기에 **캐시에 아예 없는 종목이 있으면
+    TTL을 무시하고 즉시 갱신**하는 경로를 더한다.
+
+    장 마감 중엔 TTL이 30분이라, 그 사이 매수한 종목은 다음 만료 때까지 현재가가
+    계속 '—'로 보였다(시세 조회 자체는 마감 중에도 종가를 잘 돌려준다 — 문제는
+    조회를 안 한 것). 갓 매수한 포지션은 정의상 캐시에 없으므로 이 경로로 바로 채워진다.
+
+    조회 실패가 반복되는 종목(상장폐지 등)이 있으면 매 요청이 미스로 잡히므로
+    쿨다운으로 폭주를 막는다. 갱신 자체도 _price_refresh_lock으로 한 번에 하나만 돈다.
+    """
+    global _price_miss_at
+    now = _time_module.time()
+    if now - _price_cache_at > _price_cache_ttl():
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
+        return
+    missing = any(p.get("status") == "open" and p.get("symbol") not in _price_cache
+                  for p in positions)
+    if missing and now - _price_miss_at > _PRICE_MISS_COOLDOWN:
+        _price_miss_at = now
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
 
 
 def _refresh_prices_bg():
@@ -659,20 +686,21 @@ def _enrich_positions(positions):
 def api_portfolio():
     global _price_cache, _price_cache_at
 
-    # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
-    if _time_module.time() - _price_cache_at > _price_cache_ttl():
-        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
-
     # 메인(장기) 계좌
+    main_pos = get_all_positions(30, account="main")
+    sub_pos = get_all_positions(30, account="sub")
+    # 캐시 만료 or 캐시에 없는 종목(갓 매수) 있으면 백그라운드 갱신 트리거 (응답은 즉시)
+    _ensure_prices(main_pos + sub_pos)
+
     pf = get_shared_portfolio("main")
     pf["market_status"] = is_market_open()
     pf["initial_balance"] = INITIAL_BALANCE
-    pf["positions"] = _enrich_positions(get_all_positions(30, account="main"))
+    pf["positions"] = _enrich_positions(main_pos)
 
     # 서브(트레이딩) 계좌
     sub = get_shared_portfolio("sub")
     sub["initial_balance"] = TRADING_BALANCE
-    sub["positions"] = _enrich_positions(get_all_positions(30, account="sub"))
+    sub["positions"] = _enrich_positions(sub_pos)
     pf["sub"] = sub
 
     return pf
@@ -694,10 +722,11 @@ def api_fund_report(limit: int = 60):
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
     global _price_cache, _price_cache_at
-    if _time_module.time() - _price_cache_at > _price_cache_ttl():   # 현재가 캐시 만료 시 백그라운드 갱신
-        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
     from db import (DESK_ACCOUNTS, DESK_SEED, ACCT_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
+    # 캐시 만료 or 캐시에 없는 종목(갓 매수) 있으면 백그라운드 갱신 트리거 (응답은 즉시)
+    desk_rows = {acct: get_all_positions(30, account=acct) for acct in DESK_ACCOUNTS}
+    _ensure_prices([p for rows in desk_rows.values() for p in rows])
     acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c", "Q지수": "#4bbf8a"}
     # 봇별 출근/퇴근: 각 봇의 최신 fund 내레이션이 '퇴근'이면 off, 그 외 발화 있으면 working.
     # → 06 대형주엔 S가 발화 없어 자동 off, Q는 핸드오프 후 출근 멘트로 on. (스케줄러 무배선 상태에서도 피드가 진실원천)
@@ -712,7 +741,7 @@ def api_fund():
     accounts = {}
     for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 — v1 포트폴리오 패널 그대로 씀
         pf = get_shared_portfolio(acct)
-        rows = _enrich_positions(get_all_positions(30, account=acct))
+        rows = _enrich_positions(desk_rows[acct])
         accounts[acct] = {
             "balance": pf.get("balance") or 0, "invested": pf.get("invested") or 0,
             "total_pnl": pf.get("total_pnl") or 0,
