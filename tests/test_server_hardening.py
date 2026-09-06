@@ -42,13 +42,23 @@ def test_client_key_prefers_forwarded_ip():
 
 # ── 로그인 브루트포스 ────────────────────────────────────────────
 @pytest.fixture(autouse=True)
-def clear_login_state():
+def clear_login_state(monkeypatch):
+    """로그인 카운터 초기화 + **ntfy 발송 차단.**
+
+    잠금 진입 시 오너 폰으로 고우선 푸시가 나가는데, 목킹을 안 했더니 이 테스트가
+    실제 알림을 쐈다 — 오너가 "198.51.100.8에서 5회 실패"를 받고 침입으로 오해했다.
+    (그 대역은 RFC 5737 문서화 전용이라 실제 접속자일 수 없다.)
+    알림·메일·푸시를 내보내는 코드를 테스트할 땐 발송 경로를 반드시 막을 것.
+    """
+    import notifier
+    sent = []
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: sent.append(a))
     main._login_fails.clear()
-    yield
+    yield sent
     main._login_fails.clear()
 
 
-def test_login_locks_out_after_repeated_failures():
+def test_login_locks_out_after_repeated_failures(clear_login_state):
     """옛 방어는 0.4초 sleep뿐 — sync 라우트라 스레드풀로 초당 ~100회가 가능했다."""
     hdr = {"x-forwarded-for": "198.51.100.7"}
     for _ in range(main._LOGIN_MAX_FAILS):
@@ -56,6 +66,8 @@ def test_login_locks_out_after_repeated_failures():
     # 임계 초과 → 403이 아니라 429(잠금)
     res = client.post("/api/admin/login", json={"password": "wrong"}, headers=hdr)
     assert res.status_code == 429
+    # 잠금 진입 시 오너 알림이 정확히 1회 (매 실패마다 울리면 그게 또 알림 폭탄이다)
+    assert len(clear_login_state) == 1
 
 
 def test_lockout_is_per_ip():
