@@ -7,7 +7,14 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git commit *)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(cd *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(pkill -f \"uvicorn main:app\")"
     ]
   }
 }
