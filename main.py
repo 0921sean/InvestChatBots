@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()  # 프로젝트 모듈 import 전에 .env 로드 — aifund.NEW_DESK_ENABLED 등 import-시점 게이트가 값을 읽게.
@@ -48,8 +48,27 @@ COOKIE_NAME = "investchat_owner"
 CHAT_DAILY_CAP = 30
 
 
+def _is_https(request: Request) -> bool:
+    """공개 접속인가(HTTPS). cloudflared가 X-Forwarded-Proto를 채운다.
+    쿠키 secure 플래그를 조건부로 다는 데 쓴다 — 무조건 켜면 http://127.0.0.1 로컬
+    접속에서 쿠키가 안 실려 오너 콘솔 로그인이 깨진다."""
+    return (request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+            or request.url.scheme == "https")
+
+
+def _client_key(request: Request) -> str:
+    """레이트리밋용 클라이언트 식별자. 쿠키를 안 보내는 상대에게 쓰는 대체 키.
+    cloudflared가 X-Forwarded-For를 채워주므로 그 첫 항목(원 클라이언트)을 쓴다."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return "ip:" + xff.split(",")[0].strip()[:45]
+    return "ip:" + (request.client.host if request.client else "unknown")
+
+
 def is_owner(request: Request) -> bool:
-    return request.cookies.get(COOKIE_NAME) == OWNER_TOKEN
+    # 비밀값 비교는 상수시간으로 — 타이밍 공격이 현실적이진 않지만 한 줄이면 되는 하드닝
+    cookie = request.cookies.get(COOKIE_NAME)
+    return bool(cookie) and secrets.compare_digest(cookie, OWNER_TOKEN)
 
 
 def require_owner(request: Request):
@@ -230,10 +249,10 @@ async def owner_guard(request: Request, call_next):
 # 폰에 남은 옛 알림을 눌러도 막다른 403이 되지 않게 아래 owner_login에서 /admin으로 흘린다.
 
 @app.get("/owner/{token}")
-def owner_login(token: str):
+def owner_login(token: str, request: Request):
     """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
     이 URL은 본인만 알아야 하므로 .env에 OWNER_TOKEN을 직접 두고 사용."""
-    if token != OWNER_TOKEN:
+    if not secrets.compare_digest(token, OWNER_TOKEN):
         # 옛 /owner/approvals·/owner/seeds 링크가 여기로 떨어진다 → 로그인 화면으로.
         # (쿠키는 발급 안 되므로 인증 우회가 아니다.)
         return RedirectResponse("/admin")
@@ -241,7 +260,7 @@ def owner_login(token: str):
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,
         max_age=60 * 60 * 24 * 365,  # 1년
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", secure=_is_https(request),
     )
     return resp
 
@@ -282,24 +301,63 @@ class AdminLoginBody(BaseModel):
     password: str
 
 
+# 로그인 실패 카운터 — IP별 {key: (실패수, 최초실패시각)}. 프로세스 메모리(재시작 시 리셋).
+_login_fails: dict = {}
+_LOGIN_MAX_FAILS = 5          # 이 횟수 넘으면
+_LOGIN_LOCK_SEC = 900         # 15분 잠금
+
+
+def _login_locked(key: str) -> int:
+    """남은 잠금 시간(초). 0이면 안 잠김."""
+    n, first = _login_fails.get(key, (0, 0.0))
+    if n < _LOGIN_MAX_FAILS:
+        return 0
+    left = int(_LOGIN_LOCK_SEC - (_time_module.time() - first))
+    if left <= 0:
+        _login_fails.pop(key, None)      # 잠금 만료 → 카운터 리셋
+        return 0
+    return left
+
+
 @app.post("/api/admin/login")
-def admin_login(body: AdminLoginBody):
+def admin_login(body: AdminLoginBody, request: Request):
     """ADMIN_PASSWORD가 설정돼 있으면 그것과 비교, 아니면 OWNER_TOKEN.
-    호환성: 옛 OWNER_TOKEN을 입력해도 통과 (URL 토큰 방식 사용자 대비)."""
+    호환성: 옛 OWNER_TOKEN을 입력해도 통과 (URL 토큰 방식 사용자 대비).
+
+    옛 방어는 실패 시 0.4초 sleep뿐이었는데, 이 라우트는 sync def라 Starlette이
+    스레드풀(기본 40)에서 돌린다 → 동시 40연결이면 초당 ~100회 시도가 가능했다.
+    성공 시 1년짜리 오너 쿠키가 나가므로 IP별 실패 카운터로 막는다.
+    """
+    key = _client_key(request)
+    left = _login_locked(key)
+    if left:
+        raise HTTPException(429, f"로그인 시도가 많습니다. {left // 60 + 1}분 후 다시 시도해 주세요")
+
     pw = body.password.strip()
     ok = False
-    if ADMIN_PASSWORD and pw == ADMIN_PASSWORD:
+    if ADMIN_PASSWORD and secrets.compare_digest(pw, ADMIN_PASSWORD):
         ok = True
-    elif pw == OWNER_TOKEN:
+    elif secrets.compare_digest(pw, OWNER_TOKEN):
         ok = True
     if not ok:
-        _time_module.sleep(0.4)  # brute force 방어
+        n, first = _login_fails.get(key, (0, _time_module.time()))
+        _login_fails[key] = (n + 1, first)
+        if n + 1 == _LOGIN_MAX_FAILS:                    # 잠금 진입 순간 1회만 알림
+            try:
+                from notifier import notify
+                notify("🔐 관리자 로그인 반복 실패", f"{key} 에서 {_LOGIN_MAX_FAILS}회 실패 — 15분 잠금",
+                       priority="high", cooldown=0)
+            except Exception:
+                pass
+        _time_module.sleep(0.4)
         raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다")
+
+    _login_fails.pop(key, None)                          # 성공하면 카운터 해제
     resp = JSONResponse({"ok": True, "redirect": "/admin"})
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,  # 쿠키 값은 OWNER_TOKEN 그대로 (모든 가드와 일치)
         max_age=60 * 60 * 24 * 365,
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", secure=_is_https(request),
     )
     return resp
 
@@ -548,7 +606,9 @@ def api_conversation_stop():
 
 
 class UserMessage(BaseModel):
-    content: str
+    # 길이 상한 없으면 질문 1건이 4~7봇 + 요약으로 팬아웃되므로 대용량 텍스트 30건이
+    # 캡 안에서도 토큰을 크게 태운다. 관전 서비스 질문에 500자면 충분하다.
+    content: str = Field(max_length=500)
 
 
 @app.post("/api/user-message")
@@ -1214,7 +1274,9 @@ def api_feedback_create(body: FeedbackBody, request: Request):
         raise HTTPException(400, "내용이 너무 짧습니다 (5자 이상)")
     if len(text) > 5000:
         raise HTTPException(400, "내용이 너무 깁니다 (5000자 이하)")
-    vsid = request.cookies.get("vsid")
+    # 쿠키가 없으면(=공격자가 일부러 안 보내면) IP로 센다. 옛 코드는 쿠키 없을 때 그냥
+    # 통과시켜서 쿠키만 빼면 무제한이었다 — 1건마다 오너 폰에 고우선 푸시가 나가는 경로다.
+    vsid = request.cookies.get("vsid") or _client_key(request)
     from db import add_feedback, feedback_rate_limited
     if feedback_rate_limited(vsid, window_min=5, max_n=3):
         raise HTTPException(429, "잠시 후 다시 시도해 주세요 (5분에 3건 제한)")
