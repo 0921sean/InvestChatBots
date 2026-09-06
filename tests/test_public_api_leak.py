@@ -75,11 +75,28 @@ def test_positions_endpoints_drop_private_fields(open_position):
                 assert f not in p, f"{path}가 {f}를 노출한다"
 
 
-def test_fund_report_drops_sourcing_lane():
+@pytest.fixture
+def fund_report_row():
+    """desk가 채워진 리포트 1건.
+
+    처음엔 "행이 없으면 실패"로만 막았는데, 그건 로컬 DB에 쌓인 데이터에 의존하는
+    것이라 빈 DB인 CI에서 깨졌다. 헛도는 걸 막으려면 데이터를 '요구'할 게 아니라
+    '넣어야' 한다.
+    """
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO fund_report (date, code, name, summary, packet, desk) "
+            "VALUES ('2026-09-07','TESTCO','테스트','요약','패킷','S')")
+    yield
+    with _conn() as con:
+        con.execute("DELETE FROM fund_report WHERE code='TESTCO'")
+
+
+def test_fund_report_drops_sourcing_lane(fund_report_row):
     res = client.get("/api/fund-report")
     assert res.status_code == 200
     rows = res.json()
-    assert rows, "리포트가 비어 테스트가 헛돈다"
+    assert any(r.get("code") == "TESTCO" for r in rows), "테스트 리포트가 안 실렸다"
     for r in rows:
         assert "desk" not in r, "소싱 레인(desk)이 노출돼 시드 목록이 재구성된다"
 
