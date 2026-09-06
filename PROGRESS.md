@@ -424,7 +424,7 @@ LLM = `claude` CLI 서브프로세스 (구독 토큰 버킷 — 크레딧 과금
     - **A 리서치 브리프(#56)**: 재무+**분기추세**(뉴스無·중립) → P/W/S 공용.
     - **Phase 1a(#60)**: 봇 계좌 4개(P/W/S/Q=id3~6, 각 1억, `ensure_fund_accounts` lazy seed).
     - **Phase 1b(#64)**: `execute_buys`(봇별 자기 계좌 매수)·`execute_thesis_sell`(논지 청산).
-    - **Phase 1c(#66)**: `run_q_desk`(전 유니버스 B+M 스캔→Q 계좌), `backtest.minervini_entry/exit` 라이브 신호.
+    - **Phase 1c(#66)**: `run_q_desk`(전 유니버스 B+M 스캔→Q 계좌), `backtest`의 M 전략 진입/청산 라이브 신호.
     - **하드스탑 제거(#65)**: 백테스트상 역효과+P/W/S는 논지로 청산 → 2% 사이징이 방어. 각 봇 자기 기준 청산.
   - ⚠️ **다음 세션 = Phase 2**(파이프라인+스케줄러). 전부 `NEW_DESK_ENABLED=False` 뒤 — 라이브(committee) 무영향.
 - **2026-07-27** — 대규모 세션.
