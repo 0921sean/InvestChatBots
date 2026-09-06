@@ -237,7 +237,7 @@ LLM = `claude` CLI 서브프로세스 (구독 토큰 버킷 — 크레딧 과금
   - d. ✅ **6시 웹서치 에이전트**(브랜치 `feat/bottleneck-curation`): `aifund.run_bottleneck_curation()` = Claude 웹서치로 무명 상류 초크포인트 조사 → pending. `_call_claude_cli(allowed_tools=['WebSearch'])`. scheduler 05:50 mon-fri(06 대형주 전에 pending 준비). 게이트 `BOTTLENECK_CURATION_ENABLED`(기본 off). 수동트리거 `POST /api/bottleneck/curate`. **결정: launchd 아니라 in-app 스케줄러**(서버가 Mac mini 로컬 DB 접근 이미 있음 → 더 단순). **비용=별도 크레딧 아님, 구독 토큰 버킷**(하루 1콜). E2E검증(AXTI·KLIC·MOD 발굴).
   - e. ✅ **S 피드 "결재 올림" + ntfy**: `submit_bottleneck_candidates()`가 pending+S내레이션+오너ntfy(링크=`/owner/seeds`). (#110 머지)
   - **⚠️ 남은 활성화**: `feat/bottleneck-curation` 머지 → `.env`에 `BOTTLENECK_CURATION_ENABLED=true`(원하면 `SITE_URL`도) → §1 절차로 재시작. 안 켜면 05:50 잡 no-op.
-- **③ S 렌즈 추가 심화**: 오늘 페르소나에 "저마진·적자여도 논지로, 시총vsTAM·희석 본다" 한 줄 넣음(라이브). GitHub `W-Y-P/공급망 병목-aleabitoreddit-skill`의 SKILL.md 프레임으로 더 정교화 가능(선택).
+- **③ S 렌즈 추가 심화**: 오늘 페르소나에 "저마진·적자여도 논지로, 시총vsTAM·희석 본다" 한 줄 넣음(라이브). 외부 공급망 리서처의 SKILL.md 프레임으로 더 정교화 가능(선택 — 출처·분석은 비공개 노트 참조).
 - **④ 시드 정비**: 현 14개에 AVGO·ANET·MRVL(유명 '참치') 섞임 → 무명 상류로 교체. **이제 도구 완비**: 6시 에이전트가 매일 무명 상류 후보를 pending에 올리고(②d), `/owner/seeds`에서 참치 시드 반려·신규 승인. 남은 건 운영(며칠 결재하며 참치 정리).
 - **⑤ 거시자문 봇 = 비투표 매크로 자문**(트레이딩봇 X). blog_posts(보유 277편) 원문 보유. `병목자문` 패턴처럼 AGENT_PROFILES 자문 봇으로 — "거시적으로 지금 사면 안 된다" 시장레벨 경고. (KR/서사형이라 트레이딩 룰로는 안 맞음.)
 - **⑥ 유니버스 큐레이션 일반화**: 섹터·시드 다 "사람이 정비→봇이 굴림". 오늘 섹터 잡탕 1건 고침(아래), V·MA 정합은 미결.
