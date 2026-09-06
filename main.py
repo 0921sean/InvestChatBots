@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()  # 프로젝트 모듈 import 전에 .env 로드 — aifund.NEW_DESK_ENABLED 등 import-시점 게이트가 값을 읽게.
@@ -48,8 +48,27 @@ COOKIE_NAME = "investchat_owner"
 CHAT_DAILY_CAP = 30
 
 
+def _is_https(request: Request) -> bool:
+    """공개 접속인가(HTTPS). cloudflared가 X-Forwarded-Proto를 채운다.
+    쿠키 secure 플래그를 조건부로 다는 데 쓴다 — 무조건 켜면 http://127.0.0.1 로컬
+    접속에서 쿠키가 안 실려 오너 콘솔 로그인이 깨진다."""
+    return (request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+            or request.url.scheme == "https")
+
+
+def _client_key(request: Request) -> str:
+    """레이트리밋용 클라이언트 식별자. 쿠키를 안 보내는 상대에게 쓰는 대체 키.
+    cloudflared가 X-Forwarded-For를 채워주므로 그 첫 항목(원 클라이언트)을 쓴다."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return "ip:" + xff.split(",")[0].strip()[:45]
+    return "ip:" + (request.client.host if request.client else "unknown")
+
+
 def is_owner(request: Request) -> bool:
-    return request.cookies.get(COOKIE_NAME) == OWNER_TOKEN
+    # 비밀값 비교는 상수시간으로 — 타이밍 공격이 현실적이진 않지만 한 줄이면 되는 하드닝
+    cookie = request.cookies.get(COOKIE_NAME)
+    return bool(cookie) and secrets.compare_digest(cookie, OWNER_TOKEN)
 
 
 def require_owner(request: Request):
@@ -157,54 +176,44 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="InvestChatBots", lifespan=lifespan)
+# docs/openapi 비활성 — 전체 라우트 인벤토리가 공개되면 가드 누락 라우트를 찾는 지도가 된다
+app = FastAPI(title="InvestChatBots", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ── owner-only 미들웨어 ────────────────────────────────────
-# 아래 (method, path) 조합은 토큰 소비/시스템 변경을 일으키는 작업이라
-# OWNER_TOKEN 쿠키 없는 익명 접속자는 호출 차단.
-_OWNER_ONLY_ROUTES = {
-    ("POST", "/api/conversation/start"),
-    ("POST", "/api/conversation/stop"),
-    # /api/user-message — 채팅 공개: 방문자도 호출 가능(서버 하드캡 30/일 + FIFO 큐로 보호)
-    ("POST", "/api/positions/evaluate"),
-    ("POST", "/api/holdings/review"),
-    ("POST", "/api/summary/request"),
-    ("POST", "/api/stop-on-credit/on"),
-    ("POST", "/api/stop-on-credit/off"),
-    ("POST", "/api/cycle/reset"),
-    ("POST", "/api/main-cycle/run"),
-    ("POST", "/api/lecture-note"),
-    ("DELETE", "/api/lecture-notes"),
-    ("POST", "/api/owner/logout"),
-    ("POST", "/api/donations"),
-    # /api/admin/login은 공개 (비번 검증 자체가 인증)
-    ("POST", "/api/watchlist/run"),
-    ("POST", "/api/main-cycle/measure"),
-    ("POST", "/api/watchlist/pause"),
-    ("POST", "/api/watchlist/resume"),
-    ("POST", "/api/main/pause"),
-    ("POST", "/api/main/resume"),
-    ("POST", "/api/random-speak/on"),
-    ("POST", "/api/random-speak/off"),
+# deny-by-default: 상태를 바꾸거나 토큰을 쓰는 메서드는 기본 차단이고,
+# 아래 공개 목록에 명시한 것만 익명 허용한다.
+# (옛 허용목록 방식은 새 라우트 등록을 빠뜨리면 조용히 공개됐다 —
+#  실제로 /api/main-cycle/resume-force·/api/sub-cycle/measure가 무인증 노출돼 반전함)
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+_PUBLIC_MUTATING_ROUTES = {
+    ("POST", "/api/admin/login"),    # 비번 검증 자체가 인증
+    ("POST", "/api/visit"),          # 방문 비콘
+    ("POST", "/api/user-message"),   # 채팅 공개 — 서버 하드캡 30/일로 보호
+    ("POST", "/api/feedback"),
+    ("POST", "/api/contact"),
+    ("POST", "/api/note"),
 }
 
-# /api/donations/{id} DELETE는 path가 동적이라 미들웨어에서 startswith 추가 검사
-_OWNER_ONLY_PREFIXES = [
-    ("DELETE", "/api/donations/"),
-]
+# 읽기 전용이지만 내부 운영 정보라 오너만 봐야 하는 GET
+# (/api/token-usage는 후원 게이지가 쓰는 방문자 UI라 의도적으로 공개 유지)
+_OWNER_ONLY_GETS = {
+    "/api/_debug/state",
+    "/api/_debug/jobs",
+    "/api/lecture-notes",
+}
 
 
 @app.middleware("http")
 async def owner_guard(request: Request, call_next):
     method, path = request.method, request.url.path
-    is_owner_only = (method, path) in _OWNER_ONLY_ROUTES
-    if not is_owner_only:
-        for m, prefix in _OWNER_ONLY_PREFIXES:
-            if method == m and path.startswith(prefix):
-                is_owner_only = True
-                break
+    if method in _MUTATING_METHODS:
+        is_owner_only = (method, path) not in _PUBLIC_MUTATING_ROUTES
+    else:
+        is_owner_only = path in _OWNER_ONLY_GETS
 
     # 피드백 관련 요청만 상세 로그 (디버그)
     is_fb = "feedback" in path
@@ -230,10 +239,10 @@ async def owner_guard(request: Request, call_next):
 # 폰에 남은 옛 알림을 눌러도 막다른 403이 되지 않게 아래 owner_login에서 /admin으로 흘린다.
 
 @app.get("/owner/{token}")
-def owner_login(token: str):
+def owner_login(token: str, request: Request):
     """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
     이 URL은 본인만 알아야 하므로 .env에 OWNER_TOKEN을 직접 두고 사용."""
-    if token != OWNER_TOKEN:
+    if not secrets.compare_digest(token, OWNER_TOKEN):
         # 옛 /owner/approvals·/owner/seeds 링크가 여기로 떨어진다 → 로그인 화면으로.
         # (쿠키는 발급 안 되므로 인증 우회가 아니다.)
         return RedirectResponse("/admin")
@@ -241,7 +250,7 @@ def owner_login(token: str):
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,
         max_age=60 * 60 * 24 * 365,  # 1년
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", secure=_is_https(request),
     )
     return resp
 
@@ -282,24 +291,63 @@ class AdminLoginBody(BaseModel):
     password: str
 
 
+# 로그인 실패 카운터 — IP별 {key: (실패수, 최초실패시각)}. 프로세스 메모리(재시작 시 리셋).
+_login_fails: dict = {}
+_LOGIN_MAX_FAILS = 5          # 이 횟수 넘으면
+_LOGIN_LOCK_SEC = 900         # 15분 잠금
+
+
+def _login_locked(key: str) -> int:
+    """남은 잠금 시간(초). 0이면 안 잠김."""
+    n, first = _login_fails.get(key, (0, 0.0))
+    if n < _LOGIN_MAX_FAILS:
+        return 0
+    left = int(_LOGIN_LOCK_SEC - (_time_module.time() - first))
+    if left <= 0:
+        _login_fails.pop(key, None)      # 잠금 만료 → 카운터 리셋
+        return 0
+    return left
+
+
 @app.post("/api/admin/login")
-def admin_login(body: AdminLoginBody):
+def admin_login(body: AdminLoginBody, request: Request):
     """ADMIN_PASSWORD가 설정돼 있으면 그것과 비교, 아니면 OWNER_TOKEN.
-    호환성: 옛 OWNER_TOKEN을 입력해도 통과 (URL 토큰 방식 사용자 대비)."""
+    호환성: 옛 OWNER_TOKEN을 입력해도 통과 (URL 토큰 방식 사용자 대비).
+
+    옛 방어는 실패 시 0.4초 sleep뿐이었는데, 이 라우트는 sync def라 Starlette이
+    스레드풀(기본 40)에서 돌린다 → 동시 40연결이면 초당 ~100회 시도가 가능했다.
+    성공 시 1년짜리 오너 쿠키가 나가므로 IP별 실패 카운터로 막는다.
+    """
+    key = _client_key(request)
+    left = _login_locked(key)
+    if left:
+        raise HTTPException(429, f"로그인 시도가 많습니다. {left // 60 + 1}분 후 다시 시도해 주세요")
+
     pw = body.password.strip()
     ok = False
-    if ADMIN_PASSWORD and pw == ADMIN_PASSWORD:
+    if ADMIN_PASSWORD and secrets.compare_digest(pw, ADMIN_PASSWORD):
         ok = True
-    elif pw == OWNER_TOKEN:
+    elif secrets.compare_digest(pw, OWNER_TOKEN):
         ok = True
     if not ok:
-        _time_module.sleep(0.4)  # brute force 방어
+        n, first = _login_fails.get(key, (0, _time_module.time()))
+        _login_fails[key] = (n + 1, first)
+        if n + 1 == _LOGIN_MAX_FAILS:                    # 잠금 진입 순간 1회만 알림
+            try:
+                from notifier import notify
+                notify("🔐 관리자 로그인 반복 실패", f"{key} 에서 {_LOGIN_MAX_FAILS}회 실패 — 15분 잠금",
+                       priority="high", cooldown=0)
+            except Exception:
+                pass
+        _time_module.sleep(0.4)
         raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다")
+
+    _login_fails.pop(key, None)                          # 성공하면 카운터 해제
     resp = JSONResponse({"ok": True, "redirect": "/admin"})
     resp.set_cookie(
         COOKIE_NAME, OWNER_TOKEN,  # 쿠키 값은 OWNER_TOKEN 그대로 (모든 가드와 일치)
         max_age=60 * 60 * 24 * 365,
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", secure=_is_https(request),
     )
     return resp
 
@@ -392,17 +440,21 @@ def _cipher_agent_names(rows):
     return rows
 
 
+# 한 번에 퍼갈 수 있는 메시지 상한 — 없으면 limit=999999999 한 방에 전체 아카이브가 덤프된다
+_MAX_MESSAGE_PAGE = 500
+
+
 @app.get("/api/messages")
 def api_messages(since: int = 0, limit: int = 100, desk: str = None):
     # desk 없음 → committee(라이브) / 'fund' → AI펀드 관전 내레이션. 이니셜은 출력에서 ROT13 치환.
-    return _cipher_agent_names(get_messages_since(since, limit=limit, desk=desk))
+    return _cipher_agent_names(get_messages_since(since, limit=min(limit, _MAX_MESSAGE_PAGE), desk=desk))
 
 
 @app.get("/api/messages/latest")
 def api_messages_latest(n: int = 200, desk: str = None):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
-    return _cipher_agent_names(get_recent_messages(n, desk=desk))
+    return _cipher_agent_names(get_recent_messages(min(n, _MAX_MESSAGE_PAGE), desk=desk))
 
 
 @app.get("/api/market")
@@ -412,7 +464,7 @@ def api_market():
 
 
 @app.get("/api/agents")
-def api_agents():
+def api_agents(request: Request):
     MODEL_LABEL = {
         "claude-sonnet-4-6": "Claude Sonnet",
         "claude-haiku-4-5-20251001": "Claude Haiku",
@@ -421,20 +473,25 @@ def api_agents():
         "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o mini",
     }
+    # system 프롬프트 = strategy_private.py의 비공개 전략 본문(지표·임계·진입청산 규칙).
+    # 이걸 쓰는 건 오너 전용 봇 성격 모달뿐이라(index.html openBotModal) 오너에게만 싣는다.
+    owner = is_owner(request)
+
     def _entry(name, desk):
         profile = AGENT_PROFILES[name]
-        # system 프롬프트에서 {evolution_notes} 플레이스홀더 제거 후 전달
-        system_clean = profile["system"].replace("{evolution_notes}", "").strip()
-        return {
+        entry = {
             "name": name,
             "description": profile["description"],
             "color": profile["color"],
             "model_provider": profile["model_provider"],
             "model_label": MODEL_LABEL.get(profile["model_id"], profile["model_id"]),
-            "system": system_clean,
             "desk": desk,                  # main=장기 / trading=트레이딩
             "hidden_from_members": False,
         }
+        if owner:
+            # {evolution_notes} 플레이스홀더 제거 후 전달
+            entry["system"] = profile["system"].replace("{evolution_notes}", "").strip()
+        return entry
 
     # 트레이딩 계좌 = 규칙엔진(차트천재 모멘텀 · 역추세봇 평균회귀). 구 5봇 LLM(추세질주 등)은 은퇴 → 미표시
     _TRADING_DESK = ["차트천재", "역추세봇"]
@@ -548,7 +605,9 @@ def api_conversation_stop():
 
 
 class UserMessage(BaseModel):
-    content: str
+    # 길이 상한 없으면 질문 1건이 4~7봇 + 요약으로 팬아웃되므로 대용량 텍스트 30건이
+    # 캡 안에서도 토큰을 크게 태운다. 관전 서비스 질문에 500자면 충분하다.
+    content: str = Field(max_length=500)
 
 
 @app.post("/api/user-message")
@@ -609,6 +668,33 @@ def _remap_old_bot_names(text: str) -> str:
     return _OLD_BOT_PAT.sub(lambda m: f"{_OLD_BOT_MAP[m.group(1)]}(구)", text)
 
 _price_refresh_lock = threading.Lock()    # 동시 요청이 갱신 스레드를 중복 생성하지 않게
+_price_miss_at: float = 0.0               # 캐시에 없는 종목 때문에 강제 갱신한 마지막 시각
+_PRICE_MISS_COOLDOWN = 60                 # 조회가 계속 실패해도 매 요청마다 외부 API를 때리지 않게
+
+
+def _ensure_prices(positions):
+    """현재가 캐시 갱신 트리거(백그라운드).
+
+    TTL 만료 시 갱신하는 건 기존과 같고, 여기에 **캐시에 아예 없는 종목이 있으면
+    TTL을 무시하고 즉시 갱신**하는 경로를 더한다.
+
+    장 마감 중엔 TTL이 30분이라, 그 사이 매수한 종목은 다음 만료 때까지 현재가가
+    계속 '—'로 보였다(시세 조회 자체는 마감 중에도 종가를 잘 돌려준다 — 문제는
+    조회를 안 한 것). 갓 매수한 포지션은 정의상 캐시에 없으므로 이 경로로 바로 채워진다.
+
+    조회 실패가 반복되는 종목(상장폐지 등)이 있으면 매 요청이 미스로 잡히므로
+    쿨다운으로 폭주를 막는다. 갱신 자체도 _price_refresh_lock으로 한 번에 하나만 돈다.
+    """
+    global _price_miss_at
+    now = _time_module.time()
+    if now - _price_cache_at > _price_cache_ttl():
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
+        return
+    missing = any(p.get("status") == "open" and p.get("symbol") not in _price_cache
+                  for p in positions)
+    if missing and now - _price_miss_at > _PRICE_MISS_COOLDOWN:
+        _price_miss_at = now
+        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
 
 
 def _refresh_prices_bg():
@@ -637,6 +723,23 @@ def _refresh_prices_bg():
         _price_refresh_lock.release()
 
 
+# 공개 응답에서 떼는 필드 — UI는 하나도 안 쓰는데 전략을 역산할 재료가 된다.
+#   strategy   : 그 거래가 momentum/meanrev 중 무엇이었는지 라벨 = 규칙엔진 정답지
+#   stop_price : 진입 시점 최근 저점. opened_at + 공개 OHLC와 맞추면 비공개 상수
+#                MOM_STOP_LOOKBACK이 거래 한 건으로 역산된다. 열린 포지션이면 손절가 생중계.
+#   half_exited: 분할익절 존재 여부
+#   quantity   : amount/entry_price로 이미 유도 가능한 중복값 + 사이징 비중 힌트
+_PRIVATE_POSITION_FIELDS = ("strategy", "stop_price", "half_exited", "quantity")
+
+
+def _strip_private_fields(positions):
+    """관전용 공개 응답에서 전략 역산 재료를 제거."""
+    for p in positions:
+        for f in _PRIVATE_POSITION_FIELDS:
+            p.pop(f, None)
+    return positions
+
+
 def _enrich_positions(positions):
     """현재가 캐시 적용 + 옛 봇 이름 치환."""
     for p in positions:
@@ -659,20 +762,21 @@ def _enrich_positions(positions):
 def api_portfolio():
     global _price_cache, _price_cache_at
 
-    # 캐시 만료 시 백그라운드 갱신 트리거 (응답은 즉시)
-    if _time_module.time() - _price_cache_at > _price_cache_ttl():
-        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
-
     # 메인(장기) 계좌
+    main_pos = get_all_positions(30, account="main")
+    sub_pos = get_all_positions(30, account="sub")
+    # 캐시 만료 or 캐시에 없는 종목(갓 매수) 있으면 백그라운드 갱신 트리거 (응답은 즉시)
+    _ensure_prices(main_pos + sub_pos)
+
     pf = get_shared_portfolio("main")
     pf["market_status"] = is_market_open()
     pf["initial_balance"] = INITIAL_BALANCE
-    pf["positions"] = _enrich_positions(get_all_positions(30, account="main"))
+    pf["positions"] = _strip_private_fields(_enrich_positions(main_pos))
 
     # 서브(트레이딩) 계좌
     sub = get_shared_portfolio("sub")
     sub["initial_balance"] = TRADING_BALANCE
-    sub["positions"] = _enrich_positions(get_all_positions(30, account="sub"))
+    sub["positions"] = _strip_private_fields(_enrich_positions(sub_pos))
     pf["sub"] = sub
 
     return pf
@@ -680,24 +784,30 @@ def api_portfolio():
 
 @app.get("/api/positions")
 def api_positions():
-    return get_all_positions(50)
+    return _strip_private_fields(get_all_positions(50))
 
 
 @app.get("/api/fund-report")
 def api_fund_report(limit: int = 60):
     """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
     from db import get_fund_reports
-    return get_fund_reports(limit)
+    rows = get_fund_reports(min(limit, 200))
+    # desk('PW'=일반풀 / 'S'=병목 자체소싱)는 UI 미사용 + 어느 소싱 레인에서 나온
+    # 후보인지 알려줘서, 매일 긁어 모으면 S의 시드 목록이 재구성된다.
+    for r in rows:
+        r.pop("desk", None)
+    return rows
 
 
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
     global _price_cache, _price_cache_at
-    if _time_module.time() - _price_cache_at > _price_cache_ttl():   # 현재가 캐시 만료 시 백그라운드 갱신
-        threading.Thread(target=_refresh_prices_bg, daemon=True).start()
     from db import (DESK_ACCOUNTS, DESK_SEED, ACCT_SEED, get_shared_portfolio,
                     get_recent_messages, get_fund_nav_history)
+    # 캐시 만료 or 캐시에 없는 종목(갓 매수) 있으면 백그라운드 갱신 트리거 (응답은 즉시)
+    desk_rows = {acct: get_all_positions(30, account=acct) for acct in DESK_ACCOUNTS}
+    _ensure_prices([p for rows in desk_rows.values() for p in rows])
     acct_color = {"대형주": "#5aa9e6", "발굴주": "#e08a3c", "Q지수": "#4bbf8a"}
     # 봇별 출근/퇴근: 각 봇의 최신 fund 내레이션이 '퇴근'이면 off, 그 외 발화 있으면 working.
     # → 06 대형주엔 S가 발화 없어 자동 off, Q는 핸드오프 후 출근 멘트로 on. (스케줄러 무배선 상태에서도 피드가 진실원천)
@@ -712,7 +822,7 @@ def api_fund():
     accounts = {}
     for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 — v1 포트폴리오 패널 그대로 씀
         pf = get_shared_portfolio(acct)
-        rows = _enrich_positions(get_all_positions(30, account=acct))
+        rows = _enrich_positions(desk_rows[acct])
         accounts[acct] = {
             "balance": pf.get("balance") or 0, "invested": pf.get("invested") or 0,
             "total_pnl": pf.get("total_pnl") or 0,
@@ -1214,7 +1324,9 @@ def api_feedback_create(body: FeedbackBody, request: Request):
         raise HTTPException(400, "내용이 너무 짧습니다 (5자 이상)")
     if len(text) > 5000:
         raise HTTPException(400, "내용이 너무 깁니다 (5000자 이하)")
-    vsid = request.cookies.get("vsid")
+    # 쿠키가 없으면(=공격자가 일부러 안 보내면) IP로 센다. 옛 코드는 쿠키 없을 때 그냥
+    # 통과시켜서 쿠키만 빼면 무제한이었다 — 1건마다 오너 폰에 고우선 푸시가 나가는 경로다.
+    vsid = request.cookies.get("vsid") or _client_key(request)
     from db import add_feedback, feedback_rate_limited
     if feedback_rate_limited(vsid, window_min=5, max_n=3):
         raise HTTPException(429, "잠시 후 다시 시도해 주세요 (5분에 3건 제한)")

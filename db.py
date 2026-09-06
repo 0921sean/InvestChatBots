@@ -330,6 +330,31 @@ def has_pending_buy(code: str, desk: str) -> bool:
             (code, desk)).fetchone() is not None
 
 
+def last_rejected_buy(code: str, account: str) -> dict | None:
+    """해당 종목·계좌에서 오너가 마지막으로 '거절'한 결재. 없으면 None.
+
+    반환에 days_ago를 담아 쿨다운 판정에 바로 쓰게 한다. 봇이 아니라 계좌 기준으로
+    보는 이유: 오너의 거절은 "이 계좌에 이 종목 넣지 마라"는 뜻이지
+    "그 봇 말만 듣지 마라"가 아니다. 다른 봇이 같은 종목을 올려도 동일하게 걸린다.
+    """
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT id, reason, approvers, decided_at, decision_price "
+            "FROM pending_buy WHERE code=? AND account=? AND status='rejected' "
+            "AND decided_at IS NOT NULL ORDER BY decided_at DESC LIMIT 1",
+            (code, account)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        from datetime import datetime
+        d["days_ago"] = (datetime.now() - datetime.fromisoformat(d["decided_at"])).days
+    except Exception:
+        d["days_ago"] = None
+    return d
+
+
 def add_pending_buy(ticker, code, desk, account, market, amount, decision_price,
                     approvers, stock_desc="", reason="", q_comment=None) -> int:
     """매수 결재 상신 → pending. 같은 종목·데스크가 이미 대기중이면 0(중복 방지). 반환: 새 id(또는 0)."""
@@ -1902,9 +1927,15 @@ def add_feedback(content: str, visitor_id: str = None,
 
 
 def feedback_rate_limited(visitor_id: str, window_min: int = 5, max_n: int = 3) -> bool:
-    """같은 visitor가 window_min 내 max_n 건 이상이면 True (차단)."""
+    """같은 visitor가 window_min 내 max_n 건 이상이면 True (차단).
+
+    visitor_id는 클라이언트 쿠키라 공격자가 마음대로 뺄 수 있다. 옛 코드는 값이 없으면
+    False(=통과)를 반환해서 **쿠키만 안 보내면 무제한**이었다 — 피드백 1건마다 오너 폰으로
+    고우선 푸시가 나가므로 알림 폭탄 + DB 팽창 경로였다.
+    없으면 차단(fail-closed)으로 뒤집는다. 호출부가 IP 등 대체 키를 넘겨주면 그걸로 센다.
+    """
     if not visitor_id:
-        return False
+        return True
     with _conn() as con:
         row = con.execute("""
             SELECT COUNT(*) FROM feedback

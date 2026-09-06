@@ -121,20 +121,25 @@ for _k, _c in (("P", "#5aa9e6"), ("W", "#c9a227"), ("S", "#e08a3c"), ("H", "#a78
         'description': '실적/성장 게이트' if _k == "H" else '발굴',
         'system': '[비공개 전략 — 실제 프롬프트는 strategy_private.py. 이건 example 더미.]'}
 
-# ── 지표·튜닝 파라미터 (예시값 — 실제 튜닝값은 strategy_private.py) ──
-MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9   # 표준값
-RSI_PERIOD = 14
-RSI_MOMENTUM_MIN = 50.0
-BB_PERIOD, BB_STD = 20, 2.0
-MOM_GC_LOOKBACK = 5
-MOM_STOP_LOOKBACK = 5
+# ── 지표·튜닝 파라미터 ──────────────────────────────────────
+# ⚠️ 이 파일은 CI의 실제 폴백이다(CI엔 strategy_private.py가 없다).
+#    따라서 값이 '동작하는 값'이어야 한다 — 무의미한 더미를 넣으면 백테스트가
+#    신호를 못 내 테스트가 깨진다(2026-09-07에 실제로 깨뜨렸다).
+#    교과서 표준값(MACD 12/26/9, RSI 14, 볼밴 20/2)은 비밀이 아니라 그대로 두고,
+#    실제로 튜닝한 값만 '동작하되 다른' 값으로 둔다.
+MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9   # 교과서 표준(비밀 아님)
+RSI_PERIOD = 14                 # 교과서 표준
+RSI_MOMENTUM_MIN = 50.0         # RSI 중립선(표준)
+BB_PERIOD, BB_STD = 20, 2.0     # 교과서 표준
+MOM_GC_LOOKBACK = 3             # ← 실제 튜닝값과 다름
+MOM_STOP_LOOKBACK = 10          # ← 실제 튜닝값과 다름
 WEIGHT_PCT = 0.10        # 예시
 MAX_POSITIONS = 5        # 예시
 HARD_STOP_PCT = -15.0    # 예시
 FUND_STOP_PCT = -0.20    # AI펀드 T 하드 스탑로스 안전망 (예시값, 실제는 strategy_private.py)
 ROUND_TRIP_BPS = 10.0    # 백테스트 왕복 거래비용(bp) 예시 — 실제는 strategy_private.py
-TREND_STOP_PCT = -0.08   # M 타이트 스탑 예시
-TREND_BREAKOUT = 50      # M 신고가 돌파 룩백 예시
+TREND_STOP_PCT = -0.12          # ← 실제 튜닝값과 다름
+TREND_BREAKOUT = 20             # ← 실제 튜닝값과 다름
 
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []

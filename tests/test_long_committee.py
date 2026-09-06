@@ -19,7 +19,7 @@ def test_removed_bots_not_in_roster_but_profiles_kept():
     assert "역추세봇" in prompts.AGENT_PROFILES     # 빅픽처 개명
     assert "빅픽처" not in prompts.AGENT_ORDER
 
-def test_peterlynch_prompt_has_garp_keys():
+def test_earnings_bot_prompt_has_garp_keys():
     import prompts
     sys_txt = prompts.AGENT_PROFILES["실적왕"]["system"]
     for kw in ("PEG", "GARP", "판단 보류", "고성장"):

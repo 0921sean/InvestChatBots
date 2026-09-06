@@ -1161,6 +1161,20 @@ def _report_summary(code) -> str:
 _ROLE_KO = {"P": "성장주", "W": "가치", "H": "실적", "S": "병목", "Q": "타이밍", "M": "거시", "R": "리스크"}
 
 
+# 오너가 거절한 종목을 다시 결재에 올리기까지의 최소 간격.
+# 사유 텍스트 비교로는 못 거른다 — 같은 논지를 LLM이 매번 다른 어휘로 쓰기 때문에
+# 실측 유사도가 0.19밖에 안 나왔다(반대로 서로 다른 종목이 1.00으로 붙기도 했다).
+# 그래서 "무엇이 새로운가"는 기계가 판정하지 않고, 쿨다운으로 빈도를 막고
+# 판단 재료(당시 사유 vs 이번 사유)는 오너에게 나란히 보여준다.
+REJECT_COOLDOWN_DAYS = 14
+
+
+def _first_lines(text: str, n: int = 2) -> str:
+    """긴 사유에서 앞 n줄만 — 결재함에 옛 사유를 곁들일 때 화면을 잡아먹지 않게."""
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    return " / ".join(lines[:n])[:300] or "(사유 없음)"
+
+
 def _clean_reason(rz: str) -> str:
     """봇 응답에서 [결정] 표기 줄만 걷어내고 근거 본문은 살린다(상세 보고용)."""
     txt = re.sub(r"\[결정\][^\n]*", "", rz or "").strip()
@@ -1186,6 +1200,24 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
     if not _ok and _breaker:
         _narrate(speaker or "A", f"{_tk(code, ticker)} 매수 건의하려 했지만 리스크 가드가 막았습니다 — {_why}. 오늘은 넘어갑니다.")
         return False
+
+    # 오너가 이미 거절한 종목 — 쿨다운 안이면 다시 올리지 않는다.
+    # (HWM: 8/19 거절 → 8/23 재상신 → 또 거절. 같은 논지를 문장만 바꿔 다시 올린 사례)
+    from db import last_rejected_buy
+    rej = last_rejected_buy(code, account)
+    if rej and rej.get("days_ago") is not None and rej["days_ago"] < REJECT_COOLDOWN_DAYS:
+        logger.info(f"[결재 skip] {code}({account}) — {rej['days_ago']}일 전 오너 거절, "
+                    f"쿨다운 {REJECT_COOLDOWN_DAYS}일 미경과")
+        return False
+
+    # 쿨다운은 지났지만 거절 이력은 있는 경우 — 지운 게 아니라 오너에게 보여준다.
+    # 오너가 몇 주 전 왜 거절했는지 기억할 필요 없이 "그때 사유 vs 이번 사유"를 나란히 보게.
+    if rej:
+        reason = (f"⚠️ {rej['days_ago']}일 전 거절하신 종목입니다 (당시 판단가 "
+                  f"{rej['decision_price']}, 담당 {rej['approvers'] or '-'}).\n"
+                  f"[당시 사유] {_first_lines(rej['reason'], 2)}\n"
+                  f"[이번 사유] {reason}")
+
     from db import add_pending_buy
     pid = add_pending_buy(ticker, code, desk, account, market, amount, price,
                           ",".join(approvers) if approvers else "", stock_desc, reason, q_comment)

@@ -45,3 +45,8 @@ jobs:
           tests/test_thesis_cache.py
           tests/test_aifund.py
           tests/test_backtest.py
+          tests/test_owner_guard.py
+          tests/test_public_api_leak.py
+          tests/test_price_refresh.py
+          tests/test_reject_cooldown.py
+          tests/test_server_hardening.py

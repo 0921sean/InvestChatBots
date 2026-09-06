@@ -56,17 +56,17 @@ def test_catalyst_only_if_cached():
 
 
 def test_briefing_lists_only_actionable():
-    msg = aifund.build_briefing(new=["COHR"], catalyst=["CRDO"])
-    assert "CRDO" in msg and "업데이트" in msg   # 카탈리스트 = 갱신
-    assert "COHR" in msg and "신규" in msg
+    msg = aifund.build_briefing(new=["FAKEA"], catalyst=["FAKEE"])
+    assert "FAKEE" in msg and "업데이트" in msg   # 카탈리스트 = 갱신
+    assert "FAKEA" in msg and "신규" in msg
     assert "2개" in msg
 
 
 def test_briefing_includes_names():
-    msg = aifund.build_briefing(new=["MSTR"], catalyst=["CRDO"],
-                                names={"MSTR": "MicroStrategy", "CRDO": "Credo Technology"})
+    msg = aifund.build_briefing(new=["MSTR"], catalyst=["FAKEE"],
+                                names={"MSTR": "MicroStrategy", "FAKEE": "Credo Technology"})
     assert "MSTR (MicroStrategy)" in msg          # 티커+회사명 병기
-    assert "CRDO (Credo Technology)" in msg
+    assert "FAKEE (Credo Technology)" in msg
 
 
 def test_label_falls_back_to_ticker():
@@ -102,8 +102,8 @@ def test_extra_fundamentals_renders_present_only():
 
 
 def test_build_analysis_prompt():
-    p = aifund.build_analysis_prompt("Credo", "CRDO", "패킷", "광통신 병목 회사")
-    assert "Credo (CRDO)" in p and "패킷" in p
+    p = aifund.build_analysis_prompt("Credo", "FAKEE", "패킷", "광통신 병목 회사")
+    assert "Credo (FAKEE)" in p and "패킷" in p
     assert "사업 개요" in p and "광통신 병목 회사" in p
     assert "[결정] 관망 | 이유:" in p              # 출력 포맷 강제(이유 포함)
     p2 = aifund.build_analysis_prompt("X", "X", "패킷")   # 사업요약 없어도 동작
@@ -121,7 +121,7 @@ def test_analyze_candidate_gate(monkeypatch):
     monkeypatch.setattr(aifund, "analyze_stock",
                         lambda code, name, tk, bot, market="US", brief=None:
                         ({"P": "매수", "W": "관망", "S": "매도"}[bot], "r"))
-    r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
+    r = aifund.analyze_candidate("FAKEE", "Credo", "FAKEE")
     assert r["approved"] is True
     assert r["verdicts"] == {"P": "매수", "W": "관망", "S": "매도"}
 
@@ -142,7 +142,7 @@ def test_analyze_candidate_survives_bot_error(monkeypatch):
             raise RuntimeError("LLM 타임아웃")
         return ("매수" if bot == "P" else "관망"), "r"
     monkeypatch.setattr(aifund, "analyze_stock", flaky)
-    r = aifund.analyze_candidate("CRDO", "Credo", "CRDO")
+    r = aifund.analyze_candidate("FAKEE", "Credo", "FAKEE")
     assert r["verdicts"]["W"] == "관망"           # 예외 → 관망
     assert r["approved"] is True                   # P 매수라 통과
 
@@ -410,14 +410,14 @@ def test_desk_rosters_and_H_profile():
 def test_source_bottleneck_resources_seed_minus_done_and_held(monkeypatch):
     # 상시 워치리스트: 시드에서 '오늘 이미 분석' + '보유 중'만 제외하고 매일 재소싱
     import db
-    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR", "LITE", "AAOI"])
+    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["FAKEA", "FAKEB", "FAKEC"])
     monkeypatch.setattr(aifund, "_today_kst", lambda: "2026-08-05")
-    monkeypatch.setattr(db, "get_fund_reports", lambda n=300: [{"date": "2026-08-05", "code": "LITE"}])  # LITE 오늘 분석함
-    monkeypatch.setattr(db, "get_open_positions", lambda account=None: [{"code": "AAOI"}])                # AAOI 보유 중
+    monkeypatch.setattr(db, "get_fund_reports", lambda n=300: [{"date": "2026-08-05", "code": "FAKEB"}])  # FAKEB 오늘 분석함
+    monkeypatch.setattr(db, "get_open_positions", lambda account=None: [{"code": "FAKEC"}])                # FAKEC 보유 중
     monkeypatch.setattr(aifund, "stock_name", lambda c: c)
     r = aifund.source_bottleneck("US")
-    assert r["codes"] == ["COHR"]                        # 시드 - 오늘분석(LITE) - 보유(AAOI)
-    assert set(r["names"]) == {"COHR"}
+    assert r["codes"] == ["FAKEA"]                        # 시드 - 오늘분석(FAKEB) - 보유(FAKEC)
+    assert set(r["names"]) == {"FAKEA"}
 
 
 def test_bottleneck_seed_reads_db_approved_and_backfills_once(tmp_path, monkeypatch):
@@ -425,14 +425,14 @@ def test_bottleneck_seed_reads_db_approved_and_backfills_once(tmp_path, monkeypa
     import db
     monkeypatch.setenv("DB_PATH", str(tmp_path / "seed.db"))
     db.init_db()
-    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["COHR", "LITE"])
-    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # 최초 1회 백필 → approved
+    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["FAKEA", "FAKEB"])
+    assert set(aifund._bottleneck_seed()) == {"FAKEA", "FAKEB"}      # 최초 1회 백필 → approved
     # 사람이 새 후보를 승인/반려하면 즉시 반영, 백필은 다시 안 함
-    db.add_bottleneck_seed("AXTI", "InP 상류")
-    assert set(aifund._bottleneck_seed()) == {"COHR", "LITE"}      # pending은 아직 제외
-    db.decide_bottleneck_seed("AXTI", "approved")
-    db.decide_bottleneck_seed("COHR", "rejected")
-    assert set(aifund._bottleneck_seed()) == {"LITE", "AXTI"}      # 승인 반영 + 반려 제외
+    db.add_bottleneck_seed("FAKED", "상류 소재")
+    assert set(aifund._bottleneck_seed()) == {"FAKEA", "FAKEB"}      # pending은 아직 제외
+    db.decide_bottleneck_seed("FAKED", "approved")
+    db.decide_bottleneck_seed("FAKEA", "rejected")
+    assert set(aifund._bottleneck_seed()) == {"FAKEB", "FAKED"}      # 승인 반영 + 반려 제외
 
 
 def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeypatch):
@@ -444,15 +444,15 @@ def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeyp
     monkeypatch.setattr(aifund, "_narrate", lambda bot, content, model="rule": narrated.append((bot, content)))
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: notified.append((a, k)))
     added = aifund.submit_bottleneck_candidates(
-        [{"ticker": "axti", "rationale": "InP 상류"}, "SIVE"], source="agent")
-    assert set(added) == {"AXTI", "SIVE"}
-    assert db.get_bottleneck_seeds("pending") == ["AXTI", "SIVE"]   # approved 아님 — 사람 결재 대기
+        [{"ticker": "faked", "rationale": "상류 소재"}, "FAKEF"], source="agent")
+    assert set(added) == {"FAKED", "FAKEF"}
+    assert db.get_bottleneck_seeds("pending") == ["FAKED", "FAKEF"]   # approved 아님 — 사람 결재 대기
     assert db.get_bottleneck_seeds("approved") == []
-    assert narrated and narrated[0][0] == "S" and "AXTI" in narrated[0][1]
+    assert narrated and narrated[0][0] == "S" and "FAKED" in narrated[0][1]
     assert len(notified) == 1
     # 중복 제출은 새로 안 올라가고 알림/내레이션도 안 함
     narrated.clear(); notified.clear()
-    assert aifund.submit_bottleneck_candidates(["AXTI"]) == []
+    assert aifund.submit_bottleneck_candidates(["FAKED"]) == []
     assert narrated == [] and notified == []
 
 
@@ -488,11 +488,11 @@ def test_merr_macro_note_uses_current_data(tmp_path, monkeypatch):
 def test_parse_candidates_json_extracts_and_filters():
     # 코드펜스·머리말 섞여도 JSON 배열만 추출, ticker 없는 항목은 버림, 대문자 정규화
     txt = ('여기 후보입니다:\n```json\n'
-           '[{"ticker":"axti","rationale":"InP 상류"},'
+           '[{"ticker":"faked","rationale":"상류 소재"},'
            '{"rationale":"티커없음"},'
-           '{"ticker":"SIVE","rationale":"실리콘포토닉스"}]\n```')
+           '{"ticker":"FAKEF","rationale":"실리콘포토닉스"}]\n```')
     out = aifund._parse_candidates_json(txt)
-    assert [c["ticker"] for c in out] == ["AXTI", "SIVE"]
+    assert [c["ticker"] for c in out] == ["FAKED", "FAKEF"]
     assert aifund._parse_candidates_json("설명만 있고 JSON 없음") == []
 
 
@@ -502,16 +502,16 @@ def test_curation_backfills_before_research_preserving_watchlist(tmp_path, monke
     monkeypatch.setenv("DB_PATH", str(tmp_path / "bf.db"))
     db.init_db()
     monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
-    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["COHR", "MU"])
+    monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["FAKEA", "MU"])
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
-    # 조사 결과에 기존 시드(COHR)가 섞여도 제외돼야 함
+    # 조사 결과에 기존 시드가 섞여도 제외돼야 함
     monkeypatch.setattr(agents, "_call_claude_cli",
                         lambda s, u, timeout=60, model=None, allowed_tools=None:
-                        '[{"ticker":"COHR","rationale":"기존"},{"ticker":"NBIS","rationale":"신규"}]')
+                        '[{"ticker":"FAKEA","rationale":"기존"},{"ticker":"NBIS","rationale":"신규"}]')
     r = aifund.run_bottleneck_curation(limit=5)
-    assert set(db.get_bottleneck_seeds("approved")) == {"COHR", "MU"}   # 백필 보존
-    assert r["added"] == ["NBIS"]                                       # 기존 COHR 제외, 신규만
+    assert set(db.get_bottleneck_seeds("approved")) == {"FAKEA", "MU"}   # 백필 보존
+    assert r["added"] == ["NBIS"]                                       # 기존 시드 제외, 신규만
     assert db.get_bottleneck_seeds("pending") == ["NBIS"]
 
 
@@ -525,25 +525,25 @@ def test_run_bottleneck_curation_researches_excludes_and_queues(tmp_path, monkey
     monkeypatch.setenv("DB_PATH", str(tmp_path / "cur.db"))
     db.init_db()
     monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
-    db.add_bottleneck_seed("COHR", "이미 다룸", source="manual")   # 제외 대상(agent 아님 — 하루1회 가드 미발동)
-    db.decide_bottleneck_seed("COHR", "rejected")            # 이미 결재됨 — 재출현 금지 확인용
+    db.add_bottleneck_seed("FAKEA", "이미 다룸", source="manual")   # 제외 대상(agent 아님 — 하루1회 가드 미발동)
+    db.decide_bottleneck_seed("FAKEA", "rejected")            # 이미 결재됨 — 재출현 금지 확인용
     narr, noti = [], []
     monkeypatch.setattr(aifund, "_narrate", lambda b, c, model="rule": narr.append((b, c)))
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: noti.append(1))
-    # 웹서치 CLI 응답을 목킹: COHR(제외)·AXTI·SIVE·TOOLONG(형식탈락)·nvda(소문자→NVDA)
-    fake = ('[{"ticker":"COHR","rationale":"x"},{"ticker":"AXTI","rationale":"InP"},'
-            '{"ticker":"SIVE","rationale":"포토닉스"},{"ticker":"TOOLONG","rationale":"y"},'
+    # 웹서치 CLI 응답을 목킹: 기존시드(제외)·신규2·TOOLONG(형식탈락)·소문자→대문자
+    fake = ('[{"ticker":"FAKEA","rationale":"x"},{"ticker":"FAKED","rationale":"InP"},'
+            '{"ticker":"FAKEF","rationale":"포토닉스"},{"ticker":"TOOLONG","rationale":"y"},'
             '{"ticker":"nvda","rationale":"z"}]')
     monkeypatch.setattr(agents, "_call_claude_cli",
                         lambda sys_, usr, timeout=60, model=None, allowed_tools=None: fake)
     r = aifund.run_bottleneck_curation(limit=5)
-    assert set(r["added"]) == {"AXTI", "SIVE", "NVDA"}          # COHR 제외 · TOOLONG 형식탈락
-    assert set(db.get_bottleneck_seeds("pending")) == {"AXTI", "SIVE", "NVDA"}
+    assert set(r["added"]) == {"FAKED", "FAKEF", "NVDA"}          # 기존 시드 제외 · TOOLONG 형식탈락
+    assert set(db.get_bottleneck_seeds("pending")) == {"FAKED", "FAKEF", "NVDA"}
     assert narr and noti                                        # S 결재 올림 + 오너 알림 1회
 
 
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
-    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["COHR"])
+    monkeypatch.setattr(aifund, "_bottleneck_seed", lambda: ["FAKEA"])
     monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])
     monkeypatch.setattr(aifund, "stock_name", lambda c: c)
     assert aifund.source_bottleneck("KRX")["codes"] == []   # 병목 시드는 미장 전용
