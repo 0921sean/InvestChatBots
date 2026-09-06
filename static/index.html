@@ -1352,10 +1352,13 @@ function _openPosItemHtml(p) {
     : `₩${Math.round(v).toLocaleString()}`;
   const entryStr   = fmt(p.entry_price||0, isUS);
   const currentStr = p.current_price ? fmt(p.current_price, isUS) : '—';
-  const upnl  = p.unrealized_pnl || 0;
-  const upnlP = p.unrealized_pnl_pct || 0;
-  const upnlColor = upnl > 0 ? '#f85149' : upnl < 0 ? '#58a6ff' : '#8b949e';
-  const upnlStr = upnl !== 0
+  // 손익 0(보합)과 손익 미산출(시세 없음)은 다르다 — 옛 조건 `upnl !== 0`은 둘을 같이 묶어
+  // 정확히 보합인 종목의 손익 배지를 통째로 지웠다. 다른 종목엔 다 붙어 있으니 "안 뜬다"로 보인다.
+  const upnl  = p.unrealized_pnl;
+  const upnlP = p.unrealized_pnl_pct;
+  const hasPnl = typeof upnl === 'number' && typeof upnlP === 'number';
+  const upnlColor = upnl > 0 ? '#f85149' : upnl < 0 ? '#58a6ff' : '#8b949e';   // 보합 = 중립 회색
+  const upnlStr = hasPnl
     ? `<span style="color:${upnlColor};font-size:10px">${upnl>0?'+':''}₩${Math.round(Math.abs(upnl)).toLocaleString()} (${upnlP>0?'+':''}${upnlP.toFixed(1)}%)</span>`
     : '';
   const posIdx = window._posData.length;
