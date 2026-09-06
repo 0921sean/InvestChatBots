@@ -122,19 +122,19 @@ for _k, _c in (("P", "#5aa9e6"), ("W", "#c9a227"), ("S", "#e08a3c"), ("H", "#a78
         'system': '[비공개 전략 — 실제 프롬프트는 strategy_private.py. 이건 example 더미.]'}
 
 # ── 지표·튜닝 파라미터 (예시값 — 실제 튜닝값은 strategy_private.py) ──
-MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9   # 표준값
-RSI_PERIOD = 14
-RSI_MOMENTUM_MIN = 50.0
-BB_PERIOD, BB_STD = 20, 2.0
-MOM_GC_LOOKBACK = 5
-MOM_STOP_LOOKBACK = 5
+MACD_FAST, MACD_SLOW, MACD_SIGNAL = 99, 99, 99   # PLACEHOLDER — 실제 값 아님
+RSI_PERIOD = 99   # PLACEHOLDER
+RSI_MOMENTUM_MIN = 99.0   # PLACEHOLDER
+BB_PERIOD, BB_STD = 99, 9.9   # PLACEHOLDER
+MOM_GC_LOOKBACK = 99   # PLACEHOLDER
+MOM_STOP_LOOKBACK = 99   # PLACEHOLDER
 WEIGHT_PCT = 0.10        # 예시
 MAX_POSITIONS = 5        # 예시
 HARD_STOP_PCT = -15.0    # 예시
 FUND_STOP_PCT = -0.20    # AI펀드 T 하드 스탑로스 안전망 (예시값, 실제는 strategy_private.py)
 ROUND_TRIP_BPS = 10.0    # 백테스트 왕복 거래비용(bp) 예시 — 실제는 strategy_private.py
-TREND_STOP_PCT = -0.08   # M 타이트 스탑 예시
-TREND_BREAKOUT = 50      # M 신고가 돌파 룩백 예시
+TREND_STOP_PCT = -0.99   # PLACEHOLDER
+TREND_BREAKOUT = 999     # PLACEHOLDER
 
 # 공급망 병목 시드 — 실제 종목은 strategy_private.py(비공개). 공개/폴백은 빈 값.
 US_BOTTLENECK_SEED = []
