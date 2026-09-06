@@ -382,17 +382,21 @@ def _cipher_agent_names(rows):
     return rows
 
 
+# 한 번에 퍼갈 수 있는 메시지 상한 — 없으면 limit=999999999 한 방에 전체 아카이브가 덤프된다
+_MAX_MESSAGE_PAGE = 500
+
+
 @app.get("/api/messages")
 def api_messages(since: int = 0, limit: int = 100, desk: str = None):
     # desk 없음 → committee(라이브) / 'fund' → AI펀드 관전 내레이션. 이니셜은 출력에서 ROT13 치환.
-    return _cipher_agent_names(get_messages_since(since, limit=limit, desk=desk))
+    return _cipher_agent_names(get_messages_since(since, limit=min(limit, _MAX_MESSAGE_PAGE), desk=desk))
 
 
 @app.get("/api/messages/latest")
 def api_messages_latest(n: int = 200, desk: str = None):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
-    return _cipher_agent_names(get_recent_messages(n, desk=desk))
+    return _cipher_agent_names(get_recent_messages(min(n, _MAX_MESSAGE_PAGE), desk=desk))
 
 
 @app.get("/api/market")
@@ -402,7 +406,7 @@ def api_market():
 
 
 @app.get("/api/agents")
-def api_agents():
+def api_agents(request: Request):
     MODEL_LABEL = {
         "claude-sonnet-4-6": "Claude Sonnet",
         "claude-haiku-4-5-20251001": "Claude Haiku",
@@ -411,20 +415,25 @@ def api_agents():
         "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o mini",
     }
+    # system 프롬프트 = strategy_private.py의 비공개 전략 본문(지표·임계·진입청산 규칙).
+    # 이걸 쓰는 건 오너 전용 봇 성격 모달뿐이라(index.html openBotModal) 오너에게만 싣는다.
+    owner = is_owner(request)
+
     def _entry(name, desk):
         profile = AGENT_PROFILES[name]
-        # system 프롬프트에서 {evolution_notes} 플레이스홀더 제거 후 전달
-        system_clean = profile["system"].replace("{evolution_notes}", "").strip()
-        return {
+        entry = {
             "name": name,
             "description": profile["description"],
             "color": profile["color"],
             "model_provider": profile["model_provider"],
             "model_label": MODEL_LABEL.get(profile["model_id"], profile["model_id"]),
-            "system": system_clean,
             "desk": desk,                  # main=장기 / trading=트레이딩
             "hidden_from_members": False,
         }
+        if owner:
+            # {evolution_notes} 플레이스홀더 제거 후 전달
+            entry["system"] = profile["system"].replace("{evolution_notes}", "").strip()
+        return entry
 
     # 트레이딩 계좌 = 규칙엔진(차트천재 모멘텀 · 역추세봇 평균회귀). 구 5봇 LLM(추세질주 등)은 은퇴 → 미표시
     _TRADING_DESK = ["차트천재", "역추세봇"]
@@ -627,6 +636,23 @@ def _refresh_prices_bg():
         _price_refresh_lock.release()
 
 
+# 공개 응답에서 떼는 필드 — UI는 하나도 안 쓰는데 전략을 역산할 재료가 된다.
+#   strategy   : 그 거래가 momentum/meanrev 중 무엇이었는지 라벨 = 규칙엔진 정답지
+#   stop_price : 진입 시점 최근 저점. opened_at + 공개 OHLC와 맞추면 비공개 상수
+#                MOM_STOP_LOOKBACK이 거래 한 건으로 역산된다. 열린 포지션이면 손절가 생중계.
+#   half_exited: 분할익절 존재 여부
+#   quantity   : amount/entry_price로 이미 유도 가능한 중복값 + 사이징 비중 힌트
+_PRIVATE_POSITION_FIELDS = ("strategy", "stop_price", "half_exited", "quantity")
+
+
+def _strip_private_fields(positions):
+    """관전용 공개 응답에서 전략 역산 재료를 제거."""
+    for p in positions:
+        for f in _PRIVATE_POSITION_FIELDS:
+            p.pop(f, None)
+    return positions
+
+
 def _enrich_positions(positions):
     """현재가 캐시 적용 + 옛 봇 이름 치환."""
     for p in positions:
@@ -657,12 +683,12 @@ def api_portfolio():
     pf = get_shared_portfolio("main")
     pf["market_status"] = is_market_open()
     pf["initial_balance"] = INITIAL_BALANCE
-    pf["positions"] = _enrich_positions(get_all_positions(30, account="main"))
+    pf["positions"] = _strip_private_fields(_enrich_positions(get_all_positions(30, account="main")))
 
     # 서브(트레이딩) 계좌
     sub = get_shared_portfolio("sub")
     sub["initial_balance"] = TRADING_BALANCE
-    sub["positions"] = _enrich_positions(get_all_positions(30, account="sub"))
+    sub["positions"] = _strip_private_fields(_enrich_positions(get_all_positions(30, account="sub")))
     pf["sub"] = sub
 
     return pf
@@ -670,14 +696,19 @@ def api_portfolio():
 
 @app.get("/api/positions")
 def api_positions():
-    return get_all_positions(50)
+    return _strip_private_fields(get_all_positions(50))
 
 
 @app.get("/api/fund-report")
 def api_fund_report(limit: int = 60):
     """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
     from db import get_fund_reports
-    return get_fund_reports(limit)
+    rows = get_fund_reports(min(limit, 200))
+    # desk('PW'=일반풀 / 'S'=병목 자체소싱)는 UI 미사용 + 어느 소싱 레인에서 나온
+    # 후보인지 알려줘서, 매일 긁어 모으면 S의 시드 목록이 재구성된다.
+    for r in rows:
+        r.pop("desk", None)
+    return rows
 
 
 @app.get("/api/fund")
