@@ -9,6 +9,8 @@ venv/
 .gstack/
 *.session
 static/debates/
+# 테스트 캐시 — 노드 ID에 옛 함수명이 남아 스크럽을 되돌리는 통로가 된다
+.pytest_cache/
 
 # 비공개 전략 (앞으로 GitHub 미노출)
 strategy_private.py
