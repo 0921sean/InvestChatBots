@@ -330,6 +330,31 @@ def has_pending_buy(code: str, desk: str) -> bool:
             (code, desk)).fetchone() is not None
 
 
+def last_rejected_buy(code: str, account: str) -> dict | None:
+    """해당 종목·계좌에서 오너가 마지막으로 '거절'한 결재. 없으면 None.
+
+    반환에 days_ago를 담아 쿨다운 판정에 바로 쓰게 한다. 봇이 아니라 계좌 기준으로
+    보는 이유: 오너의 거절은 "이 계좌에 이 종목 넣지 마라"는 뜻이지
+    "그 봇 말만 듣지 마라"가 아니다. 다른 봇이 같은 종목을 올려도 동일하게 걸린다.
+    """
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT id, reason, approvers, decided_at, decision_price "
+            "FROM pending_buy WHERE code=? AND account=? AND status='rejected' "
+            "AND decided_at IS NOT NULL ORDER BY decided_at DESC LIMIT 1",
+            (code, account)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        from datetime import datetime
+        d["days_ago"] = (datetime.now() - datetime.fromisoformat(d["decided_at"])).days
+    except Exception:
+        d["days_ago"] = None
+    return d
+
+
 def add_pending_buy(ticker, code, desk, account, market, amount, decision_price,
                     approvers, stock_desc="", reason="", q_comment=None) -> int:
     """매수 결재 상신 → pending. 같은 종목·데스크가 이미 대기중이면 0(중복 방지). 반환: 새 id(또는 0)."""
