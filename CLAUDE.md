@@ -62,13 +62,27 @@ ICB가 결국 내 계좌를 굴려 경제적 자유로. 그 험난한 여정 자
 
 ## 1. 서버 재시작 절차 (절대 규칙)
 
-코드 수정 후 서버를 재시작할 때 반드시 이 순서를 따른다:
+> ⛔ **`pkill`·`kill`을 쓰지 않는다.** 이 서버는 launchd(`com.investchatbots.app`, `KeepAlive=true`)가
+> 관리한다. raw 시그널을 보내면 uvicorn이 HTTP만 닫고 백그라운드 스레드를 기다리며 **멈춘 채 살아남는다.**
+> 그러면 launchd는 `state = running`으로 보고 재기동을 안 하고, 사이트만 내려간다.
+> 2026-09-07에 실제로 이렇게 다운됐다(SIGTERM·SIGKILL 둘 다 안 통해 수동 복구 필요) — [#161](../../issues/161).
 
-1. `pkill -f "uvicorn main:app"` — 서버 종료
-2. **DB cycle_state 절대 건드리지 않고** 바로 서버 재시작
-3. 재시작 후 `/api/state`로 phase 확인 — `cycle_rest`면 그대로 둔다
-4. phase가 `sector_discussion`으로 잘못 돌아간 경우에만, **사용자에게 알리고 허락 받은 후** 수동 수정
-5. 재시작 후 `/api/conversation/start`를 임의로 호출하지 않는다
+**언제 필요한가:** 파이썬은 기동 시 코드를 메모리에 올린다. `main.py`·`db.py`·`aifund.py` 등
+**백엔드 변경은 재기동해야 적용**된다. 반면 `static/`(프론트)은 요청마다 디스크에서 읽으므로 재기동 불필요.
+
+1. **`launchctl kickstart -k gui/$(id -u)/com.investchatbots.app`** — launchd가 죽이고 다시 올린다.
+   (`launchctl stop com.investchatbots.app`도 `KeepAlive=true` 덕에 동일 효과)
+2. **DB cycle_state는 절대 건드리지 않는다.**
+3. **`/health`가 200을 돌려줄 때까지 확인한다.** 프로세스 생존 ≠ 서비스 정상 —
+   프로세스가 살아 있는데 포트 리스닝이 없는 상태가 실재한다. `pgrep`만 보고 판단하지 말 것.
+4. `/api/state`로 phase 확인 — `cycle_rest`면 그대로 둔다.
+5. phase가 `sector_discussion`으로 잘못 돌아간 경우에만, **사용자에게 알리고 허락 받은 후** 수동 수정
+6. 재시작 후 `/api/conversation/start`를 임의로 호출하지 않는다
+
+**멈춘 프로세스 복구(위 1번이 안 먹힐 때):** 포트가 비어 있으면 임시로 직접 띄워 서비스를 살릴 수 있다
+(`nohup ./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8001 &`).
+단 이건 **launchd 관리 밖**이라 재부팅 시 안 올라온다 — 멈춘 프로세스를 정리하고
+반드시 1번으로 정상화할 것.
 
 ---
 
