@@ -1902,9 +1902,15 @@ def add_feedback(content: str, visitor_id: str = None,
 
 
 def feedback_rate_limited(visitor_id: str, window_min: int = 5, max_n: int = 3) -> bool:
-    """같은 visitor가 window_min 내 max_n 건 이상이면 True (차단)."""
+    """같은 visitor가 window_min 내 max_n 건 이상이면 True (차단).
+
+    visitor_id는 클라이언트 쿠키라 공격자가 마음대로 뺄 수 있다. 옛 코드는 값이 없으면
+    False(=통과)를 반환해서 **쿠키만 안 보내면 무제한**이었다 — 피드백 1건마다 오너 폰으로
+    고우선 푸시가 나가므로 알림 폭탄 + DB 팽창 경로였다.
+    없으면 차단(fail-closed)으로 뒤집는다. 호출부가 IP 등 대체 키를 넘겨주면 그걸로 센다.
+    """
     if not visitor_id:
-        return False
+        return True
     with _conn() as con:
         row = con.execute("""
             SELECT COUNT(*) FROM feedback
