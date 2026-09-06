@@ -432,7 +432,10 @@ def _row(m):
 
 def write_report(date_str, path=None):
     counts, result, n_stocks = run()
-    path = path or os.path.join(_DIR, "docs", "backtest_report.md")
+    # ⚠️ git 미추적 파일로 쓴다(.gitignore). 승률·손익비·MDD·IS/OOS 표는 "이 설계가
+    # 실제로 통한다"는 증거라 복제자에게 가장 값지고, 코드엔 없고 이 리포트에만 있다.
+    # 옛 경로(docs/backtest_report.md)로 되돌리면 공개 레포에 다시 올라간다.
+    path = path or os.path.join(_DIR, "BACKTEST_PRIVATE.md")
     L = [f"# ICB 백테스트 리포트 — {date_str}", ""]
     L.append(f"- 유니버스: US {counts['US'][1]}/{counts['US'][0]} · "
              f"KR {counts['KRX'][1]}/{counts['KRX'][0]} 종목 (최소 {MIN_BARS}봉 이상, 총 {n_stocks})")
