@@ -1195,6 +1195,21 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
                          stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
     """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
     같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
+    # ── 계좌 라우팅 ────────────────────────────────────────────
+    # 계좌는 "누가 찾았나"가 아니라 **"어떤 종목이냐"**로 정한다.
+    # 발굴주 봇(S 등)이 대형주를 물어오는 일이 실제로 있다(AVGO). 옛 코드는 찾은
+    # 데스크가 계좌를 정해서 같은 종목이 발굴주로도 대형주로도 들어갔다.
+    # 이 블록은 나머지 검사(리스크·거절 쿨다운)보다 **먼저** 와야 한다 —
+    # 그것들이 전부 account 기준이라 계좌를 확정한 뒤에 판정해야 맞다.
+    if desk != "대형주" and code in _largecap_universe():
+        from db import get_open_positions_by_symbol
+        if get_open_positions_by_symbol(ticker, account="대형주"):
+            logger.info(f"[결재 skip] {code} — 대형주 계좌에 이미 보유 중")
+            return False                                          # 이미 든 걸 다시 묻지 않는다
+        logger.info(f"[계좌 라우팅] {code}: {desk} → 대형주 (대형주 유니버스 종목)")
+        desk = account = "대형주"
+        amount = _desk_amount("대형주")                            # 사이징도 대형주 규칙(시드 10%)
+
     import risk                                                   # 회로차단기 발동 중이면 오너를 번거롭게 안 함
     _ok, _why, _breaker = risk.precheck_buy(account, code, amount)
     if not _ok and _breaker:
