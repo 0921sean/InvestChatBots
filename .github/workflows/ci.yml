@@ -50,3 +50,4 @@ jobs:
           tests/test_price_refresh.py
           tests/test_reject_cooldown.py
           tests/test_server_hardening.py
+          tests/test_largecap_routing.py
