@@ -172,6 +172,7 @@ def _migrate():
             "ALTER TABLE virtual_positions ADD COLUMN strategy TEXT",       # 트레이딩 규칙엔진: momentum/meanrev
             "ALTER TABLE virtual_positions ADD COLUMN stop_price REAL",     # 모멘텀 손절가(진입 시점 최근 저점)
             "ALTER TABLE virtual_positions ADD COLUMN half_exited INTEGER DEFAULT 0",  # 모멘텀 v2 절반익절 여부
+            "ALTER TABLE virtual_positions ADD COLUMN split_checked_at TEXT",  # 액면분할 반영일(YYYY-MM-DD) — 이 날짜 이후 분할만 재적용(멱등)
             "ALTER TABLE cycle_state ADD COLUMN market TEXT DEFAULT 'KRX'",
             "ALTER TABLE visit_log ADD COLUMN verified INTEGER DEFAULT 0",
             "ALTER TABLE benchmark_daily ADD COLUMN spy REAL",
@@ -1406,6 +1407,20 @@ def sell_partial(pos_id: int, fraction: float, exit_price: float, exit_reasoning
             WHERE id = ?
         """, (return_amount, sold_amount, pnl, aid))
         return pnl, None
+
+
+def apply_split_adjustment(pos_id: int, ratio: float, checked_at: str):
+    """액면분할 반영 — 진입가·손절가 ÷ ratio, 수량 × ratio. amount(원금)는 불변.
+    시세 소스가 분할 조정가를 주므로 진입가를 같이 조정해야 가공 손익이 안 생긴다."""
+    with _conn() as con:
+        con.execute("""
+            UPDATE virtual_positions SET
+                entry_price = entry_price / ?,
+                quantity = quantity * ?,
+                stop_price = CASE WHEN stop_price IS NOT NULL THEN stop_price / ? END,
+                split_checked_at = ?
+            WHERE id = ? AND status = 'open'
+        """, (ratio, ratio, ratio, checked_at, pos_id))
 
 
 def get_open_positions_by_symbol(symbol: str, account: str = None) -> list:
