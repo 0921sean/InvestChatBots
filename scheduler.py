@@ -4,7 +4,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 
 from aifund import (run_largecap_cycle, run_discovery_cycle, run_bottleneck_curation,
                     run_macro_briefing, run_q_index_desk, run_risk_review, run_weekly_report,
-                    run_workday, WORKDAY_ENABLED)
+                    run_split_adjust, run_workday, WORKDAY_ENABLED)
 
 
 def _refresh_market_snapshot():
@@ -69,6 +69,11 @@ def start_scheduler():
         scheduler.add_job(run_risk_review,
                           CronTrigger(hour=6, minute=20, day_of_week='mon-fri'),
                           id="risk_review", misfire_grace_time=1800)
+    # 05:15: 액면분할 자동 반영(#170) — 미장 마감 후 열린 US 포지션의 분할 감지·조정.
+    # 데이터 정합 유지 작업이라 데스크 게이트와 무관하게 항상(LLM 0콜).
+    scheduler.add_job(run_split_adjust,
+                      CronTrigger(hour=5, minute=15, day_of_week='mon-fri'),
+                      id="split_adjust", misfire_grace_time=3600)
     # 06시: 지수 벤치마크 스냅샷 (SPY·QQQ·코스피 등). 데스크 게이트와 무관하게 항상.
     scheduler.add_job(_capture_benchmark,
                       CronTrigger(hour=6, minute=0, day_of_week='mon-fri'),
