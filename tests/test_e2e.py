@@ -61,7 +61,7 @@ def test_admin_serves_console_when_owner():
     c.cookies.set(m.COOKIE_NAME, m.OWNER_TOKEN)
     body = c.get("/admin").text
     assert "운영 콘솔" in body
-    for sec in ["리스크 가드", "결재 대기", "병목 시드 결재",
+    for sec in ["리스크 가드", "결재 대기", "병목 워치리스트",
                 "방문 통계", "피드백", "사용자 채팅 기록"]:
         assert sec in body, sec
 
