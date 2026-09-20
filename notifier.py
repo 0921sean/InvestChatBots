@@ -37,6 +37,8 @@ def is_rate_limit(exc: Exception) -> bool:
 
 def notify(title: str, body: str, priority: str = "default", cooldown: int = COOLDOWN_SECONDS):
     """ntfy.sh 푸시 + Gmail. cooldown(초) 내 같은 제목 알림은 1회만 발송."""
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return  # 테스트 중 실발송 차단(#174) — 목킹을 빠뜨린 테스트가 가짜 결재를 폰으로 쏘던 사고
     key = title.strip()
     now = time.time()
     if cooldown > 0 and now - _cooldown.get(key, 0) < cooldown:
