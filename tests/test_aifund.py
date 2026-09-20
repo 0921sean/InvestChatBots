@@ -427,16 +427,15 @@ def test_bottleneck_seed_reads_db_approved_and_backfills_once(tmp_path, monkeypa
     db.init_db()
     monkeypatch.setattr(aifund, "_hardcoded_bottleneck_seed", lambda: ["FAKEA", "FAKEB"])
     assert set(aifund._bottleneck_seed()) == {"FAKEA", "FAKEB"}      # 최초 1회 백필 → approved
-    # 사람이 새 후보를 승인/반려하면 즉시 반영, 백필은 다시 안 함
+    # 새 후보는 바로 편입(#172 시드 결재 폐지), 반려는 즉시 제외, 백필은 다시 안 함
     db.add_bottleneck_seed("FAKED", "상류 소재")
-    assert set(aifund._bottleneck_seed()) == {"FAKEA", "FAKEB"}      # pending은 아직 제외
-    db.decide_bottleneck_seed("FAKED", "approved")
+    assert set(aifund._bottleneck_seed()) == {"FAKEA", "FAKEB", "FAKED"}   # 자동 편입
     db.decide_bottleneck_seed("FAKEA", "rejected")
-    assert set(aifund._bottleneck_seed()) == {"FAKEB", "FAKED"}      # 승인 반영 + 반려 제외
+    assert set(aifund._bottleneck_seed()) == {"FAKEB", "FAKED"}      # 반려 제외
 
 
-def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeypatch):
-    # ②d 산출물 → pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy (승인은 사람)
+def test_submit_bottleneck_candidates_auto_approves_no_ntfy(tmp_path, monkeypatch):
+    # ②d 산출물 → 워치리스트 바로 편입(#172) + S 내레이션. 오너 ntfy 없음 — 결재는 매수만.
     import db, notifier
     monkeypatch.setenv("DB_PATH", str(tmp_path / "sub.db"))
     db.init_db()
@@ -446,14 +445,14 @@ def test_submit_bottleneck_candidates_queues_narrates_notifies(tmp_path, monkeyp
     added = aifund.submit_bottleneck_candidates(
         [{"ticker": "faked", "rationale": "상류 소재"}, "FAKEF"], source="agent")
     assert set(added) == {"FAKED", "FAKEF"}
-    assert db.get_bottleneck_seeds("pending") == ["FAKED", "FAKEF"]   # approved 아님 — 사람 결재 대기
-    assert db.get_bottleneck_seeds("approved") == []
+    assert db.get_bottleneck_seeds("approved") == ["FAKED", "FAKEF"]  # 바로 편입
+    assert db.get_bottleneck_seeds("pending") == []
     assert narrated and narrated[0][0] == "S" and "FAKED" in narrated[0][1]
-    assert len(notified) == 1
-    # 중복 제출은 새로 안 올라가고 알림/내레이션도 안 함
-    narrated.clear(); notified.clear()
+    assert notified == []                                             # 시드 알림 폐지
+    # 중복 제출은 새로 안 올라가고 내레이션도 안 함
+    narrated.clear()
     assert aifund.submit_bottleneck_candidates(["FAKED"]) == []
-    assert narrated == [] and notified == []
+    assert narrated == []
 
 
 def test_pub_letter_rot13_maps_fund_bots_only():
@@ -510,9 +509,9 @@ def test_curation_backfills_before_research_preserving_watchlist(tmp_path, monke
                         lambda s, u, timeout=60, model=None, allowed_tools=None:
                         '[{"ticker":"FAKEA","rationale":"기존"},{"ticker":"NBIS","rationale":"신규"}]')
     r = aifund.run_bottleneck_curation(limit=5)
-    assert set(db.get_bottleneck_seeds("approved")) == {"FAKEA", "MU"}   # 백필 보존
     assert r["added"] == ["NBIS"]                                       # 기존 시드 제외, 신규만
-    assert db.get_bottleneck_seeds("pending") == ["NBIS"]
+    assert set(db.get_bottleneck_seeds("approved")) == {"FAKEA", "MU", "NBIS"}  # 백필 보존 + 신규 자동 편입
+    assert db.get_bottleneck_seeds("pending") == []
 
 
 def test_run_bottleneck_curation_noop_when_disabled(monkeypatch):
@@ -538,8 +537,8 @@ def test_run_bottleneck_curation_researches_excludes_and_queues(tmp_path, monkey
                         lambda sys_, usr, timeout=60, model=None, allowed_tools=None: fake)
     r = aifund.run_bottleneck_curation(limit=5)
     assert set(r["added"]) == {"FAKED", "FAKEF", "NVDA"}          # 기존 시드 제외 · TOOLONG 형식탈락
-    assert set(db.get_bottleneck_seeds("pending")) == {"FAKED", "FAKEF", "NVDA"}
-    assert narr and noti                                        # S 결재 올림 + 오너 알림 1회
+    assert set(db.get_bottleneck_seeds("approved")) == {"FAKED", "FAKEF", "NVDA"}  # 자동 편입(#172)
+    assert narr and not noti                                    # S 내레이션만 — 시드 ntfy 폐지
 
 
 def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
@@ -981,7 +980,7 @@ def test_run_workday_lock_prevents_double(monkeypatch):
 
 
 def test_seed_track_injects_owner_frame(tmp_path, monkeypatch):
-    # S픽(시드)은 분석 패킷에 '오너 승인 워치리스트' 프레임 주입 — A픽은 미주입(기존 잣대)
+    # S픽(시드)은 분석 패킷에 '병목 워치리스트' 프레임 주입 — A픽은 미주입(기존 잣대)
     import db, fetchers
     monkeypatch.setenv("DB_PATH", str(tmp_path / "sf.db"))
     db.init_db()
@@ -1001,8 +1000,8 @@ def test_seed_track_injects_owner_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "analyze_stock", rec)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda *a, **k: 10.0)
     aifund.run_discovery_desk()
-    assert "오너 승인 병목 워치리스트" in seen[("POET", "S")]      # 시드 → 프레임 주입
-    assert "오너 승인" not in seen[("PEP", "P")]                    # A픽 → 기존 잣대 유지
+    assert "[병목 워치리스트]" in seen[("POET", "S")]               # 시드 → 프레임 주입
+    assert "병목 워치리스트" not in seen[("PEP", "P")]              # A픽 → 기존 잣대 유지
 
 
 def test_curation_prompt_is_multi_trend_not_ai_only():

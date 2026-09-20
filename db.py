@@ -251,16 +251,18 @@ def get_fund_reports(limit: int = 30) -> list:
 
 
 # ── S 병목 시드 큐레이션 (로드맵 ②a/②b) ─────────────────────
-def add_bottleneck_seed(ticker: str, rationale: str = "", source: str = "agent") -> bool:
-    """병목 후보를 pending으로 등록. 이미 있으면(승인/반려/대기 무관) 무시 — 재승인 되돌림 방지.
+def add_bottleneck_seed(ticker: str, rationale: str = "", source: str = "agent",
+                        status: str = "approved") -> bool:
+    """병목 후보를 워치리스트에 바로 편입(기본 approved — 시드 결재 폐지 #172,
+    오너 결재는 매수만). 이미 있으면(승인/반려 무관) 무시 — 반려 되돌림 방지.
     반환: 새로 추가됐으면 True."""
     ticker = (ticker or "").strip().upper()
     if not ticker:
         return False
     with _conn() as con:
         cur = con.execute(
-            "INSERT OR IGNORE INTO bottleneck_seed (ticker, rationale, source) VALUES (?,?,?)",
-            (ticker, rationale, source))
+            "INSERT OR IGNORE INTO bottleneck_seed (ticker, rationale, source, status) VALUES (?,?,?,?)",
+            (ticker, rationale, source, status))
         return cur.rowcount > 0
 
 

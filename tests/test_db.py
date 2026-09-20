@@ -118,23 +118,22 @@ def test_ensure_fund_accounts_seeds_four_and_leaves_committee():
     assert get_shared_portfolio("P")["balance"] == FUND_SEED
 
 
-def test_bottleneck_seed_add_approve_and_read():
+def test_bottleneck_seed_auto_approved_and_reject():
     from db import (add_bottleneck_seed, get_bottleneck_seeds,
                     get_bottleneck_seed_rows, decide_bottleneck_seed)
-    # 신규 후보는 pending — approved 목록에 안 뜬다
+    # 신규 후보는 바로 approved(워치리스트 편입) — 시드 결재 폐지(#172)
     assert add_bottleneck_seed("axti", "InP 상류 기판 초크포인트", source="agent") is True
     assert add_bottleneck_seed("AXTI", "중복") is False               # 멱등(대소문자 정규화)
-    assert get_bottleneck_seeds("approved") == []
-    assert get_bottleneck_seeds("pending") == ["AXTI"]
-    # 승인 → approved 목록에 등장
-    assert decide_bottleneck_seed("AXTI", "approved") is True
     assert get_bottleneck_seeds("approved") == ["AXTI"]
     assert get_bottleneck_seeds("pending") == []
-    # 반려는 approved에서 빠진다
+    # 사후 반려 → approved에서 빠진다 (콘솔 제거 경로 유지)
     add_bottleneck_seed("JUNK", "참치")
     decide_bottleneck_seed("JUNK", "rejected")
     assert get_bottleneck_seeds("approved") == ["AXTI"]
     assert {r["ticker"] for r in get_bottleneck_seed_rows()} == {"AXTI", "JUNK"}
+    # 반려된 티커 재등록 시도는 무시 — 반려 되돌림 방지
+    assert add_bottleneck_seed("JUNK", "재시도") is False
+    assert get_bottleneck_seeds("approved") == ["AXTI"]
 
 
 def test_bottleneck_backfill_once_and_preserves_curation():
@@ -144,7 +143,7 @@ def test_bottleneck_backfill_once_and_preserves_curation():
     assert backfill_bottleneck_seeds(["COHR", "LITE"]) == 2
     assert set(get_bottleneck_seeds("approved")) == {"COHR", "LITE"}
     # 이미 시드가 있으면 재백필 안 함(사람 큐레이션 보존)
-    add_bottleneck_seed("MU")                                        # pending 하나 추가
+    add_bottleneck_seed("MU")                                        # 큐레이션 편입 하나 추가
     assert backfill_bottleneck_seeds(["NVDA", "AVGO"]) == 0
     assert "NVDA" not in get_bottleneck_seeds(None)
 
