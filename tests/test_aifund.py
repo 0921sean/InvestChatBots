@@ -1411,3 +1411,26 @@ def test_j_review_mixes_assets_with_indices(tmp_path, monkeypatch):
     assert "시장 전체 밸류에이션" in seen["index"]           # 지수 렌즈(섞이지 않음)
     w = {x["code"]: x for x in db.get_watchlist("watching")}
     assert w["GLD"]["name"] == "금"                         # 지수처럼 "금 지수"로 안 붙음
+
+
+def test_follow_mode_sources_only_follow_seeds(tmp_path, monkeypatch):
+    # S_FOLLOW_ENABLED=true → follow 시드만 소싱, 병목 시드는 휴면(#179). off면 원상복구.
+    import db
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "fm.db"))
+    db.init_db()
+    db.add_bottleneck_seed("FAKEA", "병목", source="agent")           # 기존 병목 시드
+    db.add_bottleneck_seed("FOLA", "팔로우", source="follow")
+    db.add_bottleneck_seed("FOLB.ST", "팔로우(해외)", source="follow")
+    monkeypatch.setattr(aifund, "get_cached_codes", lambda: [])
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
+    r = aifund.source_bottleneck("US")
+    assert r["codes"] == ["FOLA", "FOLB.ST"]                          # follow만, 병목 제외
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", False)
+    assert aifund.source_bottleneck("US")["codes"] == ["FAKEA"]       # 게이트 내리면 병목 복귀
+
+
+def test_follow_mode_curation_dormant(monkeypatch):
+    monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
+    assert aifund.run_bottleneck_curation()["skipped"] == "follow_mode"

@@ -21,6 +21,7 @@ logger = logging.getLogger("investchat.aifund")
 NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "yes")  # 컷오버 게이트(.env). off면 fund 잡 no-op.
 # 6시 병목 큐레이션 게이트(.env). off면 큐레이션 no-op — 웹서치=구독 토큰 추가 소모라 명시 활성화(로드맵 ②d).
 BOTTLENECK_CURATION_ENABLED = os.getenv("BOTTLENECK_CURATION_ENABLED", "").lower() in ("1", "true", "yes")
+S_FOLLOW_ENABLED = os.getenv("S_FOLLOW_ENABLED", "").lower() in ("1", "true", "yes")  # S = 외부 공개 포트 팔로우(#179). off면 병목 시드 원상복구
 BOTTLENECK_CURATION_QUOTA = 8   # 하루 1콜로 올리는 후보 상한(여러 트렌드 분산 위해 소폭 상향). 운영값.
 # 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/admin).
 # 사이클은 결재만 올리고 계속 진행(논블로킹). 청산·손절은 자동(매수만 결재). off면 기존처럼 자동 매수.
@@ -189,20 +190,32 @@ def _hardcoded_bottleneck_seed():
 
 def _bottleneck_seed():
     """S 워치리스트 = DB에서 승인(approved)된 병목 시드(로드맵 ②b: 사람 큐레이션).
+    source='follow'(팔로우 전용 풀, #179)는 제외 — 두 풀은 섞이지 않는다.
     테이블이 비어 있으면 최초 1회 하드코딩 시드를 approved로 백필 → 라이브 동작 그대로 보존."""
-    from db import get_bottleneck_seed_rows, get_bottleneck_seeds, backfill_bottleneck_seeds
+    from db import get_bottleneck_seed_rows, backfill_bottleneck_seeds
     if not get_bottleneck_seed_rows():                   # 최초 1회만: 하드코딩 → approved
         backfill_bottleneck_seeds(_hardcoded_bottleneck_seed())
-    return get_bottleneck_seeds("approved")
+    return [r["ticker"] for r in get_bottleneck_seed_rows("approved")
+            if (r.get("source") or "") != "follow"]
+
+
+def _follow_seed():
+    """팔로우 모드(#179) 워치리스트 = source='follow'인 approved 시드(등록순).
+    외부 공개 포트폴리오를 그대로 추종 — 티커는 DB에만 있고 코드에는 없다."""
+    from db import get_bottleneck_seed_rows
+    return [r["ticker"] for r in get_bottleneck_seed_rows("approved")
+            if (r.get("source") or "") == "follow"]
 
 
 def source_bottleneck(market="US", quota=None):
-    """S 자체 소싱 — 병목 시드를 '상시 워치리스트'로 매일 재평가('발굴'이 S의 엣지).
+    """S 자체 소싱 — 시드를 '상시 워치리스트'로 매일 재평가.
+    S_FOLLOW_ENABLED=true면 follow 시드(외부 공개 포트 추종, #179)만 소싱하고
+    병목 시드는 쉰다(DB 보존 — 게이트 내리면 원상복구). 아니면 기존 병목 시드('발굴'이 엣지).
     영구 thesis 캐시로 빼면 초기 소진 후 S가 영영 놀게 되므로(구 버그), 시드에서
     '오늘 이미 분석함' + '이미 보유 중'만 제외하고 나머지를 재소싱. 반환: {'codes','names'}."""
     quota = quota or DAILY_QUOTA
-    seed = _bottleneck_seed()
-    if market != "US" or not seed:                   # 병목 시드는 미장 전용
+    seed = _follow_seed() if S_FOLLOW_ENABLED else _bottleneck_seed()
+    if market != "US" or not seed:                   # 시드는 미장 전용
         return {"codes": [], "names": {}}
     from db import get_fund_reports, get_open_positions
     today = _today_kst()
@@ -310,6 +323,8 @@ def run_bottleneck_curation(limit=None):
     하루 1콜·구독 토큰. BOTTLENECK_CURATION_ENABLED=False면 no-op. 토큰 소진 시 조용히 skip(다음날 재개)."""
     if not BOTTLENECK_CURATION_ENABLED:
         return {"added": [], "skipped": "disabled"}
+    if S_FOLLOW_ENABLED:                          # 팔로우 모드(#179) — 병목 풀은 휴면, 웹서치 아낌
+        return {"added": [], "skipped": "follow_mode"}
     limit = limit or BOTTLENECK_CURATION_QUOTA
     from db import get_bottleneck_seeds, get_bottleneck_seed_rows
     def _utc_ts_is_today_kst(ts):
@@ -1674,6 +1689,11 @@ def run_split_adjust():
 
 
 # 오너 승인 시드 평가 프레임 — S가 '병목 여부'를 재심사(이중 게이트)하며 전부 관망하던 것 교정.
+FOLLOW_FRAME = ("[팔로우 워치리스트] 이 종목은 오너가 지정한 추종 워치리스트에 올라 있다. 종목 선정 이유를 "
+                "재심사하지 말고 다음만 평가하라: ① 진입 가격·타이밍 — 지금 담을 자리인가 ② 생존 리스크 — 희석·"
+                "현금 소진·고객 집중 ③ 비중 감내 가능성. '모르는 회사다/내 스타일이 아니다'로 기계적으로 거르지 마라. "
+                "셋 다 감내 가능하면 매수, 하나가 치명적이면 그 이유로만 관망하라.")
+
 SEED_FRAME = ("[병목 워치리스트] 이 종목의 '병목 여부'는 큐레이션 단계에서 이미 검토돼 워치리스트에 올라 있다. "
               "병목인지 재심사하지 말고 다음만 평가하라: ① 진입 가격 — 시총이 병목 강도와 TAM 대비 "
               "합리적인가(프리미엄이 '있다'는 이유가 아니라 '과한 정도'인지) ② 생존 리스크 — 희석·현금 "
@@ -1871,8 +1891,9 @@ def run_discovery_desk(market="US"):
             _narrate("A", "잠깐 — 대화 먼저 챙기겠습니다. 남은 후보는 이따 이어서 볼게요.")
             break
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
-        if bots == ["S"] and brief:                                  # 시드 재프레임: 병목 여부는 오너가 이미 승인 —
-            brief = (SEED_FRAME + "\n\n" + (brief[0] or ""), brief[1])   # S는 진입가·희석·타이밍만 평가
+        if bots == ["S"] and brief:                                  # 시드 재프레임 — S는 진입가·희석·타이밍만 평가
+            _frame = FOLLOW_FRAME if S_FOLLOW_ENABLED else SEED_FRAME    # 팔로우 모드(#179)면 병목 언어 제거
+            brief = (_frame + "\n\n" + (brief[0] or ""), brief[1])
         biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
