@@ -234,9 +234,9 @@ def _s_sourcing_note(codes, names) -> str:
 
 
 def submit_bottleneck_candidates(candidates, source="agent") -> list:
-    """②d 큐레이션 산출물을 결재 큐에 올림 — pending 등록 + S '결재 올림' 내레이션 + 오너 ntfy.
-    candidates: [{'ticker','rationale'}] 또는 [ticker,...]. 반환: 새로 올라간 티커 목록.
-    ※ 승인은 사람(운영 콘솔 /admin). 여기선 소싱만 — 매수·평가 안 함."""
+    """②d 큐레이션 산출물을 S 워치리스트에 바로 편입(#172 — 시드 결재 폐지, 오너 결재는 매수만).
+    candidates: [{'ticker','rationale'}] 또는 [ticker,...]. 반환: 새로 편입된 티커 목록.
+    ※ 사후 제거는 운영 콘솔(/admin)에서 반려로 가능. 여기선 소싱만 — 매수·평가 안 함."""
     from db import add_bottleneck_seed
     norm = []
     for c in candidates or []:
@@ -248,15 +248,7 @@ def submit_bottleneck_candidates(candidates, source="agent") -> list:
     if not added:
         return []
     lst = ", ".join(added)
-    _narrate("S", f"오늘 사슬 뒤에서 병목 후보를 물어왔습니다: {lst}. 워치리스트 편입은 사장님 결재로 올립니다. 🧾")
-    try:
-        from notifier import notify
-        site = os.getenv("SITE_URL", "").rstrip("/")
-        link = (site + "/admin") if site else "/admin"   # 결재함 = 운영 콘솔
-        notify(f"🔩 병목 시드 결재 {len(added)}건", f"{lst}\n승인/반려: {link}",
-               priority="default", cooldown=0)
-    except Exception as e:
-        logger.warning(f"병목 결재 알림 실패: {e}")
+    _narrate("S", f"오늘 사슬 뒤에서 병목 후보를 물어왔습니다: {lst}. 워치리스트에 바로 편입하고 지켜보겠습니다. 🧾")
     return added
 
 
@@ -340,7 +332,7 @@ def run_bottleneck_curation(limit=None):
             return {"added": [], "skipped": "token_exhausted"}
         logger.error(f"병목 큐레이션 실패: {e}", exc_info=True)
         return {"added": [], "error": str(e)}
-    added = submit_bottleneck_candidates(cands, source="agent")   # pending + S 결재 올림 + 오너 ntfy
+    added = submit_bottleneck_candidates(cands, source="agent")   # 워치리스트 자동 편입 + S 내레이션(#172)
     return {"added": added, "researched": [c["ticker"] for c in cands]}
 
 
@@ -1682,7 +1674,7 @@ def run_split_adjust():
 
 
 # 오너 승인 시드 평가 프레임 — S가 '병목 여부'를 재심사(이중 게이트)하며 전부 관망하던 것 교정.
-SEED_FRAME = ("[오너 승인 병목 워치리스트] 이 종목의 '병목 여부'는 오너가 이미 검토·승인했다. "
+SEED_FRAME = ("[병목 워치리스트] 이 종목의 '병목 여부'는 큐레이션 단계에서 이미 검토돼 워치리스트에 올라 있다. "
               "병목인지 재심사하지 말고 다음만 평가하라: ① 진입 가격 — 시총이 병목 강도와 TAM 대비 "
               "합리적인가(프리미엄이 '있다'는 이유가 아니라 '과한 정도'인지) ② 생존 리스크 — 희석·현금 "
               "소진·고객 집중 ③ 타이밍 — 지금 담을 자리인가. '이미 알려졌다/비싸다'는 말로 기계적으로 "

@@ -1411,7 +1411,7 @@ def api_bottleneck_seeds(request: Request, status: str = None):
 
 @app.post("/api/bottleneck/seeds/decide")
 def api_bottleneck_decide(request: Request, body: SeedDecideBody):
-    """pending 시드 승인/반려 (owner only). approved면 S 워치리스트에 편입."""
+    """시드 승인/반려 (owner only) — #172 이후 편입은 자동, 여긴 사후 반려(제거)용."""
     if not is_owner(request):
         raise HTTPException(403, "owner only")
     from db import decide_bottleneck_seed
@@ -1422,7 +1422,7 @@ def api_bottleneck_decide(request: Request, body: SeedDecideBody):
 
 @app.post("/api/bottleneck/seeds/add")
 def api_bottleneck_add(request: Request, body: SeedAddBody):
-    """수동 병목 후보 등록 → pending (owner only)."""
+    """수동 병목 후보 등록 → 워치리스트 바로 편입 (owner only, #172 시드 결재 폐지)."""
     if not is_owner(request):
         raise HTTPException(403, "owner only")
     from db import add_bottleneck_seed
@@ -1431,7 +1431,7 @@ def api_bottleneck_add(request: Request, body: SeedAddBody):
 
 @app.post("/api/bottleneck/curate")
 def api_bottleneck_curate(request: Request):
-    """6시 큐레이션을 지금 수동 실행 (owner only) — 웹서치 조사 → pending 결재 큐.
+    """6시 큐레이션을 지금 수동 실행 (owner only) — 웹서치 조사 → 워치리스트 자동 편입(#172).
     ⚠️ 구독 토큰 소모. BOTTLENECK_CURATION_ENABLED=False면 no-op."""
     if not is_owner(request):
         raise HTTPException(403, "owner only")
