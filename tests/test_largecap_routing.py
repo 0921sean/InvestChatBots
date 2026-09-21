@@ -20,8 +20,10 @@ import aifund
 @pytest.fixture
 def largecap(monkeypatch):
     """대형주 유니버스를 고정 — 실제 유니버스가 바뀌어도 테스트가 흔들리지 않게."""
+    import notifier
     monkeypatch.setattr(aifund, "_largecap_universe", lambda: {"BIGCO", "MEGACO"})
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)   # 실발송 차단(#174)
     yield
     with _conn() as con:
         con.execute("DELETE FROM pending_buy WHERE code IN ('BIGCO','MEGACO','SMALLCO')")
