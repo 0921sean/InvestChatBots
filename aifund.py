@@ -1648,6 +1648,39 @@ def run_risk_review():
     return {"chars": len(out)}
 
 
+def run_split_adjust():
+    """액면분할 자동 반영(평일 1회) — 열린 US 포지션의 '진입 이후' 분할을 yfinance splits로
+    감지해 진입가·손절가·수량을 조정한다(amount 원금 불변). 시세 소스가 분할 조정가를 주므로
+    방치하면 가공 손익이 생긴다(2026-09-03 APH 2:1 → 가짜 −51% 사례, #170).
+    LLM 0콜·결정적. split_checked_at 이후 분할만 재적용해 멱등."""
+    import yfinance as yf
+    from db import get_open_positions, apply_split_adjustment
+    adjusted = []
+    today = _today_kst()
+    for pos in get_open_positions(market="US"):
+        code = pos.get("code")
+        if not code:
+            continue
+        since = (pos.get("split_checked_at") or pos.get("opened_at") or "")[:10]
+        try:
+            splits = yf.Ticker(code).splits
+        except Exception as e:
+            logger.warning(f"분할 조회 실패 {code}: {e}")
+            continue
+        if splits is None or len(splits) == 0:
+            continue
+        ratio = 1.0
+        for ts, r in splits.items():
+            if str(ts.date()) > since and r and float(r) > 0:
+                ratio *= float(r)
+        if ratio != 1.0:
+            apply_split_adjustment(pos["id"], ratio, today)
+            adjusted.append({"code": code, "ratio": ratio})
+            logger.info(f"[분할반영] {pos.get('account')} {code} x{ratio}: "
+                        f"진입 {pos['entry_price']} → {pos['entry_price'] / ratio:.4f}")
+    return {"adjusted": adjusted}
+
+
 # 오너 승인 시드 평가 프레임 — S가 '병목 여부'를 재심사(이중 게이트)하며 전부 관망하던 것 교정.
 SEED_FRAME = ("[오너 승인 병목 워치리스트] 이 종목의 '병목 여부'는 오너가 이미 검토·승인했다. "
               "병목인지 재심사하지 말고 다음만 평가하라: ① 진입 가격 — 시총이 병목 강도와 TAM 대비 "
