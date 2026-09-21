@@ -1323,6 +1323,8 @@ def run_observation_review(market="US"):
     확신 도달(최소 OBSERVATION_MIN_REVIEWS회차)=결재 상신. 반환 {'reviewed','convinced','dropped'}."""
     if not (NEW_DESK_ENABLED and OBSERVATION_REQUIRED):
         return {"reviewed": [], "convinced": [], "dropped": []}
+    if S_FOLLOW_ENABLED:                                       # 미러 모드(#181) — 관찰 파이프라인 휴면
+        return {"reviewed": [], "convinced": [], "dropped": [], "skipped": "follow_mode"}
     from db import get_observations, record_observation_review
     from fetchers import fetch_stock_price
     from prompts import AGENT_PROFILES
@@ -1689,11 +1691,6 @@ def run_split_adjust():
 
 
 # 오너 승인 시드 평가 프레임 — S가 '병목 여부'를 재심사(이중 게이트)하며 전부 관망하던 것 교정.
-FOLLOW_FRAME = ("[팔로우 워치리스트] 이 종목은 오너가 지정한 추종 워치리스트에 올라 있다. 종목 선정 이유를 "
-                "재심사하지 말고 다음만 평가하라: ① 진입 가격·타이밍 — 지금 담을 자리인가 ② 생존 리스크 — 희석·"
-                "현금 소진·고객 집중 ③ 비중 감내 가능성. '모르는 회사다/내 스타일이 아니다'로 기계적으로 거르지 마라. "
-                "셋 다 감내 가능하면 매수, 하나가 치명적이면 그 이유로만 관망하라.")
-
 SEED_FRAME = ("[병목 워치리스트] 이 종목의 '병목 여부'는 큐레이션 단계에서 이미 검토돼 워치리스트에 올라 있다. "
               "병목인지 재심사하지 말고 다음만 평가하라: ① 진입 가격 — 시총이 병목 강도와 TAM 대비 "
               "합리적인가(프리미엄이 '있다'는 이유가 아니라 '과한 정도'인지) ② 생존 리스크 — 희석·현금 "
@@ -1861,6 +1858,40 @@ def _all_desk_positions():
 
 
 # ── 발굴주 데스크 (A/S 발굴 → P/W/S OR게이트 즉시매수 → 논지청산) ──
+def _run_follow_desk(market="US"):
+    """미러 데스크(#181) — 추종 워치리스트 중 미보유 종목을 기계적으로 편입.
+    '원 보유자가 처음 올렸을 때 산다'가 규칙이라 신규 등재 = 즉시 매수(리스크 가드만).
+    분석·관찰·결재 없음. 매도는 run_discovery_review의 '근거 소멸' 판단이 전담."""
+    from db import get_open_positions, buy_shared_position, get_bottleneck_seed_rows
+    from fetchers import fetch_stock_price
+    import risk
+    held = {p.get("code") for p in get_open_positions(account="발굴주")}
+    todo = [r for r in get_bottleneck_seed_rows("approved")
+            if (r.get("source") or "") == "follow" and r["ticker"] not in held]
+    if not todo:
+        return {"buys": []}
+    buys, n = [], len(held)
+    for r in todo:
+        code = r["ticker"]
+        if not _desk_can_open("발굴주", n):
+            break
+        ok, why, _breaker = risk.precheck_buy("발굴주", code, _desk_amount("발굴주"))
+        if not ok:
+            logger.info(f"[팔로우 skip] {code} — {why}")
+            continue
+        price = fetch_stock_price(code)                        # 해외 접미사 코드도 그대로(yfinance 폴백)
+        if not price:
+            continue
+        rz = f"팔로우 편입(#181) — 추종 워치리스트 신규 등재 시점 매수. {r.get('rationale') or ''}"
+        name = stock_name(code) or code
+        _, err = buy_shared_position(name, code, price, _desk_amount("발굴주"), rz, market, account="발굴주")
+        if not err:
+            buys.append(code)
+            n += 1
+            _narrate("S", f"📌 {_tk(code, name)} — 추종 워치리스트에 새로 올라와 규칙대로 바로 담았습니다.")
+    return {"buys": buys}
+
+
 def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
     if not NEW_DESK_ENABLED:
@@ -1869,6 +1900,8 @@ def run_discovery_desk(market="US"):
                     buy_shared_position, get_open_positions)
     from fetchers import fetch_stock_price
     ensure_desk_accounts()
+    if S_FOLLOW_ENABLED:                                          # 미러 모드(#181) — 판단 없이 규칙 매수
+        return _run_follow_desk(market)
     _narrate("A", _line(_CLOCK_IN, "A"))
     src = source_today(market, quota=WORKDAY_ROUND_QUOTA if WORKDAY_ENABLED else None)
     _narrate("A", src["briefing"])
@@ -1891,9 +1924,8 @@ def run_discovery_desk(market="US"):
             _narrate("A", "잠깐 — 대화 먼저 챙기겠습니다. 남은 후보는 이따 이어서 볼게요.")
             break
         brief = build_research_brief(code, name, code, market)       # A가 데이터 준비
-        if bots == ["S"] and brief:                                  # 시드 재프레임 — S는 진입가·희석·타이밍만 평가
-            _frame = FOLLOW_FRAME if S_FOLLOW_ENABLED else SEED_FRAME    # 팔로우 모드(#179)면 병목 언어 제거
-            brief = (_frame + "\n\n" + (brief[0] or ""), brief[1])
+        if bots == ["S"] and brief:                                  # 시드 재프레임: 병목 여부는 큐레이션 검토 —
+            brief = (SEED_FRAME + "\n\n" + (brief[0] or ""), brief[1])   # S는 진입가·희석·타이밍만 평가
         biz_ko, clear = _business_brief(name, code, (brief or ("", ""))[1])  # A 사업 이해 판정(소개+명확도)
         _store_report(today, code, name, brief, "발굴주", summary=biz_ko)
         _narrate("A", _stock_data_msg(name, code, brief, intro_desc=_first_sentence(biz_ko)))  # A가 먼저 올림(짧은 소개+데이터)
@@ -1951,22 +1983,38 @@ def run_discovery_review(market="US"):
     """발굴주 점검 슬롯(12시) — 매수 찬성봇이 재분석해 매도면 청산. 반환 {'sells'}."""
     if not NEW_DESK_ENABLED:
         return {"sells": []}
-    from db import get_open_positions, sell_shared_position
+    from db import get_open_positions, sell_shared_position, get_bottleneck_seed_rows
     from fetchers import fetch_stock_price
+    follow_rats = {r["ticker"]: (r.get("rationale") or "")
+                   for r in get_bottleneck_seed_rows("approved")
+                   if (r.get("source") or "") == "follow"} if S_FOLLOW_ENABLED else {}
     sold = []
     for p in get_open_positions(account="발굴주"):
         code = p.get("code") or p["symbol"]
         name = p["symbol"]
-        bot = _approver_of(p)
+        is_follow = code in follow_rats
+        bot = "S" if is_follow else _approver_of(p)
         try:
-            v, _ = analyze_stock(code, name, code, bot, market)
+            brief = None
+            if is_follow:                                      # 미러 보유(#181): 기준은 '편입 근거 소멸' 하나
+                brief = build_research_brief(code, name, code, market)
+                frame = ("[팔로우 보유 재점검] 이 종목은 추종 워치리스트 보유분이다. "
+                         f"편입 근거: {follow_rats[code]}\n"
+                         "판단 기준은 하나 — 원 보유자가 밝힌 매수 이유가 소멸했는가"
+                         "(사업 훼손·논지 반증·워치리스트 이탈). 가격 하락 자체는 사유가 아니다"
+                         "(원 보유자는 30~60% 변동을 견디며 논지로 버티는 스타일). "
+                         "근거가 살아 있으면 관망, 소멸했으면 매도로 판단하라.")
+                if brief:
+                    brief = (frame + "\n\n" + (brief[0] or ""), brief[1])
+            v, _ = analyze_stock(code, name, code, bot, market, brief=brief)
         except Exception as e:
             logger.warning(f"발굴주 재분석 실패 {code}: {e}")
             continue
         if v != "매도":
             continue
         price = fetch_stock_price(code if market == "US" else f"{code}.KS")
-        if price and not sell_shared_position(p["id"], price, exit_reasoning=f"{bot} 논지 훼손 청산")[1]:
+        rz = "S 근거 소멸 청산 (팔로우)" if is_follow else f"{bot} 논지 훼손 청산"
+        if price and not sell_shared_position(p["id"], price, exit_reasoning=rz)[1]:
             sold.append(code)
             _narrate(bot, random.choice(_SELL_LINES).format(name=name))
     return {"sells": sold}

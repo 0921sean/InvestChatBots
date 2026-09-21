@@ -1434,3 +1434,59 @@ def test_follow_mode_curation_dormant(monkeypatch):
     monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
     monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
     assert aifund.run_bottleneck_curation()["skipped"] == "follow_mode"
+
+
+def test_follow_desk_buys_unheld_mechanically(tmp_path, monkeypatch):
+    # 미러 모드(#181): 미보유 follow 시드는 분석·관찰·결재 없이 바로 매수, 보유분은 스킵
+    import db, fetchers, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "md.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    db.add_bottleneck_seed("FOLA", "근거A", source="follow")
+    db.add_bottleneck_seed("FOLB.ST", "근거B", source="follow")
+    db.add_bottleneck_seed("FAKEA", "병목", source="agent")          # 팔로우 아님 — 안 삼
+    db.buy_shared_position("FOLA", "FOLA", 10.0, 2_500_000, "기보유", "US", account="발굴주")
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 20.0)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    out = aifund.run_discovery_desk("US")
+    assert out["buys"] == ["FOLB.ST"]                                # 미보유 follow만
+    held = {x["code"] for x in db.get_open_positions(account="발굴주")}
+    assert held == {"FOLA", "FOLB.ST"}
+    assert aifund.run_discovery_desk("US")["buys"] == []             # 멱등
+
+
+def test_follow_mode_observation_dormant(monkeypatch):
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
+    assert aifund.run_observation_review("US")["skipped"] == "follow_mode"
+
+
+def test_follow_review_sells_only_on_thesis_gone(tmp_path, monkeypatch):
+    # 미러 보유 재점검: '근거 소멸' 프레임 주입 + 매도 판정 시에만 청산
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "mr.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    db.add_bottleneck_seed("FOLA", "레이저 초크포인트 보유 선언", source="follow")
+    db.buy_shared_position("FOLA", "FOLA", 10.0, 2_500_000, "팔로우 편입", "US", account="발굴주")
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "S_FOLLOW_ENABLED", True)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("재무패킷", ""))
+    seen = {}
+    def fake_analyze(code, name, tk, bot, market="US", brief=None):
+        seen["bot"] = bot; seen["brief"] = (brief or ("", ""))[0]
+        return "관망", ""
+    monkeypatch.setattr(aifund, "analyze_stock", fake_analyze)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 8.0)
+    assert aifund.run_discovery_review("US")["sells"] == []          # 관망 → 유지
+    assert seen["bot"] == "S" and "팔로우 보유 재점검" in seen["brief"]
+    assert "레이저 초크포인트" in seen["brief"]                        # 편입 근거가 프레임에 들어감
+    monkeypatch.setattr(aifund, "analyze_stock",
+                        lambda *a, **k: ("매도", ""))
+    assert aifund.run_discovery_review("US")["sells"] == ["FOLA"]    # 근거 소멸 → 청산
+    pos = db.get_open_positions(account="발굴주")
+    assert pos == []
