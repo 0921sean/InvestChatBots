@@ -86,7 +86,7 @@ def fund_report_row():
     with _conn() as con:
         con.execute(
             "INSERT INTO fund_report (date, code, name, summary, packet, desk) "
-            "VALUES ('2026-09-07','TESTCO','테스트','요약','패킷','S')")
+            "VALUES ('2099-01-01','TESTCO','테스트','요약','패킷','S')")  # 영속 test DB에 리포트가 쌓여도 항상 최근 60행 안에 들게(미래 날짜)
     yield
     with _conn() as con:
         con.execute("DELETE FROM fund_report WHERE code='TESTCO'")
