@@ -1414,3 +1414,46 @@ def test_j_review_mixes_assets_with_indices(tmp_path, monkeypatch):
     assert "시장 전체 밸류에이션" in seen["index"]           # 지수 렌즈(섞이지 않음)
     w = {x["code"]: x for x in db.get_watchlist("watching")}
     assert w["GLD"]["name"] == "금"                         # 지수처럼 "금 지수"로 안 붙음
+
+
+def test_holdings_watch_gates_discovery_paths(monkeypatch):
+    # 확정 모드(#186): 신규 발굴·큐레이션·관찰 전부 휴면
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "HOLDINGS_WATCH_MODE", True)
+    monkeypatch.setattr(aifund, "BOTTLENECK_CURATION_ENABLED", True)
+    monkeypatch.setattr(aifund, "OBSERVATION_REQUIRED", True)
+    assert aifund.run_discovery_desk("US")["skipped"] == "holdings_watch"
+    assert aifund.run_bottleneck_curation()["skipped"] == "holdings_watch"
+    assert aifund.run_observation_review("US")["skipped"] == "holdings_watch"
+
+
+def test_holdings_watch_review_news_frame_and_daily_guard(tmp_path, monkeypatch):
+    # 뉴스 워치: 논지+뉴스 프레임 주입, 종목당 내레이션 1줄, 하루 1회 가드, 매도 판정 시 청산
+    import db, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "hw.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    db.buy_shared_position("TESTCO", "TESTCO", 10.0, 2_500_000, "병목 논지 (S)", "US", account="발굴주")
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "HOLDINGS_WATCH_MODE", True)
+    monkeypatch.setattr(aifund, "_watch_review_date", None)
+    narrated = []
+    monkeypatch.setattr(aifund, "_narrate", lambda bot, c, model="rule": narrated.append(c))
+    monkeypatch.setattr(aifund, "build_research_brief", lambda *a, **k: ("재무패킷", ""))
+    monkeypatch.setattr(fetchers, "fetch_ticker_news", lambda c, **k: ["[매체] 수주 공시 (09-22)"])
+    seen = {}
+    def fake_analyze(code, name, tk, bot, market="US", brief=None):
+        seen["brief"] = (brief or ("", ""))[0]
+        return "관망", "[결정] 관망 | 논지 유지 — 수주 견조"
+    monkeypatch.setattr(aifund, "analyze_stock", fake_analyze)
+    out = aifund.run_discovery_review("US")
+    assert out["sells"] == []
+    assert "보유 점검·뉴스 워치" in seen["brief"] and "수주 공시" in seen["brief"]
+    assert "병목 논지" in seen["brief"]                       # 매수 당시 논지 주입
+    assert narrated and "보유 점검" in narrated[0]            # 피드 한 줄
+    assert aifund.run_discovery_review("US")["skipped"] == "already_today"   # 하루 1회
+    # 매도 판정 → 청산
+    monkeypatch.setattr(aifund, "_watch_review_date", None)
+    monkeypatch.setattr(aifund, "analyze_stock", lambda *a, **k: ("매도", "[결정] 매도 | 논지 훼손"))
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 8.0)
+    assert aifund.run_discovery_review("US")["sells"] == ["TESTCO"]
+    assert db.get_open_positions(account="발굴주") == []
