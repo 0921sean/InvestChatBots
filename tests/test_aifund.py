@@ -1004,13 +1004,16 @@ def test_seed_track_injects_owner_frame(tmp_path, monkeypatch):
     assert "병목 워치리스트" not in seen[("PEP", "P")]              # A픽 → 기존 잣대 유지
 
 
-def test_curation_prompt_is_multi_trend_not_ai_only():
-    # 큐레이션 시스템 프롬프트가 AI에 한정되지 않고 여러 트렌드 + 편중 금지를 지시
+def test_curation_prompt_is_frontier_anchored():
+    # #184: 병목의 근원 = '최전선 기술 전환'. #131의 다트렌드 분산 강제는 폐지(원 방법론과 정반대였음).
     p = aifund._CURATION_SYS
-    assert "여러 트렌드" in p and "편중 금지" in p
-    for kw in ("전력망", "원자력", "방산", "바이오"):
-        assert kw in p                                   # 비AI 트렌드 예시 포함
-    assert "최대 2개" in p                                # AI/반도체 배치 상한
+    assert "최전선" in p and "참치 말고 깻잎" in p
+    for kw in ("[수요폭발]", "[기술도약]", "[공급제약]"):   # 사이클 3유형 분류
+        assert kw in p
+    assert "배제 룰" in p and "편승" in p and "유동성 함정" in p   # 외부 스킬 차용 배제 룰
+    assert "기관 커버리지" in p                                    # 기관 개시 가점
+    assert "1차 소스" in p and "옮겨 다닌다" in p                   # 원 방법론 보존
+    assert "편중 금지" not in p and "최대 2개" not in p             # 옛 분산 강제 제거 확인
 
 
 # ── 우선순위 큐: 사용자 채팅 시 워크데이 선점 ──────────────
