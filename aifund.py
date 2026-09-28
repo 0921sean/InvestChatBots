@@ -21,6 +21,7 @@ logger = logging.getLogger("investchat.aifund")
 NEW_DESK_ENABLED = os.getenv("NEW_DESK_ENABLED", "").lower() in ("1", "true", "yes")  # 컷오버 게이트(.env). off면 fund 잡 no-op.
 # 6시 병목 큐레이션 게이트(.env). off면 큐레이션 no-op — 웹서치=구독 토큰 추가 소모라 명시 활성화(로드맵 ②d).
 BOTTLENECK_CURATION_ENABLED = os.getenv("BOTTLENECK_CURATION_ENABLED", "").lower() in ("1", "true", "yes")
+HOLDINGS_WATCH_MODE = os.getenv("HOLDINGS_WATCH_MODE", "").lower() in ("1", "true", "yes")  # 포트폴리오 확정(#186): 신규 발굴 중단, 보유 뉴스 점검만
 BOTTLENECK_CURATION_QUOTA = 8   # 하루 1콜로 올리는 후보 상한(여러 트렌드 분산 위해 소폭 상향). 운영값.
 # 매수 결재 게이트(.env). on이면 봇 매수 판단이 즉시 체결 대신 '오너 승인 대기'(/admin).
 # 사이클은 결재만 올리고 계속 진행(논블로킹). 청산·손절은 자동(매수만 결재). off면 기존처럼 자동 매수.
@@ -314,6 +315,8 @@ def run_bottleneck_curation(limit=None):
     하루 1콜·구독 토큰. BOTTLENECK_CURATION_ENABLED=False면 no-op. 토큰 소진 시 조용히 skip(다음날 재개)."""
     if not BOTTLENECK_CURATION_ENABLED:
         return {"added": [], "skipped": "disabled"}
+    if HOLDINGS_WATCH_MODE:                        # 확정 모드(#186) — 신규 시드 필요 없음
+        return {"added": [], "skipped": "holdings_watch"}
     limit = limit or BOTTLENECK_CURATION_QUOTA
     from db import get_bottleneck_seeds, get_bottleneck_seed_rows
     def _utc_ts_is_today_kst(ts):
@@ -1312,6 +1315,8 @@ def run_observation_review(market="US"):
     확신 도달(최소 OBSERVATION_MIN_REVIEWS회차)=결재 상신. 반환 {'reviewed','convinced','dropped'}."""
     if not (NEW_DESK_ENABLED and OBSERVATION_REQUIRED):
         return {"reviewed": [], "convinced": [], "dropped": []}
+    if HOLDINGS_WATCH_MODE:                        # 확정 모드(#186) — 신규 편입 없음
+        return {"reviewed": [], "convinced": [], "dropped": [], "skipped": "holdings_watch"}
     from db import get_observations, record_observation_review
     from fetchers import fetch_stock_price
     from prompts import AGENT_PROFILES
@@ -1849,6 +1854,8 @@ def run_discovery_desk(market="US"):
     """발굴주 매수 슬롯(06시) — A 발굴 + S 병목 → P/W/S OR게이트 → 발굴주 계좌 즉시매수. 반환 {'buys'}."""
     if not NEW_DESK_ENABLED:
         return {"buys": []}
+    if HOLDINGS_WATCH_MODE:                        # 확정 모드(#186) — 신규 발굴·매수 중단
+        return {"buys": [], "skipped": "holdings_watch"}
     from db import (ensure_desk_accounts, get_open_positions_by_symbol,
                     buy_shared_position, get_open_positions)
     from fetchers import fetch_stock_price
@@ -1930,19 +1937,45 @@ def run_discovery_desk(market="US"):
     return {"buys": buys}
 
 
+_watch_review_date = None       # 확정 모드(#186): 뉴스 점검은 하루 1회(워크데이 라운드 반복과 무관)
+
+
 def run_discovery_review(market="US"):
-    """발굴주 점검 슬롯(12시) — 매수 찬성봇이 재분석해 매도면 청산. 반환 {'sells'}."""
+    """발굴주 점검 슬롯 — 매수 찬성봇이 재분석해 매도면 청산. 반환 {'sells'}.
+    확정 모드(#186)에선 하루 1회, 종목별 최근 뉴스를 브리핑에 넣어 '논지 점검 + 유지/매도'를
+    한 콜로 판단하고 피드에 한 줄씩 남긴다(관전 콘텐츠). 매도 기준은 동일(논지 훼손)."""
+    global _watch_review_date
     if not NEW_DESK_ENABLED:
         return {"sells": []}
+    if HOLDINGS_WATCH_MODE:
+        if _watch_review_date == _today_kst():
+            return {"sells": [], "skipped": "already_today"}
+        _watch_review_date = _today_kst()
     from db import get_open_positions, sell_shared_position
-    from fetchers import fetch_stock_price
+    from fetchers import fetch_stock_price, fetch_ticker_news
     sold = []
     for p in get_open_positions(account="발굴주"):
         code = p.get("code") or p["symbol"]
         name = p["symbol"]
         bot = _approver_of(p)
         try:
-            v, _ = analyze_stock(code, name, code, bot, market)
+            brief = None
+            if HOLDINGS_WATCH_MODE:                              # 뉴스 워치: 논지+뉴스 프레임 주입
+                brief = build_research_brief(code, name, code, market)
+                news = fetch_ticker_news(code)
+                news_txt = "\n".join("- " + n for n in news) if news else "- (최근 3일 특기할 뉴스 없음)"
+                thesis = (p.get("reasoning") or "")[:300]
+                frame = ("[보유 점검·뉴스 워치] 포트폴리오는 확정 상태 — 신규 매수 없음, 보유 논지 점검만 한다.\n"
+                         f"보유 논지(매수 당시): {thesis}\n최근 뉴스:\n{news_txt}\n"
+                         "뉴스와 데이터 기준으로 '보유 논지가 훼손됐는가'만 판단하라. 살아 있으면 관망, "
+                         "훼손됐으면 매도. 가격 등락 자체는 사유가 아니다. 한 줄 근거를 함께.")
+                if brief:
+                    brief = (frame + "\n\n" + (brief[0] or ""), brief[1])
+            v, rz = analyze_stock(code, name, code, bot, market, brief=brief)
+            if HOLDINGS_WATCH_MODE:                              # 종목당 하루 한 줄 — 점검 결과 내레이션
+                line = _first_sentence(_verdict_reason(rz) or rz) or "특이사항 없음"
+                icon = "⚠️" if v == "매도" else "🗞️"
+                _narrate(bot, f"{icon} {_tk(code, name)} 보유 점검 — {line[:220]}", model="sonnet")
         except Exception as e:
             logger.warning(f"발굴주 재분석 실패 {code}: {e}")
             continue

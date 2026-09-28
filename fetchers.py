@@ -684,3 +684,32 @@ def fetch_stock_price(symbol: str) -> float | None:
             pass
     _record_price_health(price is not None)
     return price
+
+
+def fetch_ticker_news(code: str, max_items: int = 5, max_age_days: int = 3) -> list:
+    """종목 최근 뉴스 헤드라인(yfinance) — '[매체] 제목 (MM-DD)' 문자열 목록.
+    보유 점검(#186)용. 실패·뉴스 없음 = 빈 리스트(점검은 데이터만으로 계속)."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        import yfinance as yf
+        raw = yf.Ticker(code).news or []
+    except Exception:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    out = []
+    for item in raw:
+        c = item.get("content") or item
+        title = (c.get("title") or "").strip()
+        pub = c.get("pubDate") or c.get("providerPublishTime") or ""
+        try:
+            ts = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+        except Exception:
+            ts = None
+        if not title or (ts and ts < cutoff):
+            continue
+        prov = c.get("provider") or {}
+        name = prov.get("displayName") if isinstance(prov, dict) else ""
+        out.append(f"[{name or '뉴스'}] {title}" + (f" ({ts.strftime('%m-%d')})" if ts else ""))
+        if len(out) >= max_items:
+            break
+    return out
