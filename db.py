@@ -1585,6 +1585,13 @@ def blog_post_exists(blog_id: str, log_no: str) -> bool:
     return row is not None
 
 
+def update_blog_content(blog_id: str, log_no: str, content: str):
+    """RSS 미리보기로 저장된 글의 본문을 풀텍스트로 교체(#188 — 시그널 판단은 전문이 필요)."""
+    with _conn() as con:
+        con.execute("UPDATE blog_posts SET content=? WHERE blog_id=? AND log_no=?",
+                    (content, blog_id, log_no))
+
+
 def get_recent_blog_posts(since: str, limit: int = 30) -> list[dict]:
     with _conn() as con:
         con.row_factory = sqlite3.Row

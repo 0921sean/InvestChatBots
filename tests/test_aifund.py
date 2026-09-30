@@ -1457,3 +1457,49 @@ def test_holdings_watch_review_news_frame_and_daily_guard(tmp_path, monkeypatch)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 8.0)
     assert aifund.run_discovery_review("US")["sells"] == ["TESTCO"]
     assert db.get_open_positions(account="발굴주") == []
+
+
+def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
+    import db, agents, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "bs.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(aifund, "_blog_review_date", None)
+    db.save_blog_post("b", "1", "AI 보안 사고의 행간", "2026-10-01", "사건 해설 …")
+    db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", "2026-10-01", "이미 오른 …")
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: llm_out)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    return db
+
+
+def test_blog_signal_buy_candidate_submits_approval(tmp_path, monkeypatch):
+    out = ('[{"title":"AI 보안 사고의 행간","verdict":"매수후보","ticker":"crwd",'
+           '"thesis":"사고 이후 보안 지출이 구조적으로 늘어납니다.","note":null},'
+           '{"title":"정상회담 팩트시트의 비밀","verdict":"방향메모","ticker":null,'
+           '"thesis":null,"note":"정제유 관련주는 이미 반영 — 다음 팩트시트 품목을 먼저 볼 것."}]')
+    db = _blog_sig_setup(tmp_path, monkeypatch, out)
+    narrated = []
+    monkeypatch.setattr(aifund, "_narrate", lambda bot, c, model="rule": narrated.append((bot, c)))
+    r = aifund.run_blog_stock_review()
+    assert r["submitted"] == ["CRWD"]
+    assert len(db.get_pending_buys()) == 1                     # 결재 상신됨(체결 아님)
+    assert r["noted"] and any("🧭" in c for b, c in narrated)   # 방향메모는 피드에
+    assert aifund.run_blog_stock_review()["skipped"] == "already_today"   # 하루 1회
+
+
+def test_blog_signal_none_and_cap(tmp_path, monkeypatch):
+    # 해당없음만 → 아무것도 안 함 / 매수후보 3건이면 2건 캡
+    out = ('[{"title":"a","verdict":"매수후보","ticker":"AAA","thesis":"t"},'
+           '{"title":"b","verdict":"매수후보","ticker":"BBB","thesis":"t"},'
+           '{"title":"c","verdict":"매수후보","ticker":"CCC","thesis":"t"},'
+           '{"title":"d","verdict":"해당없음"}]')
+    db = _blog_sig_setup(tmp_path, monkeypatch, out)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    r = aifund.run_blog_stock_review()
+    assert set(r["submitted"]) == {"AAA", "BBB"}               # 하루 2건 캡
+    monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", False)
+    monkeypatch.setattr(aifund, "_blog_review_date", None)
+    assert aifund.run_blog_stock_review()["skipped"] == "disabled"
