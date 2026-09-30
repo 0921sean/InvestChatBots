@@ -96,19 +96,22 @@ def _fetch_post_content(blog_id: str, log_no: str) -> str:
             req = urllib.request.Request(url, headers=_headers(referer))
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
-            # se-main-container 또는 postViewArea 에서 텍스트 추출
-            for pattern in [
-                r'<div[^>]*class="[^"]*se-main-container[^"]*"[^>]*>(.*?)</div>\s*</div>',
-                r'<div[^>]*id="postViewArea"[^>]*>(.*?)</div>',
-                r'<div[^>]*class="[^"]*post_ct[^"]*"[^>]*>(.*?)</div>',
-            ]:
-                m = re.search(pattern, html, re.DOTALL)
-                if m:
-                    raw = m.group(1)
-                    text = re.sub(r'<[^>]+>', ' ', raw)
-                    text = re.sub(r'\s+', ' ', text).strip()
-                    if len(text) > 100:
-                        return text[:3000]
+            # se-main-container에서 텍스트 추출 — 옛 정규식(비탐욕 </div></div>)은 중첩 div의
+            # 첫 닫힘에서 잘려 본문 앞 100~200자만 건졌다(#188에서 발견). 시작 위치부터
+            # 댓글 영역(commentCount) 직전까지 통으로 잘라 태그를 벗긴다.
+            start = html.find('se-main-container')
+            if start == -1:
+                start = html.find('postViewArea')
+            if start != -1:
+                end = html.find('commentCount', start)
+                raw = html[start:end if end != -1 else start + 150_000]
+                text = re.sub(r'<script.*?</script>', ' ', raw, flags=re.DOTALL)
+                text = re.sub(r'<script.*', ' ', text, flags=re.DOTALL)   # 끝이 잘린 미종결 script
+                text = re.sub(r'<[^>]+>', ' ', text)
+                text = text.split('{&#034;')[0]                           # 본문 뒤 인라인 JSON 설정 잔여물
+                text = re.sub(r'\s+', ' ', text).strip()
+                if len(text) > 100:
+                    return text[:8000]
             # 폴백: 전체 텍스트에서 태그 제거
             text = re.sub(r'<[^>]+>', ' ', html)
             text = re.sub(r'\s+', ' ', text).strip()

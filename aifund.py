@@ -28,6 +28,7 @@ BOTTLENECK_CURATION_QUOTA = 8   # 하루 1콜로 올리는 후보 상한(여러 
 BUY_APPROVAL_REQUIRED = os.getenv("BUY_APPROVAL_REQUIRED", "").lower() in ("1", "true", "yes")
 # M 거시 브리핑 게이트(.env). on이면 매일 아침 블로그 새 글 크롤 + 거시 브리핑 생성(구독 토큰).
 MACRO_BRIEFING_ENABLED = os.getenv("MACRO_BRIEFING_ENABLED", "").lower() in ("1", "true", "yes")
+BLOG_SIGNAL_ENABLED = os.getenv("BLOG_SIGNAL_ENABLED", "").lower() in ("1", "true", "yes")  # M 블로그 시그널(#188): 새 글 → 종목 판단(결재/방향메모)
 # 관찰 단계 게이트(.env). on이면 발굴주 매수 판단이 즉시 결재/체결이 아니라 '관찰 등록' →
 # 사이클마다 재관찰(자기 논지 vs 현재) → 최소 OBSERVATION_MIN_REVIEWS회 후에도 확신이면 그때 결재.
 OBSERVATION_REQUIRED = os.getenv("OBSERVATION_REQUIRED", "").lower() in ("1", "true", "yes")
@@ -2074,6 +2075,123 @@ def run_macro_briefing():
     return {"date": today, "posts": len(posts), "chars": len(content)}
 
 
+# M 블로그 시그널(#188) — 브리핑 페르소나(비투표)와 별개인 '시그널 리더' 태스크 프롬프트.
+# 공개 레포이므로 출처 식별정보 없이 역할만 기술한다.
+_BLOG_SIGNAL_SYS = (
+    "너는 매일 시장 통찰 블로그를 읽고 '실행 가능한 판단'을 뽑아내는 시그널 리더다. "
+    "글쓴이는 사건·정책·산업의 행간을 이야기로 푸는 스타일이라, 종목은 글에 없거나 스쳐 지나간다 — "
+    "네 일은 **글의 논리를 끝까지 따라가 그 논리가 도착하는 종목/방향을 스스로 도출**하는 것이다.\n"
+    "글마다 다음 순서로 판단하라:\n"
+    "① 글의 종류 — 잡담·일상·단순 뉴스 요약이면 '해당없음'. 사건 해설·정책 행간·산업 구조 글만 후보.\n"
+    "② 논리의 도착점 — 이 글이 맞다면 구조적으로 수요·매출이 늘어나는 곳이 어디인가? "
+    "글에 등장한 회사가 아니라 **수혜의 길목**을 찾아라(예: 보안 사고 해설이면 사고 당사자가 아니라 보안 지출의 수혜자). "
+    "사건이 '지출의 방향'을 바꾸는 글이라면 — 사고→보안 예산, 규제→감사·컴플라이언스 수요처럼 — "
+    "그 지출을 받는 대표 종목이 아직 사건을 반영하기 전일 때가 바로 매수후보다. 뉴스가 크다고 겁내지 마라.\n"
+    "③ 타이밍 — 그 논리가 이미 주가에 반영됐는가? 글 자체가 '이미 많이 올랐다'는 복기라면 추격 매수가 아니라 "
+    "'방향메모'가 정답이다 — 다음에 어떤 카테고리를 어떤 조건에서 봐야 하는지 남겨라.\n"
+    "④ 겸손 — 확신이 없으면 억지로 만들지 마라. 하루 매수후보는 최대 2건. "
+    "단, 조금이라도 팔로우할 가치가 있으면 '해당없음'이 아니라 '방향메모'다 — '해당없음'은 note 없이 정말 아무것도 없을 때만.\n"
+    "제약: 매수후보 티커는 미국 상장만. 미래 수익 보장·권유 표현 금지(가상 포트폴리오 관점). "
+    "글쓴이·블로그를 특정하는 표현 금지.\n"
+    "출력은 오직 JSON 배열만 — 글당 하나: "
+    '[{"title":"글 제목","verdict":"매수후보|방향메모|해당없음","ticker":"US티커 또는 null",'
+    '"thesis":"매수후보면: 글 논리→종목까지의 추론 3~4문장(존댓말)","note":"방향메모면: 팔로우할 방향 1~2문장"}] '
+    "설명·코드펜스 없이 JSON만."
+)
+
+_blog_review_date = None      # 하루 1회 가드(워크데이 재출근 중복 방지)
+
+
+def run_blog_stock_review():
+    """M 블로그 시그널(#188) — 최근 새 글을 읽고 ①매수후보(→오너 결재 상신) ②방향메모(→피드 기록)
+    ③해당없음 을 판단. 하루 1회 sonnet 1콜. BLOG_SIGNAL_ENABLED=False면 no-op.
+    확정 모드(HOLDINGS_WATCH_MODE)와 무관 — 신규 매수는 어차피 오너 결재를 거친다."""
+    global _blog_review_date
+    if not (NEW_DESK_ENABLED and BLOG_SIGNAL_ENABLED):
+        return {"skipped": "disabled"}
+    if _blog_review_date == _today_kst():
+        return {"skipped": "already_today"}
+    from db import get_recent_blog_posts
+    from fetchers import fetch_stock_price
+    since = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=2)).strftime("%Y-%m-%d")
+    posts = get_recent_blog_posts(since, limit=6)
+    if not posts:
+        _blog_review_date = _today_kst()
+        return {"posts": 0}
+    # RSS는 미리보기(~600자)만 준다 — 시그널 판단은 전문이 필요하므로 짧으면 본문을 풀페치(글당 1회, DB 캐시).
+    for p in posts:
+        if len(p.get("content") or "") < 1500:
+            try:
+                from blog_fetcher import _fetch_post_content
+                from db import update_blog_content
+                full = _fetch_post_content(p["blog_id"], p["log_no"])
+                if full and len(full) > len(p.get("content") or ""):
+                    p["content"] = full
+                    update_blog_content(p["blog_id"], p["log_no"], full)
+            except Exception as e:
+                logger.warning(f"본문 풀페치 실패 {p.get('title', '')[:30]}: {e}")
+
+    def _slice(c):
+        c = c or ""
+        if len(c) <= 2600:
+            return c
+        return c[:1300] + "\n…(중략)…\n" + c[-1200:]     # 결론(한줄 코멘트)이 글 끝에 있는 스타일
+
+    blog_txt = "\n\n───\n\n".join(
+        f"[{p.get('post_date', '')}] {p.get('title', '')}\n{_slice(p.get('content'))}"
+        for p in posts)
+    try:
+        from agents import _call_claude_cli
+        out = _call_claude_cli(_BLOG_SIGNAL_SYS,
+                               f"오늘({_today_kst()}) 읽을 새 글 {len(posts)}편:\n\n{blog_txt}\n\n"
+                               "각 글을 판단해 JSON 배열로.",
+                               timeout=180, model="sonnet")
+    except Exception as e:
+        logger.warning(f"블로그 시그널 실패: {e}")
+        return {"error": str(e)}
+    _blog_review_date = _today_kst()                      # 파싱 실패해도 오늘은 소비(내일 새 글로 재시도)
+    import json as _json
+    sigs = []
+    txt = (out or "").strip()
+    if "[" in txt:
+        try:
+            sigs = _json.loads(txt[txt.index("["):txt.rindex("]") + 1])
+        except Exception:
+            logger.warning("블로그 시그널 JSON 파싱 실패")
+    submitted, noted = [], []
+    n_buy = 0
+    for sig in sigs:
+        if not isinstance(sig, dict):
+            continue
+        v = (sig.get("verdict") or "").strip()
+        title = (sig.get("title") or "")[:80]
+        if v == "매수후보" and n_buy < 2:
+            code = (sig.get("ticker") or "").strip().upper()
+            thesis = (sig.get("thesis") or "").strip()
+            if not code or not thesis:
+                continue
+            n_buy += 1
+            price = fetch_stock_price(code)
+            if not price:
+                _narrate("M", f"오늘 글에서 {code} 아이디어를 봤는데 시세 확인이 안 되네요 — 오늘은 접어둡니다.")
+                continue
+            name = stock_name(code) or code
+            log_decision("블로그시그널", "M", code, name, "매수후보", thesis, packet=title, model="sonnet")
+            ok = _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
+                                      ["M"], "US", stock_desc=f"오늘 아침 읽은 글에서 출발한 아이디어입니다 — {title}",
+                                      reason=thesis, speaker="M")
+            if ok:
+                submitted.append(code)
+        elif v == "방향메모":
+            note = (sig.get("note") or "").strip()
+            if not note:
+                continue
+            log_decision("블로그시그널", "M", sig.get("ticker") or "-", title, "방향메모", note, model="sonnet")
+            _narrate("M", f"🧭 오늘 글 하나가 눈에 걸립니다 — {note[:250]}", model="sonnet")
+            noted.append(title)
+    return {"posts": len(posts), "submitted": submitted, "noted": noted}
+
+
 def run_largecap_select(market="US"):
     """대형주 선정 슬롯(06시) — 전 섹터 매일 재분석. 섹터별 P/W/H 의견(섹터 합의) → 종목별 [결정] OR게이트 → 그날 관심종목.
     캐시 없이 매일 다시 합격을 낸다(그날 Q도 합격 신호면 매수). 보유중 강한 펀더매도(2인+)면 즉시청산.
@@ -2320,6 +2438,7 @@ def run_workday():
         _narrate("A", "🌅 다들 출근했습니다 — 오늘도 각자 페이스로 갑니다. 급할 것 없어요, 깊게 봅시다."
                  if first else "다시 자리에 앉았습니다 — 이어서 보던 것들 계속 봅니다.")
         run_macro_briefing()                                     # 하루 1회 가드 내장
+        run_blog_stock_review()                                  # M 블로그 시그널(#188) — 하루 1회 가드 내장
         run_bottleneck_curation()                                # 하루 1회 가드 내장
         run_largecap_cycle()                                     # 오늘 완료 섹터는 idempotent 스킵
         run_j_index_review()                                     # J: 미국이 비쌀 때 해외 지수 대안 검토
