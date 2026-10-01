@@ -1503,3 +1503,30 @@ def test_blog_signal_none_and_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", False)
     monkeypatch.setattr(aifund, "_blog_review_date", None)
     assert aifund.run_blog_stock_review()["skipped"] == "disabled"
+
+
+def test_q_exit_cooldown_blocks_fresh_position(monkeypatch):
+    # 쿨다운(#190): 매수 N일 이내면 청산 신호를 무시하고 홀드 + 사유 내레이션
+    import db, backtest
+    from datetime import datetime, timedelta
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    narrated = []
+    monkeypatch.setattr(aifund, "_narrate", lambda bot, c, model="rule": narrated.append(c))
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
+    fresh = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 평균회귀 진입", "opened_at": fresh}
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [3, 2, 1]}})
+    monkeypatch.setattr(aifund, "q_exit_signal", lambda closes, strat: True)
+    sells = []
+    monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append(pid), (0, None))[1])
+    r = aifund.run_largecap_execute()
+    assert r["sold"] == [] and sells == []                       # 청산 차단
+    assert any("쿨다운" in c for c in narrated)                   # 사유는 피드에
+    # 쿨다운 경과 후엔 기존대로 청산 (기존 test_run_largecap_execute_q_exit의 pos는 opened_at 없음 → 9999일)
+    old = (datetime.now() - timedelta(days=9)).strftime("%Y-%m-%d %H:%M:%S")
+    pos["opened_at"] = old
+    r = aifund.run_largecap_execute()
+    assert r["sold"] == ["애플"] and sells == [9]

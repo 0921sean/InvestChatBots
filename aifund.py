@@ -40,6 +40,7 @@ OBSERVATION_MAX_DAYS = int(os.getenv("OBSERVATION_MAX_DAYS", "7"))   # N일 지�
 # 토큰 소진 시 쉬었다가 충전되면 재출근(keeper가 매시 확인). P/W 공부 시간이 길어짐(라운드×딥스터디).
 WORKDAY_ENABLED = os.getenv("WORKDAY_ENABLED", "").lower() in ("1", "true", "yes")
 WORKDAY_END_HOUR = 22           # 이 시각(KST) 넘으면 퇴근
+Q_MIN_HOLD_DAYS = int(os.getenv("Q_MIN_HOLD_DAYS", "5"))   # Q 청산 쿨다운(#190): 매수 후 N일 내 추세청산 신호 무시(왕복매매 방지)
 WORKDAY_ROUND_QUOTA = 8         # 발굴 라운드당 신규 후보 수(작게·깊게 — 하루 여러 라운드)
 WORKDAY_BREAK_SEC = 20 * 60     # 라운드 간 휴식(데이터소스·피드 페이싱)
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
@@ -654,6 +655,15 @@ def q_exit_signal(closes, strat):
     import backtest as bt
     from trading_strategies import meanrev_exit
     return bt.trend_exit(closes) if strat == "M" else meanrev_exit(closes)
+
+
+def _held_days(position) -> float:
+    """매수 후 경과일(KST). opened_at 파싱 실패 시 쿨다운을 적용하지 않도록 큰 값."""
+    try:
+        opened = datetime.fromisoformat(str(position.get("opened_at"))[:19])
+        return (datetime.now() - opened).total_seconds() / 86400
+    except Exception:
+        return 9999.0
 
 
 def q_veto(closes, in_uptrend):
@@ -2341,7 +2351,13 @@ def run_largecap_execute(market="US"):
                 continue
             strat = "B" if "되돌림" in (p.get("reasoning") or "") else "M"   # veto·추세 매수는 M(50MA 이탈까지 홀드, 덜 eager)
             exiting = bool(q_exit_signal(o["close"], strat))
-            _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
+            held = _held_days(p)
+            if exiting and held < Q_MIN_HOLD_DAYS:                    # 쿨다운(#190): 사자마자 파는 왕복 차단
+                _narrate("Q", f"{_tk(code)} — 청산 신호가 떴지만 매수 {int(held)}일째라 "
+                              f"쿨다운({Q_MIN_HOLD_DAYS}일) 안입니다. 신호가 유지되면 그때 나갑니다.")
+                exiting = False
+            else:
+                _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
             if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
                 sold.append(p["symbol"])
     _narrate("Q", "오늘 대형주 타이밍 점검 끝 — 퇴근합니다. 🫡")   # ③ 퇴근
