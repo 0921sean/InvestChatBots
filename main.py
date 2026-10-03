@@ -788,9 +788,13 @@ def api_positions():
 
 
 @app.get("/api/fund-report")
-def api_fund_report(limit: int = 60):
-    """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용)."""
-    from db import get_fund_reports
+def api_fund_report(limit: int = 60, code: str = None):
+    """A 리서치 리포트 — 후보 종목이 뭐하는 회사인지 + 핵심 재무 (관전 패널용).
+    code 지정 시: 그 종목의 최신 사업요약 1건(#196 — 보유 모달용, 최근 창에서 밀려난 종목 폴백)."""
+    from db import get_fund_reports, get_fund_report_summary
+    if code:
+        row = get_fund_report_summary(code.strip().upper())
+        return [row] if row else []
     rows = get_fund_reports(min(limit, 200))
     # desk('PW'=일반풀 / 'S'=병목 자체소싱)는 UI 미사용 + 어느 소싱 레인에서 나온
     # 후보인지 알려줘서, 매일 긁어 모으면 S의 시드 목록이 재구성된다.

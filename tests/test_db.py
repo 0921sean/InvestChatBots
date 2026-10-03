@@ -190,3 +190,12 @@ def test_observation_add_dedup_review_and_transition():
     assert get_observations("convinced")[0]["review_count"] == 2
     # 종료 후엔 재등록 가능(새 관찰이 과거 기록 대체)
     assert add_observation("POET", "POET", "발굴주", "US", "P", "새 논지", "y", 7.0) > 0
+
+
+def test_fund_report_summary_lookup_latest_nonempty():
+    from db import record_fund_report, get_fund_report_summary
+    record_fund_report("2026-09-01", "TCO", "테스트", "옛 요약", "p", "발굴주")
+    record_fund_report("2026-10-02", "TCO", "테스트", "", "p", "대형주")      # 요약 빈 최신행은 건너뜀
+    row = get_fund_report_summary("TCO")
+    assert row["date"] == "2026-09-01" and row["summary"] == "옛 요약"
+    assert get_fund_report_summary("NOPE") is None

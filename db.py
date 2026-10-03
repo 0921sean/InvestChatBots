@@ -241,6 +241,18 @@ def record_fund_report(date: str, code: str, name: str, summary: str, packet: st
             (date, code, name, summary, packet, desk))
 
 
+def get_fund_report_summary(code: str):
+    """해당 종목의 최신 '사업요약 있는' 리포트 1건(#196 — 보유 모달 '이런 회사예요').
+    최근 N행 창에서 밀려난 옛 보유 종목도 소개가 뜨게."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("""
+            SELECT date, code, name, summary FROM fund_report
+            WHERE code=? AND summary IS NOT NULL AND summary != ''
+            ORDER BY date DESC LIMIT 1""", (code,)).fetchone()
+    return dict(row) if row else None
+
+
 def get_fund_reports(limit: int = 30) -> list:
     """최근 A 리포트 (최신순)."""
     with _conn() as con:

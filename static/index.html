@@ -324,9 +324,20 @@
   /* 매수 이유 모달 */
   #reason-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:200; align-items:center; justify-content:center; }
   #reason-modal.open { display:flex; }
-  #reason-box { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:22px 24px; max-width:420px; width:90%; position:relative; }
+  #reason-box { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:22px 24px; max-width:560px; width:92%; position:relative;
+                max-height:86vh; display:flex; flex-direction:column; }
+  #reason-box .r-body { overflow-y:auto; flex:1; min-height:0; padding-right:4px; }
   #reason-box.wide { max-width:1180px; }
-  #reason-box.wide .r-body { max-height:82vh; overflow-y:auto; }
+  .rc-chips { white-space:normal; display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  .rc-chip { font-size:10.5px; color:#8b949e; background:#21262d; border:1px solid #30363d; border-radius:20px; padding:2px 9px; }
+  .rc-card { white-space:normal; background:#0d1117; border:1px solid #21262d; border-left:3px solid #58a6ff; border-radius:8px; padding:11px 13px; margin-bottom:10px; }
+  .rc-role { font-size:11px; font-weight:700; color:#79c0ff; margin-bottom:6px; }
+  .rc-card ul { margin:0; padding-left:16px; }
+  .rc-card li { font-size:12.5px; line-height:1.65; color:#c9d1d9; margin-bottom:5px; white-space:normal; }
+  .rc-card li:last-child { margin-bottom:0; }
+  #reason-box details { margin-top:8px; white-space:normal; }
+  #reason-box details summary { font-size:11px; color:#6e7681; cursor:pointer; }
+  #reason-box details .rd-raw { font-size:11.5px; line-height:1.6; color:#8b949e; white-space:pre-wrap; margin-top:6px; }
   #reason-box h3 { font-size:15px; font-weight:700; margin-bottom:4px; }
   #reason-box .r-meta { font-size:11px; color:#6e7681; margin-bottom:16px; }
   #reason-box .r-body { font-size:13px; line-height:1.8; color:#c9d1d9; white-space:pre-wrap; }
@@ -1616,6 +1627,85 @@ function cipherLetters(s) {
   return String(s || '').replace(/(?<![\w&/])([APWHSQMR])(?![\w&/])/g, c => _PUB_LETTER[c] || c);
 }
 // 저장된 매수 이유(랭크 크레딧용 원본)를 초보 친화 문장으로 렌더. 원본은 그대로 두고 화면만 친절하게.
+// ── 매수 이유 구조화(#196) — 긴 원문을 '봇별 의견 카드(문장 불릿) + 시스템 칩 + 접기'로 ──
+function sentenceBullets(text) {
+  const parts = (text || '').split(/\.\s+/).map((t, i, arr) => {
+    t = t.trim();
+    if (!t) return '';
+    return (i < arr.length - 1 || /[.다요음임함]$/.test(t)) && !/\.$/.test(t) ? t + '.' : t;
+  }).filter(Boolean);
+  const out = [];
+  for (const t of parts) {                      // 너무 짧은 조각(약어 등)은 앞 문장에 붙임
+    if (out.length && t.length < 15) out[out.length - 1] += ' ' + t;
+    else out.push(t);
+  }
+  return out;
+}
+const _ROLE_COLOR = { '성장주':'#3fb950', '가치':'#d2a8ff', '실적':'#f0883e', '병목':'#58a6ff', '타이밍':'#8b949e', '블로그':'#8b8cf0' };
+function parseStructuredReason(raw) {
+  // '오너 승인 매수' 류의 긴 포맷 → {chips, opinions:[{role,text}], folds:[{label,text}]} | null(미지원 포맷)
+  let r = (raw || '').trim();
+  const chips = [], opinions = [], folds = [];
+  const mHead = r.match(/^오너 승인 매수\s*\(([^)]*)\)\s*/);
+  if (mHead) {
+    chips.push('🙆 사장님 결재 승인');
+    r = r.slice(mHead[0].length);
+  } else if (/^•\s/.test(r)) {                   // committee(v1) '• 봇: 의견' 포맷
+    for (const line of r.split(/\n/)) {
+      const m = line.match(/^•\s*([^:]+):\s*(.+)$/);
+      if (m) opinions.push({ role: m[1].trim(), text: m[2].trim(), color: '#58a6ff' });
+    }
+    return opinions.length ? { chips, opinions, folds } : null;
+  } else {
+    return null;                                 // Q 진입 등 짧은 포맷은 friendlyReason이 처리
+  }
+  const mRej = r.match(/⚠️\s*(\d+일 전 거절하신 종목[^\n]*)\n\[당시 사유\]([\s\S]*?)\[이번 사유\]\s*/);
+  if (mRej) {
+    chips.push('⚠️ 재상신(이전 거절 이력)');
+    folds.push({ label: '이전 거절 당시 사유 보기', text: mRej[2].trim() });
+    r = r.slice(mRej.index + mRej[0].length);
+  }
+  r = r.replace(/\n?\[티어 업[^\n]*\n?/g, () => { if (!chips.includes('⬆️ 비중 확대 (노드 대표)')) chips.push('⬆️ 비중 확대 (노드 대표)'); return '\n'; });
+  r = r.replace(/\n?\[계좌 이관\][^\n]*\n?/g, () => { if (!chips.includes('🔁 대형주 계좌로 이관')) chips.push('🔁 대형주 계좌로 이관'); return '\n'; });
+  for (let seg of r.split(/\n?·\s+/)) {
+    seg = seg.trim();
+    if (!seg) continue;
+    let m = seg.match(/^(성장주|가치|실적|병목|타이밍) 담당 의견\s*—\s*([\s\S]+)$/);
+    if (m) {
+      let text = m[2], obs = '';
+      const oIdx = text.search(/\n?이후 \d+회에 걸쳐 재점검/);   // 의견 뒤에 붙는 관찰 서사 분리
+      if (oIdx >= 0) { obs = text.slice(oIdx).trim(); text = text.slice(0, oIdx).trim(); }
+      opinions.push({ role: m[1] + ' 담당', text, color: _ROLE_COLOR[m[1]] || '#58a6ff' });
+      if (obs) { const n = (obs.match(/^이후 (\d+)회/) || [])[1]; chips.push(`👀 재점검 ${n || '수'}회`); folds.push({ label: '관찰 기록 보기', text: obs }); }
+      continue;
+    }
+    if (/^최초 검토 —/.test(seg)) { const px = (seg.match(/가격\s*([\d.,]+)/) || [])[1]; chips.push('🔎 후보 선정' + (px ? ` (당시 ${px})` : '')); continue; }
+    m = seg.match(/^이후 (\d+)회에 걸쳐 재점검([\s\S]*)$/);
+    if (m) { chips.push(`👀 재점검 ${m[1]}회`); if (m[2].trim().length > 20) folds.push({ label: '관찰 기록 보기', text: seg }); continue; }
+    if (/^진입 타이밍 —/.test(seg)) { chips.push('⏱️ 타이밍 점검 통과'); continue; }
+    if (/^\[티어 업/.test(seg)) { chips.push('⬆️ 비중 확대 (노드 대표)'); continue; }
+    if (/^\[계좌 이관\]/.test(seg)) { chips.push('🔁 대형주 계좌로 이관'); continue; }
+    m = seg.match(/^\[딥스터디\]\s*([\s\S]+)$/);
+    if (m) { folds.push({ label: '셀프 반박(딥스터디) 보기', text: m[1].trim() }); continue; }
+    if (/^펀더 심사 —|^블로그에서 출발/.test(seg) || seg.length > 60) {
+      opinions.push({ role: /블로그/.test(seg) ? '블로그 시그널' : '매수 근거', text: seg, color: _ROLE_COLOR['블로그'] });
+    }
+  }
+  return opinions.length ? { chips, opinions, folds } : null;
+}
+function renderStructuredReason(st, raw) {
+  let h = '';
+  if (st.chips.length) h += `<div class="rc-chips">` + st.chips.map(c => `<span class="rc-chip">${esc(cipherLetters(c))}</span>`).join('') + `</div>`;
+  for (const op of st.opinions) {
+    const lis = sentenceBullets(op.text).map(t => `<li>${esc(cipherLetters(t))}</li>`).join('');
+    h += `<div class="rc-card" style="border-left-color:${op.color || '#58a6ff'}">
+            <div class="rc-role" style="color:${op.color || '#79c0ff'}">${esc(cipherLetters(op.role))}</div><ul>${lis}</ul></div>`;
+  }
+  for (const f of st.folds) h += `<details><summary>${esc(f.label)}</summary><div class="rd-raw">${esc(cipherLetters(f.text))}</div></details>`;
+  if (raw) h += `<details><summary>원문 보기</summary><div class="rd-raw">${esc(cipherLetters(raw))}</div></details>`;
+  return h;
+}
+
 function friendlyReason(raw) {
   const r = (raw || '').trim();
   if (!r) return '매수 이유 정보 없음';
@@ -1692,16 +1782,28 @@ function showPositionReason(idx) {
   }
   document.getElementById('r-meta').innerHTML = metaLines.join('<br>');
 
-  // 본문 — (발굴주면) A 종목소개 + 친절한 매수 이유 + (있으면) 매도 이유
+  // 본문 — A 종목소개 + 친절한 매수 이유 + (있으면) 매도 이유
   let bodyHtml = '';
-  const rep = (window._fundReportByCode || {})[p.code];        // 대형주는 summary 비어 자연 skip
+  const rep = (window._fundReportByCode || {})[p.code];
+  const introHtml = (sum) => `<div id="r-intro" style="white-space:normal"><div style="font-size:11px;font-weight:700;color:#8b949e;margin-bottom:6px;letter-spacing:.04em">🏢 이런 회사예요</div><div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9;margin-bottom:14px">${esc(sum)}</div></div>`;
   if (rep && (rep.summary || '').trim()) {
-    bodyHtml += `<div style="font-size:11px;font-weight:700;color:#8b949e;margin-bottom:6px;letter-spacing:.04em">🏢 이런 회사예요</div>
-                 <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9;margin-bottom:14px">${esc(rep.summary.trim())}</div>`;
+    bodyHtml += introHtml(rep.summary.trim());
+  } else if (p.code) {                          // 최근 리포트 창에서 밀려난 보유 종목 — 종목별 폴백(#196)
+    fetch('/api/fund-report?code=' + encodeURIComponent(p.code)).then(r => r.json()).then(rows => {
+      const sum = rows && rows[0] && (rows[0].summary || '').trim();
+      const body = document.getElementById('r-body');
+      if (sum && body && !document.getElementById('r-intro'))
+        body.insertAdjacentHTML('afterbegin', introHtml(sum));
+    }).catch(() => {});
   }
-  const buyReason = cipherLetters(friendlyReason(p.reasoning));
-  bodyHtml += `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:6px;letter-spacing:.04em">🟢 매수 이유</div>
-               <div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
+  const structured = parseStructuredReason(p.reasoning);
+  bodyHtml += `<div style="font-size:11px;font-weight:700;color:#79c0ff;margin-bottom:8px;letter-spacing:.04em">🟢 봇들이 산 이유</div>`;
+  if (structured) {
+    bodyHtml += renderStructuredReason(structured, p.reasoning);
+  } else {
+    const buyReason = cipherLetters(friendlyReason(p.reasoning));
+    bodyHtml += `<div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9">${esc(buyReason)}</div>`;
+  }
   if (p.status === 'closed') {
     const sellReason = cipherLetters(friendlyExit((p.exit_reasoning || '').trim()));
     bodyHtml += `<div style="height:14px"></div>
