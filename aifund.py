@@ -2099,7 +2099,9 @@ _BLOG_SIGNAL_SYS = (
     "그 지출을 받는 대표 종목이 아직 사건을 반영하기 전일 때가 바로 매수후보다. 뉴스가 크다고 겁내지 마라.\n"
     "③ 타이밍 — 그 논리가 이미 주가에 반영됐는가? 글 자체가 '이미 많이 올랐다'는 복기라면 추격 매수가 아니라 "
     "'방향메모'가 정답이다 — 다음에 어떤 카테고리를 어떤 조건에서 봐야 하는지 남겨라.\n"
-    "④ 겸손 — 확신이 없으면 억지로 만들지 마라. 하루 매수후보는 최대 2건. "
+    "③-보강 — 글 날짜가 오래됐을수록 타이밍을 더 엄격히: 그 사이 시장이 이미 반영했는지 따져라. "
+    "다만 논지가 구조적(수년짜리)이고 아직 유효하면 옛 글이어도 매수후보가 될 수 있다.\n"
+    "④ 겸손 — 확신이 없으면 억지로 만들지 마라. 한 배치에서 매수후보는 최대 2건. "
     "단, 조금이라도 팔로우할 가치가 있으면 '해당없음'이 아니라 '방향메모'다 — '해당없음'은 note 없이 정말 아무것도 없을 때만.\n"
     "제약: 매수후보 티커는 미국 상장만. 미래 수익 보장·권유 표현 금지(가상 포트폴리오 관점). "
     "글쓴이·블로그를 특정하는 표현 금지.\n"
@@ -2109,25 +2111,26 @@ _BLOG_SIGNAL_SYS = (
     "설명·코드펜스 없이 JSON만."
 )
 
-_blog_review_date = None      # 하루 1회 가드(워크데이 재출근 중복 방지)
+_blog_buys_date = None        # 매수후보 상신 일일 캡(#194) — 라운드 반복돼도 하루 3건까지
+_blog_buys_count = 0
 
 
-def run_blog_stock_review():
-    """M 블로그 시그널(#188) — 최근 새 글을 읽고 ①매수후보(→오너 결재 상신) ②방향메모(→피드 기록)
-    ③해당없음 을 판단. 하루 1회 sonnet 1콜. BLOG_SIGNAL_ENABLED=False면 no-op.
-    확정 모드(HOLDINGS_WATCH_MODE)와 무관 — 신규 매수는 어차피 오너 결재를 거친다."""
-    global _blog_review_date
+def run_blog_stock_review(batch: int = 6):
+    """M 블로그 상시 리딩(#188→#194) — 미독 글(최신부터) 배치를 읽고
+    ①매수후보(→오너 결재, 하루 3건 캡) ②방향메모(→피드 🧭) ③해당없음 을 판단.
+    워크데이 라운드마다 호출 — 아카이브를 역순으로 소화하고, 다 읽으면 새 글만 처리(0편이면 no-op).
+    BLOG_SIGNAL_ENABLED=False면 no-op."""
+    global _blog_buys_date, _blog_buys_count
     if not (NEW_DESK_ENABLED and BLOG_SIGNAL_ENABLED):
         return {"skipped": "disabled"}
-    if _blog_review_date == _today_kst():
-        return {"skipped": "already_today"}
-    from db import get_recent_blog_posts
+    from db import get_unchecked_blog_posts, mark_blog_signal_checked
     from fetchers import fetch_stock_price
-    since = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=2)).strftime("%Y-%m-%d")
-    posts = get_recent_blog_posts(since, limit=6)
+    posts = get_unchecked_blog_posts(batch)
     if not posts:
-        _blog_review_date = _today_kst()
         return {"posts": 0}
+    today = _today_kst()
+    if _blog_buys_date != today:
+        _blog_buys_date, _blog_buys_count = today, 0
     # RSS는 미리보기(~600자)만 준다 — 시그널 판단은 전문이 필요하므로 짧으면 본문을 풀페치(글당 1회, DB 캐시).
     for p in posts:
         if len(p.get("content") or "") < 1500:
@@ -2153,13 +2156,14 @@ def run_blog_stock_review():
     try:
         from agents import _call_claude_cli
         out = _call_claude_cli(_BLOG_SIGNAL_SYS,
-                               f"오늘({_today_kst()}) 읽을 새 글 {len(posts)}편:\n\n{blog_txt}\n\n"
-                               "각 글을 판단해 JSON 배열로.",
+                               f"오늘은 {today}다. 읽을 글 {len(posts)}편(글 머리의 날짜 주의 — 옛 글일 수 있다):\n\n"
+                               f"{blog_txt}\n\n각 글을 판단해 JSON 배열로.",
                                timeout=180, model="sonnet")
     except Exception as e:
         logger.warning(f"블로그 시그널 실패: {e}")
-        return {"error": str(e)}
-    _blog_review_date = _today_kst()                      # 파싱 실패해도 오늘은 소비(내일 새 글로 재시도)
+        return {"error": str(e)}                          # 미독 유지 → 다음 라운드 재시도
+    for p in posts:                                        # 파싱 실패해도 이 배치는 소비(무한 재시도 방지)
+        mark_blog_signal_checked(p["blog_id"], p["log_no"], today)
     import json as _json
     sigs = []
     txt = (out or "").strip()
@@ -2169,35 +2173,34 @@ def run_blog_stock_review():
         except Exception:
             logger.warning("블로그 시그널 JSON 파싱 실패")
     submitted, noted = [], []
-    n_buy = 0
     for sig in sigs:
         if not isinstance(sig, dict):
             continue
         v = (sig.get("verdict") or "").strip()
         title = (sig.get("title") or "")[:80]
-        if v == "매수후보" and n_buy < 2:
+        if v == "매수후보" and _blog_buys_count < 3:
             code = (sig.get("ticker") or "").strip().upper()
             thesis = (sig.get("thesis") or "").strip()
             if not code or not thesis:
                 continue
-            n_buy += 1
             price = fetch_stock_price(code)
             if not price:
-                _narrate("M", f"오늘 글에서 {code} 아이디어를 봤는데 시세 확인이 안 되네요 — 오늘은 접어둡니다.")
+                _narrate("M", f"읽던 글에서 {code} 아이디어를 봤는데 시세 확인이 안 되네요 — 접어둡니다.")
                 continue
             name = stock_name(code) or code
             log_decision("블로그시그널", "M", code, name, "매수후보", thesis, packet=title, model="sonnet")
             ok = _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
-                                      ["M"], "US", stock_desc=f"오늘 아침 읽은 글에서 출발한 아이디어입니다 — {title}",
+                                      ["M"], "US", stock_desc=f"블로그에서 출발한 아이디어입니다 — {title}",
                                       reason=thesis, speaker="M")
             if ok:
+                _blog_buys_count += 1
                 submitted.append(code)
         elif v == "방향메모":
             note = (sig.get("note") or "").strip()
             if not note:
                 continue
             log_decision("블로그시그널", "M", sig.get("ticker") or "-", title, "방향메모", note, model="sonnet")
-            _narrate("M", f"🧭 오늘 글 하나가 눈에 걸립니다 — {note[:250]}", model="sonnet")
+            _narrate("M", f"🧭 읽던 글 하나가 눈에 걸립니다 — {note[:250]}", model="sonnet")
             noted.append(title)
     return {"posts": len(posts), "submitted": submitted, "noted": noted}
 
@@ -2470,6 +2473,7 @@ def run_workday():
                 _time.sleep(30)
                 continue
             run_discovery_cycle()                                # 관찰 재점검 + 발굴 라운드(라운드 쿼터·딥스터디)
+            run_blog_stock_review()                              # M 상시 리딩(#194) — 미독 글 배치, 없으면 no-op
             rounds += 1
             _time.sleep(WORKDAY_BREAK_SEC)
         _narrate("A", f"오늘 근무 끝 — 스터디 {rounds}라운드 돌았습니다. 다들 퇴근합니다 🫡")
