@@ -1465,9 +1465,10 @@ def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
     db.init_db(); db.ensure_desk_accounts()
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
-    monkeypatch.setattr(aifund, "_blog_review_date", None)
-    db.save_blog_post("b", "1", "AI 보안 사고의 행간", "2026-10-01", "사건 해설 …")
-    db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", "2026-10-01", "이미 오른 …")
+    monkeypatch.setattr(aifund, "_blog_buys_date", None)
+    monkeypatch.setattr(aifund, "_blog_buys_count", 0)
+    db.save_blog_post("b", "1", "AI 보안 사고의 행간", "2026-10-01", "사건 해설 " * 200)
+    db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", "2026-10-01", "이미 오른 " * 200)
     monkeypatch.setattr(agents, "_call_claude_cli",
                         lambda s, u, timeout=60, model=None, allowed_tools=None: llm_out)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
@@ -1487,23 +1488,28 @@ def test_blog_signal_buy_candidate_submits_approval(tmp_path, monkeypatch):
     assert r["submitted"] == ["CRWD"]
     assert len(db.get_pending_buys()) == 1                     # 결재 상신됨(체결 아님)
     assert r["noted"] and any("🧭" in c for b, c in narrated)   # 방향메모는 피드에
-    assert aifund.run_blog_stock_review()["skipped"] == "already_today"   # 하루 1회
+    assert aifund.run_blog_stock_review()["posts"] == 0        # 미독 큐 소진 → no-op(#194)
 
 
-def test_blog_signal_none_and_cap(tmp_path, monkeypatch):
-    # 해당없음만 → 아무것도 안 함 / 매수후보 3건이면 2건 캡
+def test_blog_signal_backlog_batches_and_daily_cap(tmp_path, monkeypatch):
+    # 미독 큐 배치 소화(최신부터) + 매수후보 하루 3건 글로벌 캡(#194)
     out = ('[{"title":"a","verdict":"매수후보","ticker":"AAA","thesis":"t"},'
-           '{"title":"b","verdict":"매수후보","ticker":"BBB","thesis":"t"},'
-           '{"title":"c","verdict":"매수후보","ticker":"CCC","thesis":"t"},'
-           '{"title":"d","verdict":"해당없음"}]')
+           '{"title":"b","verdict":"매수후보","ticker":"BBB","thesis":"t"}]')
     db = _blog_sig_setup(tmp_path, monkeypatch, out)
+    for i in range(3, 9):                                      # 아카이브 6편 추가(총 8편)
+        db.save_blog_post("b", str(i), f"옛 글 {i}", f"2026-09-{i:02d}", "본문 " * 200)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
-    r = aifund.run_blog_stock_review()
-    assert set(r["submitted"]) == {"AAA", "BBB"}               # 하루 2건 캡
+    r1 = aifund.run_blog_stock_review(batch=5)                 # 1라운드: 5편 소화, 후보 2 상신
+    assert r1["posts"] == 5 and set(r1["submitted"]) == {"AAA", "BBB"}
+    out2 = out.replace("AAA", "CCC").replace("BBB", "DDD")
+    import agents
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: out2)
+    r2 = aifund.run_blog_stock_review(batch=5)                 # 2라운드: 남은 3편, 캡 3이라 1건만
+    assert r2["posts"] == 3 and r2["submitted"] == ["CCC"]
+    assert aifund.run_blog_stock_review()["posts"] == 0        # 큐 소진
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", False)
-    monkeypatch.setattr(aifund, "_blog_review_date", None)
     assert aifund.run_blog_stock_review()["skipped"] == "disabled"
-
 
 def test_q_exit_cooldown_blocks_fresh_position(monkeypatch):
     # 쿨다운(#190): 매수 N일 이내면 청산 신호를 무시하고 홀드 + 사유 내레이션
