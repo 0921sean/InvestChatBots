@@ -178,6 +178,7 @@ def _migrate():
             "ALTER TABLE benchmark_daily ADD COLUMN spy REAL",
             "ALTER TABLE largecap_watch ADD COLUMN thesis TEXT",
             "ALTER TABLE pending_buy ADD COLUMN qna TEXT DEFAULT '[]'",
+            "ALTER TABLE blog_posts ADD COLUMN signal_checked_at TEXT",  # M 시그널 리뷰 완료일(#194 — 미독 큐 마커)
         ]:
             try:
                 con.execute(sql)
@@ -1595,6 +1596,23 @@ def blog_post_exists(blog_id: str, log_no: str) -> bool:
             "SELECT 1 FROM blog_posts WHERE blog_id=? AND log_no=?", (blog_id, log_no)
         ).fetchone()
     return row is not None
+
+
+def get_unchecked_blog_posts(limit: int = 6) -> list[dict]:
+    """M 시그널 미독 글(최신부터) — 상시 리딩 큐(#194)."""
+    with _conn() as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute("""
+            SELECT blog_id, log_no, title, post_date, content
+            FROM blog_posts WHERE signal_checked_at IS NULL
+            ORDER BY post_date DESC, id DESC LIMIT ?""", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_blog_signal_checked(blog_id: str, log_no: str, date: str):
+    with _conn() as con:
+        con.execute("UPDATE blog_posts SET signal_checked_at=? WHERE blog_id=? AND log_no=?",
+                    (date, blog_id, log_no))
 
 
 def update_blog_content(blog_id: str, log_no: str, content: str):
