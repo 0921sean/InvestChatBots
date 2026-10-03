@@ -75,6 +75,11 @@ ICB가 결국 내 계좌를 굴려 경제적 자유로. 그 험난한 여정 자
 2. **DB cycle_state는 절대 건드리지 않는다.**
 3. **`/health`가 200을 돌려줄 때까지 확인한다.** 프로세스 생존 ≠ 서비스 정상 —
    프로세스가 살아 있는데 포트 리스닝이 없는 상태가 실재한다. `pgrep`만 보고 판단하지 말 것.
+   **역방향도 확인: `/health` 200 ≠ 재시작 성공.** `ps -o pid,etime -p $(pgrep -f "uvicorn main:app")`로
+   **PID가 바뀌고 etime이 초 단위인지** 반드시 본다 — 2026-10-03에 9/7 수동 복구(nohup) 고아 프로세스가
+   launchd 밖에서 26일 생존하며 옛 코드로 /health 200을 돌려줘, kickstart가 21만 번 헛돌았는데
+   아무도 눈치 못 챘다(그간 머지 전부 미배포). 수동 기동을 썼다면 그 프로세스를 정리하기 전까지
+   kickstart는 영원히 no-op이다 — [#197](../../issues/197).
 4. `/api/state`로 phase 확인 — `cycle_rest`면 그대로 둔다.
 5. phase가 `sector_discussion`으로 잘못 돌아간 경우에만, **사용자에게 알리고 허락 받은 후** 수동 수정
 6. 재시작 후 `/api/conversation/start`를 임의로 호출하지 않는다
