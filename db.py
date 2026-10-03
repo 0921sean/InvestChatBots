@@ -242,6 +242,24 @@ def record_fund_report(date: str, code: str, name: str, summary: str, packet: st
             (date, code, name, summary, packet, desk))
 
 
+RESTRUCTURE_EXIT_PREFIXES = ("전략 정렬", "오너 지시")   # 봇 판단이 아닌 청산 — 운용 성과에서 분리(#201)
+
+
+def get_restructure_realized(account: str) -> dict:
+    """재편·오너지시 청산의 실현손익 합계와 승패 수(#201).
+    카드 '수익률'은 이걸 뺀 운용 성과만 보여준다 — NAV·계좌 잔고엔 그대로 남는다(회계 왜곡 없음)."""
+    like1, like2 = (f"{p}%" for p in RESTRUCTURE_EXIT_PREFIXES)
+    with _conn() as con:
+        row = con.execute("""
+            SELECT COALESCE(SUM(pnl),0) s, COUNT(*) n,
+                   SUM(CASE WHEN pnl >= 0 THEN 1 ELSE 0 END) w
+            FROM virtual_positions
+            WHERE account=? AND status='closed'
+              AND (exit_reasoning LIKE ? OR exit_reasoning LIKE ?)""",
+            (account, like1, like2)).fetchone()
+    return {"pnl": row[0] or 0, "count": row[1] or 0, "wins": row[2] or 0}
+
+
 def get_fund_report_summary(code: str):
     """해당 종목의 최신 '사업요약 있는' 리포트 1건(#196 — 보유 모달 '이런 회사예요').
     최근 N행 창에서 밀려난 옛 보유 종목도 소개가 뜨게."""

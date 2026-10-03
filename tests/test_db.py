@@ -199,3 +199,21 @@ def test_fund_report_summary_lookup_latest_nonempty():
     row = get_fund_report_summary("TCO")
     assert row["date"] == "2026-09-01" and row["summary"] == "옛 요약"
     assert get_fund_report_summary("NOPE") is None
+
+
+def test_restructure_realized_separated():
+    from db import (ensure_desk_accounts, buy_shared_position, sell_shared_position,
+                    get_restructure_realized)
+    ensure_desk_accounts()
+    # 운용 청산 1건(+) · 재편 청산 1건(+) · 오너지시 1건(−)
+    for code, px_in, px_out, rz in [
+        ("OPA", 100.0, 110.0, "S 논지 훼손 청산"),
+        ("RSA", 100.0, 120.0, "전략 정렬 청산(#192) — 테스트"),
+        ("RSB", 100.0, 90.0, "오너 지시 — 매수 사유 재검토 후 취소"),
+    ]:
+        pid, err = buy_shared_position(code, code, px_in, 1_000_000, "t", "US", account="발굴주")
+        assert err is None
+        sell_shared_position(pid, px_out, exit_reasoning=rz)
+    rs = get_restructure_realized("발굴주")
+    assert rs["count"] == 2 and rs["wins"] == 1            # RSA(+)·RSB(−)만, OPA는 운용
+    assert abs(rs["pnl"] - (200_000 - 100_000)) < 1

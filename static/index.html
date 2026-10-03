@@ -1484,10 +1484,12 @@ function _renderPfAccount(acct) {
   const open   = positions.filter(p => p.status==='open');
   const closed = positions.filter(p => p.status==='closed').slice(0,5);
   const unrealizedPnl = open.reduce((s,p) => s + (p.unrealized_pnl||0), 0);
-  const totalPnl = pnl + unrealizedPnl;
+  const rsPnl = d.restructure_pnl || 0;                       // 재편·오너지시 실현 — 운용 성과에서 분리(#201)
+  const totalPnl = pnl + unrealizedPnl - rsPnl;
   const retPct = INITIAL ? totalPnl / INITIAL * 100 : 0;
-  const rate = (d.win_count+d.loss_count) > 0
-    ? Math.round(d.win_count/(d.win_count+d.loss_count)*100) : 0;
+  const rsN = d.restructure_count || 0, rsW = d.restructure_wins || 0;
+  const wins = Math.max(0, (d.win_count||0) - rsW), losses = Math.max(0, (d.loss_count||0) - (rsN - rsW));
+  const rate = (wins+losses) > 0 ? Math.round(wins/(wins+losses)*100) : 0;
 
   const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
   document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
@@ -1497,7 +1499,8 @@ function _renderPfAccount(acct) {
   document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
   document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
   document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
-  document.getElementById('pf-record').textContent = `${d.win_count}승 ${d.loss_count}패 (${rate}%)`;
+  document.getElementById('pf-record').textContent = `${wins}승 ${losses}패 (${rate}%)`
+    + (rsN ? ` · 재편 ${rsPnl>=0?'+':''}₩${Math.round(rsPnl).toLocaleString()} 별도` : '');
 
   let html = '';
   if (open.length) {
