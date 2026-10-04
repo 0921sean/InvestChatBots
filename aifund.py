@@ -1201,6 +1201,22 @@ def _compose_buy_report(approvers, reasonings) -> str:
     return "\n".join(lines)
 
 
+def _notify_trade(action: str, ticker: str, code: str, price, amount, account: str,
+                  reason: str = "", market: str = "US"):
+    """매매 체결 ntfy(#205) — 무엇을 샀다/팔았다 + 이유. 실패해도 매매는 유효."""
+    try:
+        from notifier import notify
+        px = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
+        icon = "🟢 매수" if action == "매수" else "🔴 매도"
+        head = " ".join((reason or "").split())[:300]
+        body = f"{_tk(code, ticker)} @ {px}" + (f" · ₩{amount:,.0f}" if amount else "") + f" ({account})"
+        if head:
+            body += f"\n이유: {head}"
+        notify(f"{icon} — {ticker}", body, priority="default", cooldown=0)
+    except Exception as e:
+        logger.warning(f"매매 알림 실패 {code}: {e}")
+
+
 def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, market,
                          stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
     """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
@@ -1242,6 +1258,22 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
                   f"{rej['decision_price']}, 담당 {rej['approvers'] or '-'}).\n"
                   f"[당시 사유] {_first_lines(rej['reason'], 2)}\n"
                   f"[이번 사유] {reason}")
+
+    if not BUY_APPROVAL_REQUIRED:                             # 결재 해제 모드(#205) — 같은 검증을 거쳐 즉시 체결
+        from db import buy_shared_position, get_open_positions_by_symbol
+        if get_open_positions_by_symbol(ticker, account=account):
+            return False                                      # 이미 보유 — 중복 매수 방지
+        rz = f"봇 자율 매수 ({','.join(approvers) if approvers else '?'})" + (f" · {reason}" if reason else "")
+        _, err = buy_shared_position(ticker, code, price, amount, rz, market, account=account)
+        if err:
+            logger.warning(f"자율 매수 실패 {code}: {err}")
+            return False
+        px0 = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
+        _narrate(speaker or (approvers[0] if approvers else "A"),
+                 f"🟢 {_tk(code, ticker)} 매수 체결 — 판단가 {px0}. 사유는 기록에 남겼습니다.")
+        _notify_trade("매수", ticker, code, price, amount, account,
+                      reason=(reason or stock_desc), market=market)
+        return True
 
     from db import add_pending_buy
     pid = add_pending_buy(ticker, code, desk, account, market, amount, price,
@@ -1996,6 +2028,8 @@ def run_discovery_review(market="US"):
         if price and not sell_shared_position(p["id"], price, exit_reasoning=f"{bot} 논지 훼손 청산")[1]:
             sold.append(code)
             _narrate(bot, random.choice(_SELL_LINES).format(name=name))
+            _notify_trade("매도", name, code, price, None, "발굴주",
+                          reason=f"{_ROLE_KO.get(bot, bot)} 담당 재점검 — 매수 논지가 훼손됐다고 판단", market=market)
     return {"sells": sold}
 
 
@@ -2280,6 +2314,8 @@ def run_largecap_select(market="US"):
                 if price and not sell_shared_position(held[0]["id"], price, exit_reasoning=f"펀더 청산({','.join(sellers)})")[1]:
                     sold.append(code)
                     _narrate(sellers[0], random.choice(_SELL_LINES).format(name=name))
+                    _notify_trade("매도", name, code, price, None, "대형주",
+                                  reason=f"펀더멘털 재심사에서 {'·'.join(_ROLE_KO.get(b, b) for b in sellers)} 담당이 강한 매도 판정", market=market)
     _narrate("A", random.choice(_A_DONE).format(desk="대형주", n=len(watched)))
     for bot in LARGECAP_BOTS:
         _narrate(bot, _line(_CLOCK_OUT, bot))
@@ -2345,6 +2381,8 @@ def run_largecap_execute(market="US"):
             bought.append(w["code"])
             n += 1
             _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
+            _notify_trade("매수", w["name"], w["code"], o["close"][-1], _desk_amount("대형주"), "대형주",
+                          reason=((w.get("thesis") or "").strip() or f"펀더 통과({appr}) + Q 타이밍 승인"), market=market)
     if held:                                                  # ② 보유 종목 점검(추가매수 없음 — 홀드/청산만)
         _narrate("Q", "이제 갖고 있는 종목들 점검할게요.")
         for p in held:
@@ -2363,6 +2401,8 @@ def run_largecap_execute(market="US"):
                 _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
             if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
                 sold.append(p["symbol"])
+                _notify_trade("매도", p["symbol"], code, o["close"][-1], None, "대형주",
+                              reason=f"Q 타이밍 — {'추세 이탈(50일선 하회)' if strat == 'M' else '되돌림 구간 종료(중심선 도달/하단 재이탈)'}", market=market)
     _narrate("Q", "오늘 대형주 타이밍 점검 끝 — 퇴근합니다. 🫡")   # ③ 퇴근
     return {"bought": bought, "sold": sold}
 

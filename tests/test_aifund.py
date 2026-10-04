@@ -279,6 +279,8 @@ def test_run_discovery_desk_approval_mode_queues_not_buys(monkeypatch):
 
 
 def test_submit_buy_approval_queues_narrates_notifies_and_dedups(tmp_path, monkeypatch):
+    # 결재 큐 동작 검증 — #205 이후 플래그 기본이 환경 의존이라 명시 고정
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)
     import db, notifier
     monkeypatch.setenv("DB_PATH", str(tmp_path / "buy.db"))
     db.init_db()
@@ -1477,6 +1479,8 @@ def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
 
 
 def test_blog_signal_buy_candidate_submits_approval(tmp_path, monkeypatch):
+    # 결재 큐 동작 검증 — #205 이후 플래그 기본이 환경 의존이라 명시 고정
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)
     out = ('[{"title":"AI 보안 사고의 행간","verdict":"매수후보","ticker":"crwd",'
            '"thesis":"사고 이후 보안 지출이 구조적으로 늘어납니다.","note":null},'
            '{"title":"정상회담 팩트시트의 비밀","verdict":"방향메모","ticker":null,'
@@ -1546,3 +1550,43 @@ def test_quality_bot_g_wired():
     assert aifund._ROLE_KO["G"] == "품질"
     from prompts import AGENT_PROFILES
     assert "G" in AGENT_PROFILES and AGENT_PROFILES["G"]["system"]   # CI 더미/로컬 실페르소나 둘 다
+
+
+def test_approval_off_executes_direct_buy_with_notify(tmp_path, monkeypatch):
+    # 결재 해제 모드(#205): _submit_buy_approval이 결재함 대신 즉시 체결 + ntfy
+    import db, notifier, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "auto.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    sent = []
+    monkeypatch.setattr(notifier, "notify", lambda title, body, **k: sent.append((title, body)))
+    ok = aifund._submit_buy_approval("발굴주", "발굴주", "TESTCO", "TESTCO", 100.0,
+                                     2_500_000, ["M"], "US", reason="블로그 논리 — 보안 지출 구조 증가")
+    assert ok
+    assert db.get_pending_buys() == []                          # 결재함 안 거침
+    held = db.get_open_positions(account="발굴주")
+    assert [p["code"] for p in held] == ["TESTCO"]              # 즉시 체결
+    assert sent and "🟢 매수" in sent[0][0] and "보안 지출" in sent[0][1]   # ntfy에 이유 포함
+    # 중복 매수 방지
+    assert aifund._submit_buy_approval("발굴주", "발굴주", "TESTCO", "TESTCO", 100.0,
+                                       2_500_000, ["M"], "US", reason="재시도") is False
+
+
+def test_discovery_sell_sends_notify(tmp_path, monkeypatch):
+    import db, notifier, fetchers
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "sn.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    db.buy_shared_position("TESTCO", "TESTCO", 10.0, 2_500_000, "발굴주 매수 (S)", "US", account="발굴주")
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "HOLDINGS_WATCH_MODE", False)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "analyze_stock", lambda *a, **k: ("매도", "논지 깨짐"))
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 8.0)
+    sent = []
+    monkeypatch.setattr(notifier, "notify", lambda title, body, **k: sent.append(title))
+    r = aifund.run_discovery_review("US")
+    assert r["sells"] == ["TESTCO"]
+    assert any("🔴 매도" in t for t in sent)
