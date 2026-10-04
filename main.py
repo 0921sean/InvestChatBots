@@ -827,9 +827,12 @@ def api_fund():
     for acct in DESK_ACCOUNTS:                            # 대형주 / 발굴주 — v1 포트폴리오 패널 그대로 씀
         pf = get_shared_portfolio(acct)
         rows = _enrich_positions(desk_rows[acct])
+        from db import get_restructure_realized
+        _rs = get_restructure_realized(acct)                 # 재편·오너지시 실현 분리(#201)
         accounts[acct] = {
             "balance": pf.get("balance") or 0, "invested": pf.get("invested") or 0,
             "total_pnl": pf.get("total_pnl") or 0,
+            "restructure_pnl": _rs["pnl"], "restructure_count": _rs["count"], "restructure_wins": _rs["wins"],
             "win_count": pf.get("win_count") or 0, "loss_count": pf.get("loss_count") or 0,
             "initial_balance": ACCT_SEED.get(acct, DESK_SEED), "color": acct_color.get(acct, "#8b949e"),
             "positions": [{"symbol": p["symbol"], "code": p.get("code"), "market": p.get("market"),

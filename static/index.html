@@ -1482,12 +1482,15 @@ function _renderPfAccount(acct) {
   const balance = d.balance || 0, invested = d.invested || 0, pnl = d.total_pnl || 0;
   const positions = d.positions || [];
   const open   = positions.filter(p => p.status==='open');
-  const closed = positions.filter(p => p.status==='closed').slice(0,5);
+  const isRestructure = (p) => /^(전략 정렬|오너 지시)/.test((p.exit_reasoning||'').trim());   // 비운용 청산(#201)
+  const closed = positions.filter(p => p.status==='closed' && !isRestructure(p)).slice(0,5);
   const unrealizedPnl = open.reduce((s,p) => s + (p.unrealized_pnl||0), 0);
-  const totalPnl = pnl + unrealizedPnl;
+  const rsPnl = d.restructure_pnl || 0;                       // 재편·오너지시 실현 — 운용 성과에서 분리(#201)
+  const totalPnl = pnl + unrealizedPnl - rsPnl;
   const retPct = INITIAL ? totalPnl / INITIAL * 100 : 0;
-  const rate = (d.win_count+d.loss_count) > 0
-    ? Math.round(d.win_count/(d.win_count+d.loss_count)*100) : 0;
+  const rsN = d.restructure_count || 0, rsW = d.restructure_wins || 0;
+  const wins = Math.max(0, (d.win_count||0) - rsW), losses = Math.max(0, (d.loss_count||0) - (rsN - rsW));
+  const rate = (wins+losses) > 0 ? Math.round(wins/(wins+losses)*100) : 0;
 
   const pc = v => v>0 ? 'pf-pos' : v<0 ? 'pf-neg' : 'pf-neu';
   document.getElementById('pf-balance').textContent = `₩${Math.round(balance).toLocaleString()}`;
@@ -1497,7 +1500,8 @@ function _renderPfAccount(acct) {
   document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
   document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
   document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
-  document.getElementById('pf-record').textContent = `${d.win_count}승 ${d.loss_count}패 (${rate}%)`;
+  document.getElementById('pf-record').textContent = `${wins}승 ${losses}패 (${rate}%)`
+    + (rsN ? ` · 재편 ${rsPnl>=0?'+':''}₩${Math.round(rsPnl).toLocaleString()} 별도` : '');
 
   let html = '';
   if (open.length) {
@@ -1751,6 +1755,10 @@ function friendlyExit(raw) {
     return "짧은 반등을 노리고 담았던 자리에서 목표에 닿거나 힘이 빠져서, 퀀트 타이밍 봇이 정리했어요.";
   if (/손절|스탑/.test(r))
     return "정해둔 손절선에 닿아서 손실을 키우지 않으려고 정리했어요.";
+  if (/^전략 정렬/.test(r))
+    return "종목이 나빠서가 아니라, 포트폴리오를 '병목 노드당 대표 1종목' 체제로 재편하면서 정리한 거예요. 이 손익은 봇 운용 성적과 분리해 집계합니다.";
+  if (/^오너 지시/.test(r))
+    return "사장님 지시로 매수 자체를 재검토해 취소한 거래예요. 봇 운용 성적과 분리해 집계합니다.";
   return r;
 }
 function showPositionReason(idx) {
