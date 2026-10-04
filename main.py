@@ -849,7 +849,7 @@ def api_fund():
     from aifund import pub_letter
     _R = {"A": "애널리스트·종목발굴", "P": "성장주 판단", "W": "가치주 판단",
           "H": "실적 게이트", "S": "병목 발굴", "Q": "퀀트 타이밍", "M": "거시 시장 자문",
-          "R": "리스크 오피서"}
+          "R": "리스크 오피서", "G": "품질(역발상) 판단"}
     # 내부 이니셜 b로 DB·랭크 조회, 표시(bot/name)는 ROT13 치환(전략 유추 방지). M=거시 자문(비매매).
     roster = [
         {"bot": pub_letter(b), "name": pub_letter(b), "color": c, "model": m, "role": _R[b],
@@ -858,6 +858,7 @@ def api_fund():
             ("A", "#8b949e", "Claude Haiku"), ("P", "#5aa9e6", "Claude Sonnet"),
             ("W", "#c9a227", "Claude Sonnet"), ("H", "#a78bfa", "Claude Sonnet"),
             ("S", "#e08a3c", "Claude Sonnet"), ("Q", "#4bbf8a", "Claude Haiku"),
+            ("G", "#ffd166", "Claude Sonnet"),
             ("M", "#8b8cf0", "Claude Haiku"), ("R", "#e0637c", "Claude Haiku"),
         ]
     ]

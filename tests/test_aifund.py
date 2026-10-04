@@ -398,7 +398,7 @@ def test_run_largecap_execute_q_entry(monkeypatch):
 
 def test_desk_rosters_and_H_profile():
     from prompts import AGENT_PROFILES
-    assert aifund.LARGECAP_BOTS == ["P", "W", "H"]      # 대형주 결정자
+    assert aifund.LARGECAP_BOTS == ["P", "W", "H", "G"]  # 대형주 결정자(+품질 G, #203)
     assert aifund.DISCOVERY_BOTS == ["P", "W", "S"]     # 발굴주 결정자
     assert "H" in AGENT_PROFILES                        # H(실적왕 개명) 로드됨
     # analyze_candidate가 대형주 봇들(P/W/H)로 돌 수 있어야
@@ -1536,3 +1536,13 @@ def test_q_exit_cooldown_blocks_fresh_position(monkeypatch):
     pos["opened_at"] = old
     r = aifund.run_largecap_execute()
     assert r["sold"] == ["애플"] and sells == [9]
+
+
+def test_quality_bot_g_wired():
+    # G(#203): 대형주 로스터 편입·공개 레터 T·역할 '품질'. 발굴주는 무접촉.
+    assert aifund.LARGECAP_BOTS == ["P", "W", "H", "G"]
+    assert "G" not in aifund.DISCOVERY_BOTS
+    assert aifund.pub_letter("G") == "T"
+    assert aifund._ROLE_KO["G"] == "품질"
+    from prompts import AGENT_PROFILES
+    assert "G" in AGENT_PROFILES and AGENT_PROFILES["G"]["system"]   # CI 더미/로컬 실페르소나 둘 다
