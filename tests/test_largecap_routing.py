@@ -23,6 +23,7 @@ def largecap(monkeypatch):
     import notifier
     monkeypatch.setattr(aifund, "_largecap_universe", lambda: {"BIGCO", "MEGACO"})
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)   # 이 테스트군은 결재 큐 동작 검증(#205 이후 플래그 명시)
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)   # 실발송 차단(#174)
     yield
     with _conn() as con:

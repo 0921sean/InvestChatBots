@@ -1500,8 +1500,7 @@ function _renderPfAccount(acct) {
   document.getElementById('pf-pnl').className = `pf-value ${pc(totalPnl)}`;
   document.getElementById('pf-return').textContent = `${retPct>=0?'+':''}${retPct.toFixed(2)}%`;
   document.getElementById('pf-return').className = `pf-value ${pc(retPct)}`;
-  document.getElementById('pf-record').textContent = `${wins}승 ${losses}패 (${rate}%)`
-    + (rsN ? ` · 재편 ${rsPnl>=0?'+':''}₩${Math.round(rsPnl).toLocaleString()} 별도` : '');
+  document.getElementById('pf-record').textContent = `${wins}승 ${losses}패 (${rate}%)`;
 
   let html = '';
   if (open.length) {
