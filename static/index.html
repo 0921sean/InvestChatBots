@@ -974,7 +974,7 @@ const BOT_COLORS = {
   User:'#fbbf24', System:'#6e7681',
   // AI펀드 봇(전략 노출 방지 — 공개 표기는 ROT13). 채팅 피드·Members 로스터 색 일치.
   // 내부 A/P/W/H/S/Q/M/R → 공개 N/C/J/U/F/D/Z/E. (구 표기는 과거 메시지 호환용으로 남겨둠)
-  N:'#8b949e', C:'#5aa9e6', J:'#c9a227', U:'#a78bfa', F:'#e08a3c', D:'#4bbf8a', Z:'#8b8cf0', E:'#e0637c',
+  N:'#8b949e', C:'#5aa9e6', J:'#c9a227', U:'#a78bfa', F:'#e08a3c', D:'#4bbf8a', Z:'#8b8cf0', E:'#e0637c', T:'#ffd166',
   A:'#8b949e', P:'#5aa9e6', W:'#c9a227', H:'#a78bfa', S:'#e08a3c', Q:'#4bbf8a'
 };
 let lastId = 0, agents = {};
@@ -1645,7 +1645,7 @@ function sentenceBullets(text) {
   }
   return out;
 }
-const _ROLE_COLOR = { '성장주':'#3fb950', '가치':'#d2a8ff', '실적':'#f0883e', '병목':'#58a6ff', '타이밍':'#8b949e', '블로그':'#8b8cf0' };
+const _ROLE_COLOR = { '성장주':'#3fb950', '가치':'#d2a8ff', '실적':'#f0883e', '병목':'#58a6ff', '타이밍':'#8b949e', '품질':'#ffd166', '블로그':'#8b8cf0' };
 function parseStructuredReason(raw) {
   // '오너 승인 매수' 류의 긴 포맷 → {chips, opinions:[{role,text}], folds:[{label,text}]} | null(미지원 포맷)
   let r = (raw || '').trim();
@@ -1674,7 +1674,7 @@ function parseStructuredReason(raw) {
   for (let seg of r.split(/\n?·\s+/)) {
     seg = seg.trim();
     if (!seg) continue;
-    let m = seg.match(/^(성장주|가치|실적|병목|타이밍) 담당 의견\s*—\s*([\s\S]+)$/);
+    let m = seg.match(/^(성장주|가치|실적|병목|타이밍|품질) 담당 의견\s*—\s*([\s\S]+)$/);
     if (m) {
       let text = m[2], obs = '';
       const oIdx = text.search(/\n?이후 \d+회에 걸쳐 재점검/);   // 의견 뒤에 붙는 관찰 서사 분리
