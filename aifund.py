@@ -1231,7 +1231,7 @@ def _notify_trade(action: str, ticker: str, code: str, price, amount, account: s
 
 
 def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, market,
-                         stock_desc="", reason="", q_comment=None, speaker=None) -> bool:
+                         stock_desc="", reason="", q_comment=None, speaker=None, asof=None) -> bool:
     """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
     같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
     # ── 계좌 라우팅 ────────────────────────────────────────────
@@ -1282,10 +1282,13 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
         if get_open_positions_by_symbol(ticker, account=account):
             return False                                      # 이미 보유 — 중복 매수 방지
         rz = f"봇 자율 매수 ({','.join(approvers) if approvers else '?'})" + (f" · {reason}" if reason else "")
-        _, err = buy_shared_position(ticker, code, price, amount, rz, market, account=account)
+        pos_id, err = buy_shared_position(ticker, code, price, amount, rz, market, account=account)
         if err:
             logger.warning(f"자율 매수 실패 {code}: {err}")
             return False
+        if asof and pos_id:                                   # 판단 기준일(글 날짜)로 소급(#215)
+            from db import set_position_opened_at
+            set_position_opened_at(pos_id, f"{asof} 20:00:00")
         px0 = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
         _narrate(speaker or (approvers[0] if approvers else "A"),
                  f"🟢 {_tk(code, ticker)} 매수 체결 — 판단가 {px0}. 사유는 기록에 남겼습니다.")
@@ -2178,6 +2181,18 @@ def _price_move_since(code: str, date_str: str):
     return None
 
 
+def _close_asof(code: str, date_str: str):
+    """글 날짜(이후 첫 거래일) 종가(#215) — 'M은 그날 샀다'의 진입가. 실패 시 None(현재가 폴백)."""
+    try:
+        import yfinance as yf
+        h = yf.Ticker(code).history(start=date_str, interval="1d")["Close"]
+        if len(h):
+            return float(h.iloc[0])
+    except Exception:
+        pass
+    return None
+
+
 def _verify_stale_signal(code: str, name: str, thesis: str, post_date: str, age_days: int):
     """옛 글 매수후보 시효 검증(#207) — 글 이후 주가 변동 + 현재 데이터로 '아직 진입 유효한가'만 판단.
     반환 (유효여부, 한줄사유). 판단 불가 시 보수적으로 (False, 사유)."""
@@ -2221,10 +2236,10 @@ def run_blog_stock_review(batch: int = 6):
     if not posts:
         return {"posts": 0}
     today = _today_kst()
-    from db import count_m_signal_buys_today
+    from db import count_m_signal_buys_today, incr_m_signal_buys_today
     if _blog_buys_date != today:
         _blog_buys_date = today
-    _blog_buys_count = count_m_signal_buys_today(today)   # DB 집계(#213) — 재시작해도 캡 유지
+    _blog_buys_count = count_m_signal_buys_today(today)   # ops_state 카운터(#213) — 재시작해도 캡 유지
     # RSS는 미리보기(~600자)만 준다 — 시그널 판단은 전문이 필요하므로 짧으면 본문을 풀페치(글당 1회, DB 캐시).
     for p in posts:
         if len(p.get("content") or "") < 1500:
@@ -2295,7 +2310,8 @@ def run_blog_stock_review(batch: int = 6):
                                   f"{why[:150]} — 추격 대신 메모로 남깁니다.", model="sonnet")
                     noted.append(title)
                     continue
-            price = fetch_stock_price(code)
+            post_date = (src or {}).get("post_date") or today
+            price = _close_asof(code, post_date) or fetch_stock_price(code)   # 진입 기준일 = 글 날짜(#215)
             if not price:
                 _narrate("M", f"읽던 글에서 {code} 아이디어를 봤는데 시세 확인이 안 되네요 — 접어둡니다.")
                 continue
@@ -2303,9 +2319,9 @@ def run_blog_stock_review(batch: int = 6):
             log_decision("블로그시그널", "M", code, name, "매수후보", thesis, packet=title, model="sonnet")
             ok = _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
                                       ["M"], "US", stock_desc=f"블로그에서 출발한 아이디어입니다 — {title}",
-                                      reason=thesis, speaker="M")
+                                      reason=thesis, speaker="M", asof=post_date)
             if ok:
-                _blog_buys_count += 1
+                _blog_buys_count = incr_m_signal_buys_today(today)
                 submitted.append(code)
         elif v == "방향메모":
             note = (sig.get("note") or "").strip()

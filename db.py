@@ -261,18 +261,19 @@ def get_restructure_realized(account: str) -> dict:
 
 
 def count_m_signal_buys_today(kst_today: str) -> int:
-    """오늘(KST) M 시그널로 체결·상신된 매수 수(#213) — 일일 캡을 재시작과 무관하게 판정.
-    opened_at/created_at은 UTC 저장이라 KST 변환 비교."""
-    with _conn() as con:
-        row = con.execute("""
-            SELECT
-              (SELECT COUNT(*) FROM virtual_positions
-                WHERE reasoning LIKE '봇 자율 매수 (M)%'
-                  AND date(opened_at, '+9 hours') = ?)
-            + (SELECT COUNT(*) FROM pending_buy
-                WHERE approvers='M' AND date(created_at, '+9 hours') = ?)""",
-            (kst_today, kst_today)).fetchone()
-    return row[0] or 0
+    """오늘(KST) M 시그널 매수 '결정' 수(#213) — ops_state 카운터(재시작 무관).
+    opened_at은 글 날짜로 소급(#215)될 수 있어 포지션 집계로는 캡을 못 센다 — 결정 시점 기준."""
+    v = get_ops_state(f"m_buys:{kst_today}")
+    try:
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def incr_m_signal_buys_today(kst_today: str) -> int:
+    n = count_m_signal_buys_today(kst_today) + 1
+    set_ops_state(f"m_buys:{kst_today}", str(n))
+    return n
 
 
 def get_fund_report_summary(code: str):
