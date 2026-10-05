@@ -2221,8 +2221,10 @@ def run_blog_stock_review(batch: int = 6):
     if not posts:
         return {"posts": 0}
     today = _today_kst()
+    from db import count_m_signal_buys_today
     if _blog_buys_date != today:
-        _blog_buys_date, _blog_buys_count = today, 0
+        _blog_buys_date = today
+    _blog_buys_count = count_m_signal_buys_today(today)   # DB 집계(#213) — 재시작해도 캡 유지
     # RSS는 미리보기(~600자)만 준다 — 시그널 판단은 전문이 필요하므로 짧으면 본문을 풀페치(글당 1회, DB 캐시).
     for p in posts:
         if len(p.get("content") or "") < 1500:
@@ -2284,6 +2286,9 @@ def run_blog_stock_review(batch: int = 6):
             name0 = stock_name(code) or code
             if age > SIGNAL_STALE_DAYS:                        # 시효 게이트(#207): 옛 글은 현재 데이터로 재검증
                 valid, why = _verify_stale_signal(code, name0, thesis, (src or {}).get("post_date") or "?", age)
+                if valid:                                      # 통과도 기록(#213) — 사후 감사 가능하게
+                    log_decision("블로그시그널", "M", code, name0, "매수후보(시효통과)",
+                                 f"{age}일 전 글 — {why}", packet=title, model="sonnet")
                 if not valid:
                     log_decision("블로그시그널", "M", code, name0, "매수후보→메모(시효)", why, packet=title, model="sonnet")
                     _narrate("M", f"🧭 {age}일 전 글에서 {_tk(code, name0)} 아이디어를 봤지만, 지금 데이터로 보면 "
