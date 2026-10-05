@@ -691,6 +691,19 @@ def q_veto(closes, in_uptrend):
     return False, ""
 
 
+def _routing_q_veto(code: str):
+    """발굴주→대형주 라우팅 매수의 Q 게이트(#209) — 정규 대형주 경로와 같은 veto를 적용.
+    시세 조회 실패도 (True, 사유)로 보수 처리(정규 경로의 '데이터 없으면 스킵'과 동일)."""
+    try:
+        import backtest as bt
+        o = (bt._fetch([code], period="2y") or {}).get(code)
+        if not o or not o.get("close"):
+            return True, "시세 데이터 조회 실패 — 타이밍 판정 불가"
+        return q_veto(o["close"], _spy_uptrend())
+    except Exception as e:
+        return True, f"타이밍 판정 실패({e})"
+
+
 def run_q_desk(market="US"):
     """Q(B+M 블렌드) 라이브 실행 — 전 유니버스 자체 스캔 → Q 계좌(id 6) 매수/청산.
     ⚠️ NEW_DESK_ENABLED=False면 no-op(라이브 무변경). 룰·무비용, 하루 1회.
@@ -1235,6 +1248,11 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
         logger.info(f"[계좌 라우팅] {code}: {desk} → 대형주 (대형주 유니버스 종목)")
         desk = account = "대형주"
         amount = _desk_amount("대형주")                            # 사이징도 대형주 규칙(시드 10%)
+        veto, vwhy = _routing_q_veto(code)                        # 대형주 신규 매수는 경로 불문 Q 게이트(#209)
+        if veto:
+            _narrate("Q", f"{_tk(code, ticker)} — 대형주 이관 건인데 지금은 들어갈 자리가 아닙니다({vwhy}). 이번엔 패스하죠.")
+            log_decision("Q타이밍", "Q", code, ticker, "대기", f"라우팅 veto: {vwhy}", model="rule")
+            return False
 
     import risk                                                   # 회로차단기 발동 중이면 오너를 번거롭게 안 함
     _ok, _why, _breaker = risk.precheck_buy(account, code, amount)

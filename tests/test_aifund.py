@@ -1469,6 +1469,7 @@ def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
     monkeypatch.setattr(aifund, "_blog_buys_date", None)
     monkeypatch.setattr(aifund, "_blog_buys_count", 0)
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 라우팅 Q 게이트(#209) 비켜가기 — 발굴 경로 검증
     _today = aifund._today_kst()                                   # 고정 날짜는 시효 게이트(#207)에 걸리는 시한폭탄
     db.save_blog_post("b", "1", "AI 보안 사고의 행간", _today, "사건 해설 " * 200)
     db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", _today, "이미 오른 " * 200)

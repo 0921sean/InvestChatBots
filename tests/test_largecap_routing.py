@@ -24,6 +24,7 @@ def largecap(monkeypatch):
     monkeypatch.setattr(aifund, "_largecap_universe", lambda: {"BIGCO", "MEGACO"})
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", True)   # 이 테스트군은 결재 큐 동작 검증(#205 이후 플래그 명시)
+    monkeypatch.setattr(aifund, "_routing_q_veto", lambda code: (False, ""))   # 라우팅 Q 게이트(#209)는 전용 테스트에서
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)   # 실발송 차단(#174)
     yield
     with _conn() as con:
@@ -95,3 +96,12 @@ def test_holding_in_other_account_does_not_block(largecap):
     ok = aifund._submit_buy_approval("발굴주", "발굴주", "BIGCO", "BIGCO", 100.0,
                                      2_500_000, ["S"], "US", reason="병목")
     assert ok and _pending("BIGCO")["account"] == "대형주"
+
+
+def test_routed_buy_blocked_by_q_veto(largecap, monkeypatch):
+    """라우팅 매수도 Q 게이트(#209) — veto면 상신/체결 없음."""
+    monkeypatch.setattr(aifund, "_routing_q_veto", lambda code: (True, "50일선 아래(사자마자 청산될 자리)"))
+    ok = aifund._submit_buy_approval("발굴주", "발굴주", "BIGCO", "BIGCO", 100.0,
+                                     2_500_000, ["S"], "US", reason="병목")
+    assert ok is False
+    assert _pending("BIGCO") is None
