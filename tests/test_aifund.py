@@ -1470,6 +1470,7 @@ def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
     monkeypatch.setattr(aifund, "_blog_buys_date", None)
     monkeypatch.setattr(aifund, "_blog_buys_count", 0)
     monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 라우팅 Q 게이트(#209) 비켜가기 — 발굴 경로 검증
+    monkeypatch.setattr(aifund, "_close_asof", lambda code, d: 100.0)   # as-of 진입가(#215) 네트워크 차단
     _today = aifund._today_kst()                                   # 고정 날짜는 시효 게이트(#207)에 걸리는 시한폭탄
     db.save_blog_post("b", "1", "AI 보안 사고의 행간", _today, "사건 해설 " * 200)
     db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", _today, "이미 오른 " * 200)
@@ -1610,6 +1611,7 @@ def test_stale_signal_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
+    monkeypatch.setattr(aifund, "_close_asof", lambda code, d: 100.0)
     today = aifund._today_kst()
     db.save_blog_post("b", "1", "신선한 글", today, "본문 " * 200)
     db.save_blog_post("b", "2", "옛날 글", "2026-04-01", "본문 " * 200)
@@ -1652,10 +1654,10 @@ def test_blog_buy_cap_survives_restart(tmp_path, monkeypatch):
     monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
-    # 오늘 이미 체결된 M 자율 매수 2건을 DB에 심기
-    for c in ("PRE1", "PRE2"):
-        db.buy_shared_position(c, c, 100.0, 2_500_000, "봇 자율 매수 (M) · 기존", "US", account="발굴주")
+    monkeypatch.setattr(aifund, "_close_asof", lambda code, d: 100.0)
+    # 오늘 이미 2건 결정된 상태를 ops_state 카운터에 심기(#213 — 결정 시점 기준, 소급 opened_at과 무관)
     _today = aifund._today_kst()
+    db.set_ops_state(f"m_buys:{_today}", "2")
     for i, t in enumerate(("글A", "글B")):
         db.save_blog_post("b", str(i), t, _today, "본문 " * 200)
     out = ('[{"title":"글A","verdict":"매수후보","ticker":"NEW1","thesis":"t"},'
@@ -1664,3 +1666,30 @@ def test_blog_buy_cap_survives_restart(tmp_path, monkeypatch):
                         lambda s, u, timeout=60, model=None, allowed_tools=None: out)
     r = aifund.run_blog_stock_review(batch=2)
     assert r["submitted"] == ["NEW1"]                             # 2(기존)+1 = 캡 3에서 정지
+
+
+def test_blog_buy_entry_asof_post_date(tmp_path, monkeypatch):
+    # #215: 진입가 = 글 날짜 종가, opened_at = 글 날짜로 소급
+    import db, agents, fetchers, notifier, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "asof.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    for attr, val in (("NEW_DESK_ENABLED", True), ("BLOG_SIGNAL_ENABLED", True),
+                      ("BUY_APPROVAL_REQUIRED", False), ("_blog_buys_date", None), ("_blog_buys_count", 0)):
+        monkeypatch.setattr(aifund, attr, val)
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "_verify_stale_signal", lambda *a: (True, "유효"))
+    monkeypatch.setattr(aifund, "_close_asof", lambda code, d: 77.77)       # 글 날짜 종가
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 999.0)     # 현재가(폴백용 — 안 쓰여야)
+    db.save_blog_post("b", "1", "옛 글", "2026-09-10", "본문 " * 200)
+    out = '[{"title":"옛 글","verdict":"매수후보","ticker":"ASOF","thesis":"t"}]'
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: out)
+    r = aifund.run_blog_stock_review(batch=1)
+    assert r["submitted"] == ["ASOF"]
+    pos = db.get_open_positions(account="발굴주")[0]
+    assert abs(pos["entry_price"] - 77.77) < 0.01               # 글 날짜 종가
+    assert pos["opened_at"].startswith("2026-09-10")            # 글 날짜 소급
