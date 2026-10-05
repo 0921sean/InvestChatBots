@@ -260,6 +260,21 @@ def get_restructure_realized(account: str) -> dict:
     return {"pnl": row[0] or 0, "count": row[1] or 0, "wins": row[2] or 0}
 
 
+def count_m_signal_buys_today(kst_today: str) -> int:
+    """오늘(KST) M 시그널로 체결·상신된 매수 수(#213) — 일일 캡을 재시작과 무관하게 판정.
+    opened_at/created_at은 UTC 저장이라 KST 변환 비교."""
+    with _conn() as con:
+        row = con.execute("""
+            SELECT
+              (SELECT COUNT(*) FROM virtual_positions
+                WHERE reasoning LIKE '봇 자율 매수 (M)%'
+                  AND date(opened_at, '+9 hours') = ?)
+            + (SELECT COUNT(*) FROM pending_buy
+                WHERE approvers='M' AND date(created_at, '+9 hours') = ?)""",
+            (kst_today, kst_today)).fetchone()
+    return row[0] or 0
+
+
 def get_fund_report_summary(code: str):
     """해당 종목의 최신 '사업요약 있는' 리포트 1건(#196 — 보유 모달 '이런 회사예요').
     최근 N행 창에서 밀려난 옛 보유 종목도 소개가 뜨게."""

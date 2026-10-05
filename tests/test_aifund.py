@@ -1634,3 +1634,33 @@ def test_stale_signal_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "_verify_stale_signal", lambda *a: (True, "구조적 논지 유효"))
     r2 = aifund.run_blog_stock_review(batch=1)
     assert r2["submitted"] == ["OLDOK"]
+
+
+def test_blog_buy_cap_survives_restart(tmp_path, monkeypatch):
+    # 캡 DB 영속화(#213): 체결 2건이 이미 DB에 있으면 재시작(카운터 리셋) 후에도 1건만 더 허용
+    import db, agents, fetchers, notifier, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "cap.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
+    monkeypatch.setattr(aifund, "_blog_buys_date", None)
+    monkeypatch.setattr(aifund, "_blog_buys_count", 0)            # '재시작 직후' 상태
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
+    # 오늘 이미 체결된 M 자율 매수 2건을 DB에 심기
+    for c in ("PRE1", "PRE2"):
+        db.buy_shared_position(c, c, 100.0, 2_500_000, "봇 자율 매수 (M) · 기존", "US", account="발굴주")
+    _today = aifund._today_kst()
+    for i, t in enumerate(("글A", "글B")):
+        db.save_blog_post("b", str(i), t, _today, "본문 " * 200)
+    out = ('[{"title":"글A","verdict":"매수후보","ticker":"NEW1","thesis":"t"},'
+           '{"title":"글B","verdict":"매수후보","ticker":"NEW2","thesis":"t"}]')
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: out)
+    r = aifund.run_blog_stock_review(batch=2)
+    assert r["submitted"] == ["NEW1"]                             # 2(기존)+1 = 캡 3에서 정지
