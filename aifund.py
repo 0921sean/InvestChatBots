@@ -2145,6 +2145,46 @@ _BLOG_SIGNAL_SYS = (
     "설명·코드펜스 없이 JSON만."
 )
 
+SIGNAL_STALE_DAYS = 3        # 글이 이보다 오래됐으면 매수 전 시효 재검증(#207)
+
+
+def _price_move_since(code: str, date_str: str):
+    """글 날짜 종가 → 현재가 변동률(%). 실패 시 None(검증 프롬프트에 '미상'으로)."""
+    try:
+        import yfinance as yf
+        h = yf.Ticker(code).history(start=date_str, interval="1d")["Close"]
+        if len(h) >= 2:
+            return (float(h.iloc[-1]) / float(h.iloc[0]) - 1) * 100
+    except Exception:
+        pass
+    return None
+
+
+def _verify_stale_signal(code: str, name: str, thesis: str, post_date: str, age_days: int):
+    """옛 글 매수후보 시효 검증(#207) — 글 이후 주가 변동 + 현재 데이터로 '아직 진입 유효한가'만 판단.
+    반환 (유효여부, 한줄사유). 판단 불가 시 보수적으로 (False, 사유)."""
+    move = _price_move_since(code, post_date)
+    move_txt = f"{move:+.1f}%" if move is not None else "미상"
+    brief = build_research_brief(code, name, code, "US")
+    packet = ((brief or ("", ""))[0] or "")[:1500]
+    sysp = ("너는 매수 시그널의 '시효 검증자'다. 논지의 질이 아니라 **타이밍만** 본다 — "
+            "글이 쓰인 뒤 시장이 이미 그 논지를 가격에 반영했는가. "
+            "글 이후 주가가 논지 방향으로 크게 달렸으면 반영된 것이다(소멸). "
+            "출력은 한 줄만: '유효 | 이유' 또는 '소멸 | 이유'.")
+    user = (f"{age_days}일 전 글에서 나온 매수 논지다.\n[논지] {thesis[:600]}\n"
+            f"[글 날짜] {post_date} · [글 이후 주가 변동] {move_txt}\n"
+            f"[현재 데이터]\n{packet or '(데이터 부족)'}\n\n지금 진입해도 유효한가?")
+    try:
+        from agents import _call_claude_cli
+        out = (_call_claude_cli(sysp, user, timeout=90, model="sonnet") or "").strip()
+    except Exception as e:
+        return False, f"검증 실패({e}) — 보수적으로 패스"
+    first = out.splitlines()[0] if out else ""
+    valid = first.lstrip().startswith("유효")
+    why = first.split("|", 1)[1].strip() if "|" in first else first[:120]
+    return valid, why or ("아직 유효" if valid else "이미 반영")
+
+
 _blog_buys_date = None        # 매수후보 상신 일일 캡(#194) — 라운드 반복돼도 하루 3건까지
 _blog_buys_count = 0
 
@@ -2217,6 +2257,21 @@ def run_blog_stock_review(batch: int = 6):
             thesis = (sig.get("thesis") or "").strip()
             if not code or not thesis:
                 continue
+            src = next((p for p in posts if (p.get("title") or "")[:80] == title), None)
+            try:
+                age = (datetime.now(timezone(timedelta(hours=9))).date()
+                       - datetime.fromisoformat((src or {}).get("post_date") or today).date()).days
+            except Exception:
+                age = 9999                                     # 날짜 불명 = 보수적으로 검증
+            name0 = stock_name(code) or code
+            if age > SIGNAL_STALE_DAYS:                        # 시효 게이트(#207): 옛 글은 현재 데이터로 재검증
+                valid, why = _verify_stale_signal(code, name0, thesis, (src or {}).get("post_date") or "?", age)
+                if not valid:
+                    log_decision("블로그시그널", "M", code, name0, "매수후보→메모(시효)", why, packet=title, model="sonnet")
+                    _narrate("M", f"🧭 {age}일 전 글에서 {_tk(code, name0)} 아이디어를 봤지만, 지금 데이터로 보면 "
+                                  f"{why[:150]} — 추격 대신 메모로 남깁니다.", model="sonnet")
+                    noted.append(title)
+                    continue
             price = fetch_stock_price(code)
             if not price:
                 _narrate("M", f"읽던 글에서 {code} 아이디어를 봤는데 시세 확인이 안 되네요 — 접어둡니다.")

@@ -1469,8 +1469,9 @@ def _blog_sig_setup(tmp_path, monkeypatch, llm_out):
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
     monkeypatch.setattr(aifund, "_blog_buys_date", None)
     monkeypatch.setattr(aifund, "_blog_buys_count", 0)
-    db.save_blog_post("b", "1", "AI 보안 사고의 행간", "2026-10-01", "사건 해설 " * 200)
-    db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", "2026-10-01", "이미 오른 " * 200)
+    _today = aifund._today_kst()                                   # 고정 날짜는 시효 게이트(#207)에 걸리는 시한폭탄
+    db.save_blog_post("b", "1", "AI 보안 사고의 행간", _today, "사건 해설 " * 200)
+    db.save_blog_post("b", "2", "정상회담 팩트시트의 비밀", _today, "이미 오른 " * 200)
     monkeypatch.setattr(agents, "_call_claude_cli",
                         lambda s, u, timeout=60, model=None, allowed_tools=None: llm_out)
     monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
@@ -1590,3 +1591,45 @@ def test_discovery_sell_sends_notify(tmp_path, monkeypatch):
     r = aifund.run_discovery_review("US")
     assert r["sells"] == ["TESTCO"]
     assert any("🔴 매도" in t for t in sent)
+
+
+def test_stale_signal_gate(tmp_path, monkeypatch):
+    # 시효 게이트(#207): 옛 글 매수후보는 재검증 — 소멸이면 메모 강등, 유효면 체결. 신선 글은 검증 생략.
+    import db, agents, fetchers, notifier, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "st.db"))
+    db.init_db(); db.ensure_desk_accounts()
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
+    monkeypatch.setattr(aifund, "_blog_buys_date", None)
+    monkeypatch.setattr(aifund, "_blog_buys_count", 0)
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 100.0)
+    today = aifund._today_kst()
+    db.save_blog_post("b", "1", "신선한 글", today, "본문 " * 200)
+    db.save_blog_post("b", "2", "옛날 글", "2026-04-01", "본문 " * 200)
+    out = ('[{"title":"신선한 글","verdict":"매수후보","ticker":"FRESH","thesis":"t"},'
+           '{"title":"옛날 글","verdict":"매수후보","ticker":"STALE","thesis":"t"}]')
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: out)
+    verified = []
+    monkeypatch.setattr(aifund, "_verify_stale_signal",
+                        lambda code, name, thesis, pd, age: (verified.append((code, age)), (False, "이미 반영"))[1])
+    r = aifund.run_blog_stock_review(batch=2)
+    assert r["submitted"] == ["FRESH"]                          # 신선 글만 체결(검증 생략)
+    assert verified and verified[0][0] == "STALE" and verified[0][1] > 100   # 옛 글만 검증
+    assert "옛날 글" in r["noted"]                               # 소멸 → 메모 강등
+    # 유효 판정이면 체결
+    for bid in ("1", "2"):
+        db.mark_blog_signal_checked("b", bid, "")  # 리셋 대신 새 글
+    db.save_blog_post("b", "3", "옛날 글2", "2026-04-02", "본문 " * 200)
+    out2 = '[{"title":"옛날 글2","verdict":"매수후보","ticker":"OLDOK","thesis":"t"}]'
+    monkeypatch.setattr(agents, "_call_claude_cli",
+                        lambda s, u, timeout=60, model=None, allowed_tools=None: out2)
+    monkeypatch.setattr(aifund, "_verify_stale_signal", lambda *a: (True, "구조적 논지 유효"))
+    r2 = aifund.run_blog_stock_review(batch=1)
+    assert r2["submitted"] == ["OLDOK"]
