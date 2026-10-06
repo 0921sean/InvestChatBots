@@ -1211,7 +1211,7 @@ def _notify_trade(action: str, ticker: str, code: str, price, amount, account: s
         from notifier import notify
         px = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
         icon = "🟢 매수" if action == "매수" else "🔴 매도"
-        head = " ".join((reason or "").split())[:300]
+        head = " ".join((reason or "").split())[:3000]   # 이유는 끝까지(#217)
         body = f"{_tk(code, ticker)} @ {px}" + (f" · ₩{amount:,.0f}" if amount else "") + f" ({account})"
         if head:
             body += f"\n이유: {head}"
@@ -1221,7 +1221,8 @@ def _notify_trade(action: str, ticker: str, code: str, price, amount, account: s
 
 
 def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, market,
-                         stock_desc="", reason="", q_comment=None, speaker=None, asof=None) -> bool:
+                         stock_desc="", reason="", q_comment=None, speaker=None, asof=None,
+                         force_approval=False) -> bool:
     """봇 매수 판단을 즉시 체결 대신 결재 큐에 상신 + 정중한 '결재 건의' 내레이션 + 오너 ntfy.
     같은 종목·데스크가 이미 대기중이면 조용히 skip(사이클마다 중복 상신 방지). 반환: 상신했으면 True."""
     # ── 계좌 라우팅 ────────────────────────────────────────────
@@ -1267,7 +1268,7 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
                   f"[당시 사유] {_first_lines(rej['reason'], 2)}\n"
                   f"[이번 사유] {reason}")
 
-    if not BUY_APPROVAL_REQUIRED:                             # 결재 해제 모드(#205) — 같은 검증을 거쳐 즉시 체결
+    if not BUY_APPROVAL_REQUIRED and not force_approval:      # 결재 해제 모드(#205) — M은 결재 예외(#217)
         from db import buy_shared_position, get_open_positions_by_symbol
         if get_open_positions_by_symbol(ticker, account=account):
             return False                                      # 이미 보유 — 중복 매수 방지
@@ -1299,9 +1300,9 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
         link = (site + "/admin") if site else "/admin"
-        head = (reason or "").splitlines()[0][:80] if reason else stock_desc[:80]
+        body_reason = (reason or stock_desc or "").strip()[:3000]   # 이유는 끝까지(#217) — ntfy 한도만 방어
         notify(f"🧾 매수 결재 건의 — {ticker} ({desk})",
-               f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n{head}\n검토·승인: {link}",
+               f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n\n{body_reason}\n\n검토·승인: {link}",
                priority="default", cooldown=0)
     except Exception as e:
         logger.warning(f"매수 결재 알림 실패: {e}")
@@ -2152,23 +2153,13 @@ _BLOG_SIGNAL_SYS = (
     "글쓴이·블로그를 특정하는 표현 금지.\n"
     "출력은 오직 JSON 배열만 — 글당 하나: "
     '[{"title":"글 제목","verdict":"매수후보|방향메모|해당없음","ticker":"US티커 또는 null",'
-    '"thesis":"매수후보면: 글 논리→종목까지의 추론 3~4문장(존댓말)","note":"방향메모면: 팔로우할 방향 1~2문장"}] '
+    '"thesis":"매수후보면: 피터 린치의 2분 설명처럼 — 어린아이도 5분이면 이해할 쉬운 말로. '
+    '①이 회사는 ○○를 파는 회사다 ②글의 사건 때문에 ○○가 더 필요해진다/비싸진다 ③그래서 돈을 더 번다, 딱 3문장. '
+    '전문용어·약어 금지(쓰면 바로 풀어서), 존댓말","note":"방향메모면: 팔로우할 방향 1~2문장"}] '
     "설명·코드펜스 없이 JSON만."
 )
 
-SIGNAL_STALE_DAYS = 3        # 글이 이보다 오래됐으면 매수 전 시효 재검증(#207)
-
-
-def _price_move_since(code: str, date_str: str):
-    """글 날짜 종가 → 현재가 변동률(%). 실패 시 None(검증 프롬프트에 '미상'으로)."""
-    try:
-        import yfinance as yf
-        h = yf.Ticker(code).history(start=date_str, interval="1d")["Close"]
-        if len(h) >= 2:
-            return (float(h.iloc[-1]) / float(h.iloc[0]) - 1) * 100
-    except Exception:
-        pass
-    return None
+SIGNAL_STALE_DAYS = 3        # 글이 이보다 오래됐으면 매수 금지 — 방향메모만(#217, 구 #207 검증 폐지)
 
 
 def _close_asof(code: str, date_str: str):
@@ -2183,32 +2174,7 @@ def _close_asof(code: str, date_str: str):
     return None
 
 
-def _verify_stale_signal(code: str, name: str, thesis: str, post_date: str, age_days: int):
-    """옛 글 매수후보 시효 검증(#207) — 글 이후 주가 변동 + 현재 데이터로 '아직 진입 유효한가'만 판단.
-    반환 (유효여부, 한줄사유). 판단 불가 시 보수적으로 (False, 사유)."""
-    move = _price_move_since(code, post_date)
-    move_txt = f"{move:+.1f}%" if move is not None else "미상"
-    brief = build_research_brief(code, name, code, "US")
-    packet = ((brief or ("", ""))[0] or "")[:1500]
-    sysp = ("너는 매수 시그널의 '시효 검증자'다. 논지의 질이 아니라 **타이밍만** 본다 — "
-            "글이 쓰인 뒤 시장이 이미 그 논지를 가격에 반영했는가. "
-            "글 이후 주가가 논지 방향으로 크게 달렸으면 반영된 것이다(소멸). "
-            "출력은 한 줄만: '유효 | 이유' 또는 '소멸 | 이유'.")
-    user = (f"{age_days}일 전 글에서 나온 매수 논지다.\n[논지] {thesis[:600]}\n"
-            f"[글 날짜] {post_date} · [글 이후 주가 변동] {move_txt}\n"
-            f"[현재 데이터]\n{packet or '(데이터 부족)'}\n\n지금 진입해도 유효한가?")
-    try:
-        from agents import _call_claude_cli
-        out = (_call_claude_cli(sysp, user, timeout=90, model="sonnet") or "").strip()
-    except Exception as e:
-        return False, f"검증 실패({e}) — 보수적으로 패스"
-    first = out.splitlines()[0] if out else ""
-    valid = first.lstrip().startswith("유효")
-    why = first.split("|", 1)[1].strip() if "|" in first else first[:120]
-    return valid, why or ("아직 유효" if valid else "이미 반영")
-
-
-_blog_buys_date = None        # 매수후보 상신 일일 캡(#194) — 라운드 반복돼도 하루 3건까지
+_blog_buys_date = None        # 일일 캡 보조(실판정은 ops_state 카운터 — #213)
 _blog_buys_count = 0
 
 
@@ -2289,17 +2255,13 @@ def run_blog_stock_review(batch: int = 6):
             except Exception:
                 age = 9999                                     # 날짜 불명 = 보수적으로 검증
             name0 = stock_name(code) or code
-            if age > SIGNAL_STALE_DAYS:                        # 시효 게이트(#207): 옛 글은 현재 데이터로 재검증
-                valid, why = _verify_stale_signal(code, name0, thesis, (src or {}).get("post_date") or "?", age)
-                if valid:                                      # 통과도 기록(#213) — 사후 감사 가능하게
-                    log_decision("블로그시그널", "M", code, name0, "매수후보(시효통과)",
-                                 f"{age}일 전 글 — {why}", packet=title, model="sonnet")
-                if not valid:
-                    log_decision("블로그시그널", "M", code, name0, "매수후보→메모(시효)", why, packet=title, model="sonnet")
-                    _narrate("M", f"🧭 {age}일 전 글에서 {_tk(code, name0)} 아이디어를 봤지만, 지금 데이터로 보면 "
-                                  f"{why[:150]} — 추격 대신 메모로 남깁니다.", model="sonnet")
-                    noted.append(title)
-                    continue
+            if age > SIGNAL_STALE_DAYS:                        # 옛 글 매수 금지(#217) — 검증 없이 무조건 메모
+                log_decision("블로그시그널", "M", code, name0, "매수후보→메모(옛 글)",
+                             f"{age}일 전 글 — 새 글만 매수(오너 규칙)", packet=title, model="sonnet")
+                _narrate("M", f"🧭 {age}일 전 글에서 {_tk(code, name0)} 아이디어를 봤습니다 — 좋은 논지지만 "
+                              f"옛 글로는 사지 않기로 했으니 메모로만 남깁니다.", model="sonnet")
+                noted.append(title)
+                continue
             post_date = (src or {}).get("post_date") or today
             price = _close_asof(code, post_date) or fetch_stock_price(code)   # 진입 기준일 = 글 날짜(#215)
             if not price:
@@ -2309,7 +2271,8 @@ def run_blog_stock_review(batch: int = 6):
             log_decision("블로그시그널", "M", code, name, "매수후보", thesis, packet=title, model="sonnet")
             ok = _submit_buy_approval("발굴주", "발굴주", name, code, price, _desk_amount("발굴주"),
                                       ["M"], "US", stock_desc=f"블로그에서 출발한 아이디어입니다 — {title}",
-                                      reason=thesis, speaker="M", asof=post_date)
+                                      reason=thesis, speaker="M", asof=post_date,
+                                      force_approval=True)       # M은 오너 결재 경유(#217) — 타 봇 자율 유지
             if ok:
                 _blog_buys_count = incr_m_signal_buys_today(today)
                 submitted.append(code)
