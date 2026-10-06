@@ -2421,7 +2421,8 @@ def run_largecap_execute(market="US"):
     held = get_open_positions(account="대형주")
     held_codes = {(p.get("code") or p["symbol"]) for p in held}
     cand = [w for w in watch if w["code"] not in held_codes]  # 신규 후보 = 관심종목 중 아직 미보유(재승인 보유분은 추가매수 X)
-    codes = list({w["code"] for w in watch} | held_codes)
+    universe = set(_largecap_universe())                      # Q 자율 돌파 스캔 대상(#221)
+    codes = list({w["code"] for w in watch} | held_codes | universe)
     brief = []
     if cand:
         brief.append(f"관심종목 {', '.join(w['code'] for w in cand)}")
@@ -2467,6 +2468,30 @@ def run_largecap_execute(market="US"):
             _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
             _notify_trade("매수", w["name"], w["code"], o["close"][-1], _desk_amount("대형주"), "대형주",
                           reason=((w.get("thesis") or "").strip() or f"펀더 통과({appr}) + Q 타이밍 승인"), market=market)
+    # ①-b Q 자율 돌파 매수(#221) — 유니버스 전체에서 트렌드템플릿+신고가 돌파 발화 시 진입(하루 2건 캡).
+    # 기존 P/W/H→veto 경로와 별개의 추가 레이어. 청산은 ② 오닐 룰이 동일하게 담당.
+    import backtest as _bt
+    breakout_buys = 0
+    for bcode in sorted(universe - held_codes):
+        if breakout_buys >= 2 or not _desk_can_open("대형주", n):
+            break
+        o = data.get(bcode)
+        if not o or not q_entry_signal(o["close"], up):
+            continue
+        if q_entry_signal(o["close"], up) != "M":              # 돌파(M)만 — 평균회귀(B)는 자율 진입 제외
+            continue
+        bname = stock_name(bcode) or bcode
+        rz_txt = ("차트가 오랜 저항을 뚫고 신고가로 올라섰습니다(정배열 추세 확인). 돌파 직후가 추세의 "
+                  "초입인 경우가 많아 룰대로 진입합니다 — 청산도 룰이 지킵니다(−8% 손절·+24% 절반 익절).")
+        ok = _submit_buy_approval("대형주", "대형주", bname, bcode, o["close"][-1],
+                                  _desk_amount("대형주"), ["Q"], market,
+                                  stock_desc="Q 돌파 룰 자율 진입(#221)", reason=rz_txt, speaker="Q")
+        if ok:
+            breakout_buys += 1
+            n += 1
+            bought.append(bcode)
+            log_decision("Q돌파", "Q", bcode, bname, "진입", rz_txt, model="rule")
+
     if held:                                                  # ② 보유 점검 — 오닐식 24/−8/+8 룰(#219, 50MA·쿨다운 대체)
         _narrate("Q", "보유 점검 — 룰은 심플합니다: −8% 손절, +24% 절반 익절, 그 뒤엔 +8% 사수.")
         for p in held:
