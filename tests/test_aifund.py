@@ -381,6 +381,7 @@ def test_run_largecap_select_2stage_daily(monkeypatch):
 
 def test_run_largecap_execute_q_entry(monkeypatch):
     import db, backtest
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 돌파 스캔(#221) 격리
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
@@ -1178,6 +1179,7 @@ def test_largecap_watch_carries_bot_thesis(tmp_path, monkeypatch):
 
 
 def test_largecap_execute_uses_thesis_in_approval(tmp_path, monkeypatch):
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 돌파 스캔(#221) 격리
     import db, backtest as bt
     monkeypatch.setenv("DB_PATH", str(tmp_path / "le.db"))
     db.init_db(); db.ensure_desk_accounts()
@@ -1698,3 +1700,36 @@ def test_blog_buy_entry_asof_post_date(tmp_path, monkeypatch):
     pos = db.get_open_positions(account="발굴주")[0]
     assert abs(pos["entry_price"] - 77.77) < 0.01               # 글 날짜 종가
     assert pos["opened_at"].startswith("2026-09-10")            # 글 날짜 소급
+
+
+def test_q_breakout_autonomous_entry(monkeypatch):
+    # #221: 유니버스 종목이 돌파(M) 발화하면 Q 자율 매수(하루 2건 캡), B 신호·미발화는 제외
+    import db, backtest, notifier, risk
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: {"BRK1", "BRK2", "BRK3", "NOSIG"})
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y":
+                        {c: {"close": [100.0, 101.0]} for c in ("BRK1", "BRK2", "BRK3", "NOSIG")})
+    monkeypatch.setattr(aifund, "q_entry_signal",
+                        lambda closes, up: None)
+    import notifier as _n
+    monkeypatch.setattr(_n, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    bought = []
+    monkeypatch.setattr(db, "buy_shared_position",
+                        lambda name, code, px, amt, rz, mkt, account="대형주": (bought.append(code), (1, None))[1])
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "last_rejected_buy", lambda *a, **k: None)
+    monkeypatch.setattr(db, "set_position_opened_at", lambda *a, **k: None)
+    r = aifund.run_largecap_execute()
+    assert r["bought"] == [] and bought == []                 # 신호 없음 → 안 삼
+    monkeypatch.setattr(aifund, "q_entry_signal",
+                        lambda closes, up: "M")               # 전 종목 돌파 발화해도
+    r2 = aifund.run_largecap_execute()
+    assert len(r2["bought"]) == 2 and len(bought) == 2        # 하루 2건 캡
