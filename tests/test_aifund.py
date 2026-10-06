@@ -381,6 +381,7 @@ def test_run_largecap_select_2stage_daily(monkeypatch):
 
 def test_run_largecap_execute_q_entry(monkeypatch):
     import db, backtest
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 돌파 스캔(#221) 격리
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
@@ -552,22 +553,53 @@ def test_source_bottleneck_us_only_and_empty_seed(monkeypatch):
     assert aifund.source_bottleneck("US")["codes"] == []    # 시드 없으면 비활성
 
 
-def test_run_largecap_execute_q_exit(monkeypatch):
-    import db, backtest
+def _rule_exit_setup(monkeypatch, pos, last_close):
+    import db, backtest, notifier
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
-    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    narrated = []
+    monkeypatch.setattr(aifund, "_narrate", lambda bot, c, model="rule": narrated.append(c))
     monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
     monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
-    monkeypatch.setattr(aifund, "_q_explain", lambda *a, **k: "Q 설명")
     monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
-    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 평균회귀 진입"}
     monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
-    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [3, 2, 1]}})
-    monkeypatch.setattr(aifund, "q_exit_signal", lambda closes, strat: True)
-    sells = []
-    monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append(pid), (0, None))[1])
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {pos["code"]: {"close": [1, last_close]}})
+    import notifier as _n
+    monkeypatch.setattr(_n, "notify", lambda *a, **k: None)
+    sells, partials = [], []
+    monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append((pid, exit_reasoning)), (0, None))[1])
+    monkeypatch.setattr(db, "sell_partial", lambda pid, frac, price, rz="": (partials.append((pid, frac)), (0, None))[1])
+    return sells, partials, narrated
+
+
+def test_oneil_rule_stop_loss(monkeypatch):
+    # −8% 터치 → 전량 손절(#219)
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "entry_price": 100.0, "half_exited": 0}
+    sells, partials, _ = _rule_exit_setup(monkeypatch, pos, 91.0)
     r = aifund.run_largecap_execute()
-    assert r["sold"] == ["애플"] and sells == [9]   # Q B+M 청산(익절/손절)
+    assert r["sold"] == ["애플"] and sells and "손절" in sells[0][1] and not partials
+
+
+def test_oneil_rule_half_take_and_trail(monkeypatch):
+    # +24% → 절반 익절(전량 매도 없음) / 절반 후 +8% 바닥 → 잔량 청산
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "entry_price": 100.0, "half_exited": 0}
+    sells, partials, _ = _rule_exit_setup(monkeypatch, pos, 125.0)
+    r = aifund.run_largecap_execute()
+    assert partials == [(9, 0.5)] and not sells and r["sold"] == []
+    pos2 = {"id": 9, "code": "AAPL", "symbol": "애플", "entry_price": 100.0, "half_exited": 1}
+    sells2, partials2, _ = _rule_exit_setup(monkeypatch, pos2, 107.0)
+    r2 = aifund.run_largecap_execute()
+    assert r2["sold"] == ["애플"] and "트레일" in sells2[0][1] and not partials2
+
+
+def test_oneil_rule_holds_in_range(monkeypatch):
+    # −8 ~ +24 사이(절반 전) / +8 위(절반 후)는 홀드
+    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "entry_price": 100.0, "half_exited": 0}
+    sells, partials, _ = _rule_exit_setup(monkeypatch, pos, 110.0)
+    assert aifund.run_largecap_execute()["sold"] == [] and not sells and not partials
+    pos2 = {"id": 9, "code": "AAPL", "symbol": "애플", "entry_price": 100.0, "half_exited": 1}
+    sells2, partials2, _ = _rule_exit_setup(monkeypatch, pos2, 115.0)
+    assert aifund.run_largecap_execute()["sold"] == [] and not sells2 and not partials2
+
 
 
 def test_desk_sizing_largecap_concentrated_discovery_diversified():
@@ -1147,6 +1179,7 @@ def test_largecap_watch_carries_bot_thesis(tmp_path, monkeypatch):
 
 
 def test_largecap_execute_uses_thesis_in_approval(tmp_path, monkeypatch):
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: set())   # 돌파 스캔(#221) 격리
     import db, backtest as bt
     monkeypatch.setenv("DB_PATH", str(tmp_path / "le.db"))
     db.init_db(); db.ensure_desk_accounts()
@@ -1518,32 +1551,6 @@ def test_blog_signal_backlog_batches_and_daily_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(aifund, "BLOG_SIGNAL_ENABLED", False)
     assert aifund.run_blog_stock_review()["skipped"] == "disabled"
 
-def test_q_exit_cooldown_blocks_fresh_position(monkeypatch):
-    # 쿨다운(#190): 매수 N일 이내면 청산 신호를 무시하고 홀드 + 사유 내레이션
-    import db, backtest
-    from datetime import datetime, timedelta
-    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
-    narrated = []
-    monkeypatch.setattr(aifund, "_narrate", lambda bot, c, model="rule": narrated.append(c))
-    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
-    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
-    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
-    fresh = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    pos = {"id": 9, "code": "AAPL", "symbol": "애플", "reasoning": "Q 평균회귀 진입", "opened_at": fresh}
-    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [pos])
-    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y": {"AAPL": {"close": [3, 2, 1]}})
-    monkeypatch.setattr(aifund, "q_exit_signal", lambda closes, strat: True)
-    sells = []
-    monkeypatch.setattr(db, "sell_shared_position", lambda pid, price, exit_reasoning="": (sells.append(pid), (0, None))[1])
-    r = aifund.run_largecap_execute()
-    assert r["sold"] == [] and sells == []                       # 청산 차단
-    assert any("쿨다운" in c for c in narrated)                   # 사유는 피드에
-    # 쿨다운 경과 후엔 기존대로 청산 (기존 test_run_largecap_execute_q_exit의 pos는 opened_at 없음 → 9999일)
-    old = (datetime.now() - timedelta(days=9)).strftime("%Y-%m-%d %H:%M:%S")
-    pos["opened_at"] = old
-    r = aifund.run_largecap_execute()
-    assert r["sold"] == ["애플"] and sells == [9]
-
 
 def test_quality_bot_g_wired():
     # G(#203): 대형주 로스터 편입·공개 레터 T·역할 '품질'. 발굴주는 무접촉.
@@ -1701,3 +1708,37 @@ def test_blog_buy_entry_asof_post_date(tmp_path, monkeypatch):
     assert r["submitted"] == ["ASOF"]
     pb = db.get_pending_buys()[0]                               # M은 결재 경유(#217)
     assert abs(pb["decision_price"] - 77.77) < 0.01             # 판단가 = 글 날짜 종가
+
+
+def test_q_breakout_autonomous_entry(monkeypatch):
+    # #221: 유니버스 종목이 돌파(M) 발화하면 Q 자율 매수(하루 2건 캡), B 신호·미발화는 제외
+    import db, backtest, notifier, risk
+    monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
+    monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
+    monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
+    monkeypatch.setattr(db, "ensure_desk_accounts", lambda: None)
+    monkeypatch.setattr(aifund, "_spy_uptrend", lambda: True)
+    monkeypatch.setattr(db, "get_watchlist", lambda status="watching": [])
+    monkeypatch.setattr(db, "get_open_positions", lambda *a, **k: [])
+    monkeypatch.setattr(aifund, "_largecap_universe", lambda: {"BRK1", "BRK2", "BRK3", "NOSIG"})
+    monkeypatch.setattr(aifund, "stock_name", lambda c: c)
+    monkeypatch.setattr(backtest, "_fetch", lambda codes, period="2y":
+                        {c: {"close": [100.0, 101.0]} for c in ("BRK1", "BRK2", "BRK3", "NOSIG")})
+    monkeypatch.setattr(aifund, "q_entry_signal",
+                        lambda closes, up: None)
+    import notifier as _n
+    monkeypatch.setattr(_n, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(risk, "precheck_buy", lambda *a, **k: (True, "", False))
+    bought = []
+    monkeypatch.setattr(db, "buy_shared_position",
+                        lambda name, code, px, amt, rz, mkt, account="대형주": (bought.append(code), (1, None))[1])
+    monkeypatch.setattr(db, "get_open_positions_by_symbol", lambda *a, **k: [])
+    monkeypatch.setattr(db, "last_rejected_buy", lambda *a, **k: None)
+    monkeypatch.setattr(db, "set_position_opened_at", lambda *a, **k: None)
+    r = aifund.run_largecap_execute()
+    assert r["bought"] == [] and bought == []                 # 신호 없음 → 안 삼
+    monkeypatch.setattr(aifund, "q_entry_signal",
+                        lambda closes, up: "M")               # 전 종목 돌파 발화해도
+    r2 = aifund.run_largecap_execute()
+    assert len(r2["bought"]) == 2 and len(bought) == 2        # 하루 2건 캡
+

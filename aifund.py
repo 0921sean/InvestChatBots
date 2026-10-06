@@ -40,7 +40,6 @@ OBSERVATION_MAX_DAYS = int(os.getenv("OBSERVATION_MAX_DAYS", "7"))   # N일 지�
 # 토큰 소진 시 쉬었다가 충전되면 재출근(keeper가 매시 확인). P/W 공부 시간이 길어짐(라운드×딥스터디).
 WORKDAY_ENABLED = os.getenv("WORKDAY_ENABLED", "").lower() in ("1", "true", "yes")
 WORKDAY_END_HOUR = 22           # 이 시각(KST) 넘으면 퇴근
-Q_MIN_HOLD_DAYS = int(os.getenv("Q_MIN_HOLD_DAYS", "5"))   # Q 청산 쿨다운(#190): 매수 후 N일 내 추세청산 신호 무시(왕복매매 방지)
 WORKDAY_ROUND_QUOTA = 8         # 발굴 라운드당 신규 후보 수(작게·깊게 — 하루 여러 라운드)
 WORKDAY_BREAK_SEC = 20 * 60     # 라운드 간 휴식(데이터소스·피드 페이싱)
 DAILY_QUOTA = 40           # A가 한 발굴 사이클에 올리는 종목 수(+S 병목 별도). 사이클마다 토큰 버킷 리셋(12/18/24)이라
@@ -655,15 +654,6 @@ def q_exit_signal(closes, strat):
     import backtest as bt
     from trading_strategies import meanrev_exit
     return bt.trend_exit(closes) if strat == "M" else meanrev_exit(closes)
-
-
-def _held_days(position) -> float:
-    """매수 후 경과일(KST). opened_at 파싱 실패 시 쿨다운을 적용하지 않도록 큰 값."""
-    try:
-        opened = datetime.fromisoformat(str(position.get("opened_at"))[:19])
-        return (datetime.now() - opened).total_seconds() / 86400
-    except Exception:
-        return 9999.0
 
 
 def q_veto(closes, in_uptrend):
@@ -2386,7 +2376,7 @@ def run_largecap_execute(market="US"):
         return {"bought": [], "sold": []}
     import backtest as bt
     from db import (ensure_desk_accounts, get_watchlist, mark_watch, buy_shared_position,
-                    sell_shared_position, get_open_positions)
+                    sell_shared_position, sell_partial, get_open_positions)
     ensure_desk_accounts()
     _narrate("Q", "출근 — 미장 장중, 대형주 진입/청산 타이밍 봅니다.")
     up = _spy_uptrend()
@@ -2394,7 +2384,8 @@ def run_largecap_execute(market="US"):
     held = get_open_positions(account="대형주")
     held_codes = {(p.get("code") or p["symbol"]) for p in held}
     cand = [w for w in watch if w["code"] not in held_codes]  # 신규 후보 = 관심종목 중 아직 미보유(재승인 보유분은 추가매수 X)
-    codes = list({w["code"] for w in watch} | held_codes)
+    universe = set(_largecap_universe())                      # Q 자율 돌파 스캔 대상(#221)
+    codes = list({w["code"] for w in watch} | held_codes | universe)
     brief = []
     if cand:
         brief.append(f"관심종목 {', '.join(w['code'] for w in cand)}")
@@ -2440,26 +2431,63 @@ def run_largecap_execute(market="US"):
             _narrate("Q", f"⏱️ {_tk(w['code'], w.get('name'))} 매수 체결 — 내 계좌에 담았습니다.")
             _notify_trade("매수", w["name"], w["code"], o["close"][-1], _desk_amount("대형주"), "대형주",
                           reason=((w.get("thesis") or "").strip() or f"펀더 통과({appr}) + Q 타이밍 승인"), market=market)
-    if held:                                                  # ② 보유 종목 점검(추가매수 없음 — 홀드/청산만)
-        _narrate("Q", "이제 갖고 있는 종목들 점검할게요.")
+    # ①-b Q 자율 돌파 매수(#221) — 유니버스 전체에서 트렌드템플릿+신고가 돌파 발화 시 진입(하루 2건 캡).
+    # 기존 P/W/H→veto 경로와 별개의 추가 레이어. 청산은 ② 오닐 룰이 동일하게 담당.
+    import backtest as _bt
+    breakout_buys = 0
+    for bcode in sorted(universe - held_codes):
+        if breakout_buys >= 2 or not _desk_can_open("대형주", n):
+            break
+        o = data.get(bcode)
+        if not o or not q_entry_signal(o["close"], up):
+            continue
+        if q_entry_signal(o["close"], up) != "M":              # 돌파(M)만 — 평균회귀(B)는 자율 진입 제외
+            continue
+        bname = stock_name(bcode) or bcode
+        rz_txt = ("차트가 오랜 저항을 뚫고 신고가로 올라섰습니다(정배열 추세 확인). 돌파 직후가 추세의 "
+                  "초입인 경우가 많아 룰대로 진입합니다 — 청산도 룰이 지킵니다(−8% 손절·+24% 절반 익절).")
+        ok = _submit_buy_approval("대형주", "대형주", bname, bcode, o["close"][-1],
+                                  _desk_amount("대형주"), ["Q"], market,
+                                  stock_desc="Q 돌파 룰 자율 진입(#221)", reason=rz_txt, speaker="Q")
+        if ok:
+            breakout_buys += 1
+            n += 1
+            bought.append(bcode)
+            log_decision("Q돌파", "Q", bcode, bname, "진입", rz_txt, model="rule")
+
+    if held:                                                  # ② 보유 점검 — 오닐식 24/−8/+8 룰(#219, 50MA·쿨다운 대체)
+        _narrate("Q", "보유 점검 — 룰은 심플합니다: −8% 손절, +24% 절반 익절, 그 뒤엔 +8% 사수.")
         for p in held:
             code = p.get("code") or p["symbol"]
             o = data.get(code)
-            if not o:
+            if not o or not p.get("entry_price"):
                 continue
-            strat = "B" if "되돌림" in (p.get("reasoning") or "") else "M"   # veto·추세 매수는 M(50MA 이탈까지 홀드, 덜 eager)
-            exiting = bool(q_exit_signal(o["close"], strat))
-            held = _held_days(p)
-            if exiting and held < Q_MIN_HOLD_DAYS:                    # 쿨다운(#190): 사자마자 파는 왕복 차단
-                _narrate("Q", f"{_tk(code)} — 청산 신호가 떴지만 매수 {int(held)}일째라 "
-                              f"쿨다운({Q_MIN_HOLD_DAYS}일) 안입니다. 신호가 유지되면 그때 나갑니다.")
-                exiting = False
+            px = o["close"][-1]
+            pnl = (px / p["entry_price"] - 1) * 100
+            if not p.get("half_exited"):
+                if pnl <= -8:
+                    if not sell_shared_position(p["id"], px, exit_reasoning="룰 손절 (−8%)")[1]:
+                        sold.append(p["symbol"])
+                        _narrate("Q", f"🔴 {_tk(code)} 손절선 터치({pnl:+.1f}%) — 룰대로 끊습니다. 미련 없이.")
+                        _notify_trade("매도", p["symbol"], code, px, None, "대형주",
+                                      reason=f"오닐 룰 — 진입 대비 {pnl:+.1f}%, 손절선(−8%) 터치", market=market)
+                elif pnl >= 24:
+                    _, perr = sell_partial(p["id"], 0.5, px, "룰 절반 익절 (+24%)")
+                    if not perr:
+                        _narrate("Q", f"🟢 {_tk(code)} +24% 도달({pnl:+.1f}%) — 절반 익절, 나머지는 +8%를 바닥 삼아 달리게 둡니다.")
+                        _notify_trade("매도", p["symbol"] + " (절반)", code, px, None, "대형주",
+                                      reason=f"오닐 룰 — {pnl:+.1f}% 도달, 절반 익절(잔량은 +8% 바닥 지키기)", market=market)
+                else:
+                    _narrate("Q", f"{_tk(code)} {pnl:+.1f}% — 룰 범위 안, 홀드.")
             else:
-                _narrate("Q", _q_say(_tk(code), o["close"], "청산" if exiting else "홀드"))
-            if exiting and not sell_shared_position(p["id"], o["close"][-1], exit_reasoning=f"Q {'추세' if strat == 'M' else '되돌림'} 익절/손절")[1]:
-                sold.append(p["symbol"])
-                _notify_trade("매도", p["symbol"], code, o["close"][-1], None, "대형주",
-                              reason=f"Q 타이밍 — {'추세 이탈(50일선 하회)' if strat == 'M' else '되돌림 구간 종료(중심선 도달/하단 재이탈)'}", market=market)
+                if pnl <= 8:
+                    if not sell_shared_position(p["id"], px, exit_reasoning="룰 트레일 청산 (절반 익절 후 +8% 바닥)")[1]:
+                        sold.append(p["symbol"])
+                        _narrate("Q", f"🔴 {_tk(code)} 절반 익절 후 +8% 바닥({pnl:+.1f}%) — 잔량 정리. 이익은 지켰습니다.")
+                        _notify_trade("매도", p["symbol"] + " (잔량)", code, px, None, "대형주",
+                                      reason=f"오닐 룰 — 절반 익절 후 +8% 바닥({pnl:+.1f}%), 잔량 청산", market=market)
+                else:
+                    _narrate("Q", f"{_tk(code)} 절반 익절 상태 {pnl:+.1f}% — +8% 위, 잔량 홀드.")
     _narrate("Q", "오늘 대형주 타이밍 점검 끝 — 퇴근합니다. 🫡")   # ③ 퇴근
     return {"bought": bought, "sold": sold}
 
