@@ -1221,7 +1221,7 @@ def _notify_trade(action: str, ticker: str, code: str, price, amount, account: s
         from notifier import notify
         px = f"${price:,.2f}" if market == "US" else f"₩{price:,.0f}"
         icon = "🟢 매수" if action == "매수" else "🔴 매도"
-        head = " ".join((reason or "").split())[:300]
+        head = " ".join((reason or "").split())[:3000]   # 이유는 끝까지(#217)
         body = f"{_tk(code, ticker)} @ {px}" + (f" · ₩{amount:,.0f}" if amount else "") + f" ({account})"
         if head:
             body += f"\n이유: {head}"
@@ -1310,9 +1310,9 @@ def _submit_buy_approval(desk, account, ticker, code, price, amount, approvers, 
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
         link = (site + "/admin") if site else "/admin"
-        head = (reason or "").splitlines()[0][:80] if reason else stock_desc[:80]
+        body_reason = (reason or stock_desc or "").strip()[:3000]   # 이유는 끝까지(#217) — ntfy 한도만 방어
         notify(f"🧾 매수 결재 건의 — {ticker} ({desk})",
-               f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n{head}\n검토·승인: {link}",
+               f"{ticker} @ {px} · 투자금 ₩{amount:,.0f}\n\n{body_reason}\n\n검토·승인: {link}",
                priority="default", cooldown=0)
     except Exception as e:
         logger.warning(f"매수 결재 알림 실패: {e}")
