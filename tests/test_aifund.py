@@ -1738,7 +1738,12 @@ def test_q_breakout_autonomous_entry(monkeypatch):
     r = aifund.run_largecap_execute()
     assert r["bought"] == [] and bought == []                 # 신호 없음 → 안 삼
     monkeypatch.setattr(aifund, "q_entry_signal",
-                        lambda closes, up: "M")               # 전 종목 돌파 발화해도
+                        lambda closes, up: "M" if len(closes) == 2 else None)   # 오늘 신규 발화(어제 미발화)
     r2 = aifund.run_largecap_execute()
     assert len(r2["bought"]) == 2 and len(bought) == 2        # 하루 2건 캡
+    bought.clear()
+    monkeypatch.setattr(aifund, "q_entry_signal",
+                        lambda closes, up: "M")               # 어제도 발화(연속 신호) → 추격 금지(#224)
+    r3 = aifund.run_largecap_execute()
+    assert r3["bought"] == [] and bought == []
 
