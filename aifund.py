@@ -2439,16 +2439,18 @@ def run_largecap_execute(market="US"):
         if breakout_buys >= 2 or not _desk_can_open("대형주", n):
             break
         o = data.get(bcode)
-        if not o or not q_entry_signal(o["close"], up):
+        if not o or q_entry_signal(o["close"], up) != "M":     # 돌파(M)만 — 평균회귀(B)는 자율 진입 제외
             continue
-        if q_entry_signal(o["close"], up) != "M":              # 돌파(M)만 — 평균회귀(B)는 자율 진입 제외
-            continue
+        if len(o["close"]) > 1 and q_entry_signal(o["close"][:-1], up) == "M":
+            continue                                           # 어제도 발화 = 지난 돌파의 연속 — 추격 금지(#224, 신규 교차만)
         bname = stock_name(bcode) or bcode
         rz_txt = ("차트가 오랜 저항을 뚫고 신고가로 올라섰습니다(정배열 추세 확인). 돌파 직후가 추세의 "
                   "초입인 경우가 많아 룰대로 진입합니다 — 청산도 룰이 지킵니다(−8% 손절·+24% 절반 익절).")
+        bar_date = (o.get("dates") or [None])[-1]              # 신호봉 날짜 기준 체결(#224 — 정석)
         ok = _submit_buy_approval("대형주", "대형주", bname, bcode, o["close"][-1],
                                   _desk_amount("대형주"), ["Q"], market,
-                                  stock_desc="Q 돌파 룰 자율 진입(#221)", reason=rz_txt, speaker="Q")
+                                  stock_desc="Q 돌파 룰 자율 진입(#221)", reason=rz_txt, speaker="Q",
+                                  asof=bar_date)
         if ok:
             breakout_buys += 1
             n += 1
