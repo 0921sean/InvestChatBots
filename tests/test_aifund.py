@@ -1710,9 +1710,11 @@ def test_blog_buy_entry_asof_post_date(tmp_path, monkeypatch):
     assert abs(pb["decision_price"] - 77.77) < 0.01             # 판단가 = 글 날짜 종가
 
 
-def test_q_breakout_autonomous_entry(monkeypatch):
+def test_q_breakout_autonomous_entry(tmp_path, monkeypatch):
     # #221: 유니버스 종목이 돌파(M) 발화하면 Q 자율 매수(하루 2건 캡), B 신호·미발화는 제외
     import db, backtest, notifier, risk
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "qb.db"))      # 영속 캡(#226)이 라이브 DB 안 건드리게 격리
+    db.init_db()
     monkeypatch.setattr(aifund, "NEW_DESK_ENABLED", True)
     monkeypatch.setattr(aifund, "BUY_APPROVAL_REQUIRED", False)
     monkeypatch.setattr(aifund, "_narrate", lambda *a, **k: None)
@@ -1737,10 +1739,15 @@ def test_q_breakout_autonomous_entry(monkeypatch):
     monkeypatch.setattr(db, "set_position_opened_at", lambda *a, **k: None)
     r = aifund.run_largecap_execute()
     assert r["bought"] == [] and bought == []                 # 신호 없음 → 안 삼
+    import db as _db
+    _db.set_ops_state("q_breakout:" + aifund._today_kst(), "0")   # 카운터 초기화(#226)
     monkeypatch.setattr(aifund, "q_entry_signal",
                         lambda closes, up: "M" if len(closes) == 2 else None)   # 오늘 신규 발화(어제 미발화)
     r2 = aifund.run_largecap_execute()
     assert len(r2["bought"]) == 2 and len(bought) == 2        # 하루 2건 캡
+    bought.clear()
+    r2b = aifund.run_largecap_execute()                        # '재실행' — 영속 카운터라 추가 매수 0(#226)
+    assert r2b["bought"] == [] and bought == []
     bought.clear()
     monkeypatch.setattr(aifund, "q_entry_signal",
                         lambda closes, up: "M")               # 어제도 발화(연속 신호) → 추격 금지(#224)
