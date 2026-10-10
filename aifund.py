@@ -1582,97 +1582,139 @@ def _distribution_section(today) -> list:
 
 
 def run_weekly_report():
-    """P0 주간 성과 리포트(오너 전용·결정적 계산·LLM 0) — 봇별 판단 채점 + 결재 부가가치 + 데이터 헬스.
-    저장(weekly_report) + 오너 ntfy. 반환 dict."""
-    from db import (get_decision_logs, save_weekly_report, get_pending_buys,
-                    get_fetch_health, get_observations)
-    from datetime import datetime, timezone, timedelta
+    """📊 상황판(#228) — 새 체계(오닐 청산·Q 돌파·M 결재) 기준 주간 리포트. 결정적 계산·LLM 0.
+    목적: 오너가 한눈에 '상황 이해 → 넘기거나 다음 전략'. 한줄 요약 → 계좌 → 봇 활동 → 룰 레이더 → 할 일 → 벤치마크."""
+    from db import (get_shared_portfolio, get_open_positions, get_restructure_realized,
+                    get_pending_buys, save_weekly_report, DESK_SEED, _conn)
+    from fetchers import fetch_stock_price
     now = datetime.now(timezone(timedelta(hours=9)))
     today = now.strftime("%Y-%m-%d")
-    cutoff = (now - timedelta(days=7)).strftime("%Y-%m-%d")
-    rows = [r for r in get_decision_logs(before_date=cutoff, source="분석")
-            if r.get("verdict") in ("매수", "관망", "매도")]
-    codes = sorted({r["code"] for r in rows})
-    px = _fetch_closes_dated(codes) if codes else {}
-    stats = {}                                                   # (bot, verdict) → [rets]
-    for r in rows:
-        d = px.get(r["code"])
-        if not d:
-            continue
-        ret = _ret_after(d[0], d[1], r["date"])
-        if ret is None:
-            continue
-        stats.setdefault((r["bot"], r["verdict"]), []).append(ret)
-    lines = [f"📊 주간 성과 리포트 ({today})", "", "■ 봇별 판단 채점 (판단 7일 후 수익률, '분석' 판단만)"]
-    if stats:
-        for (bot, v), rets in sorted(stats.items()):
-            avg = sum(rets) / len(rets)
-            win = sum(1 for x in rets if x > 0) / len(rets)
-            note = "적중↑" if (v == "매수" and avg > 0) or (v == "관망" and avg <= 0) else "재점검 필요"
-            lines.append(f"  {_ROLE_KO.get(bot, bot)}({bot}) {v}: {len(rets)}건 · 평균 {avg*100:+.1f}% · 상승률 {win*100:.0f}% [{note}]")
+    week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+
+    acct = {}
+    for a in ("대형주", "발굴주"):
+        pf = get_shared_portfolio(a)
+        pos = get_open_positions(account=a)
+        for p0 in pos:
+            try:
+                p0["_cur"] = fetch_stock_price(p0["code"])
+            except Exception:
+                p0["_cur"] = None
+            e = p0.get("entry_price") or 0
+            p0["_pnl"] = ((p0["_cur"] / e - 1) * 100) if (p0.get("_cur") and e) else None
+        upnl = sum(((p0["_cur"] or p0.get("entry_price") or 0) - (p0.get("entry_price") or 0))
+                   * (p0.get("quantity") or 0) for p0 in pos)
+        rs = get_restructure_realized(a)
+        acct[a] = {"pf": pf, "pos": pos, "upnl": upnl, "rs": rs,
+                   "op_real": (pf.get("total_pnl") or 0) - rs["pnl"],
+                   "invested": sum((p0.get("amount") or 0) for p0 in pos)}
+
+    def _w(v):
+        return f"{v/10000:,.0f}만"
+
+    seed_total = DESK_SEED * 2
+    op_total = sum(x["op_real"] + x["upnl"] for x in acct.values())
+    eq_total = sum((x["pf"].get("balance") or 0) + x["invested"] + x["upnl"] for x in acct.values())
+
+    bench = ""
+    try:
+        import benchmark
+        b = benchmark.compute_benchmark()
+        if b and b.get("bot") is not None:
+            bench = (f"봇 {b['bot']:+.1f}% · SPY {b.get('spy') or 0:+.1f}% · QQQ {b.get('qqq') or 0:+.1f}%"
+                     f" → SPY 대비 {b['bot'] - (b.get('spy') or 0):+.1f}%p")
+    except Exception:
+        pass
+
+    with _conn() as con:
+        import sqlite3 as _sq
+        con.row_factory = _sq.Row
+        buys = [dict(r) for r in con.execute(
+            "SELECT account, code, reasoning FROM virtual_positions "
+            "WHERE date(opened_at,'+9 hours') >= ? ", (week_ago,))]
+        sells = [dict(r) for r in con.execute(
+            "SELECT account, code, pnl_pct, exit_reasoning FROM virtual_positions "
+            "WHERE status='closed' AND date(closed_at,'+9 hours') >= ?", (week_ago,))]
+        m_read = con.execute("SELECT COUNT(*) FROM blog_posts WHERE signal_checked_at >= ?",
+                             (week_ago,)).fetchone()[0]
+        m_log = [tuple(r) for r in con.execute(
+            "SELECT verdict, COUNT(*) FROM decision_log WHERE source='블로그시그널' AND date >= ? GROUP BY verdict",
+            (week_ago,))]
+
+    def _n(pred, arr):
+        return [x for x in arr if pred(x)]
+    b_brk = _n(lambda x: (x["reasoning"] or "").startswith("봇 자율 매수 (Q)"), buys)
+    b_fund = _n(lambda x: (x["reasoning"] or "").startswith("Q 타이밍 승인"), buys)
+    b_m = _n(lambda x: "(M)" in (x["reasoning"] or "")[:30], buys)
+    s_rule = _n(lambda x: (x.get("exit_reasoning") or "").startswith("룰"), sells)
+    s_thesis = _n(lambda x: "논지" in (x.get("exit_reasoning") or "") or "펀더" in (x.get("exit_reasoning") or ""), sells)
+    halfs = [p0 for p0 in acct["대형주"]["pos"] if p0.get("half_exited")]
+    m_cnt = dict(m_log)
+
+    L = [f"📊 상황판 — {today} (최근 7일 기준)", ""]
+    L += ["■ 한 줄 요약",
+          f"운용 손익 {op_total:+,.0f}원 (시드 1억 대비 {op_total/seed_total*100:+.2f}%)"
+          + (f" · {bench}" if bench else ""),
+          f"이번 주 매매: 매수 {len(buys)}건 · 매도 {len(sells)}건 · 오닐 룰 발동 {len(s_rule) + len(halfs)}건", ""]
+
+    L += ["■ 계좌 (봇 운용 성적만 — 재편·지시 청산은 별도)"]
+    for a in ("대형주", "발굴주"):
+        x = acct[a]
+        cash = x["pf"].get("balance") or 0
+        L.append(f"{a}: 보유 {len(x['pos'])}종 {_w(x['invested'])} + 현금 {_w(cash)}"
+                 f" · 평가손익 {x['upnl']:+,.0f} · 운용실현 {x['op_real']:+,.0f}"
+                 + (f" (재편 {x['rs']['pnl']:+,.0f} 별도)" if x['rs']['count'] else ""))
+    L.append("")
+
+    L += ["■ 이번 주 봇 활동"]
+    def _codes(arr):
+        return ", ".join(x["code"] for x in arr) or "—"
+    L.append(f"Q 돌파 매수 {len(b_brk)}건: {_codes(b_brk)}")
+    L.append(f"펀더 경로 매수(P/W/H/G→Q) {len(b_fund)}건: {_codes(b_fund)}")
+    L.append(f"M 블로그: 글 {m_read}편 읽음 → 매수후보 {m_cnt.get('매수후보', 0)} · 방향메모 {m_cnt.get('방향메모', 0)}"
+             + (f" · 옛글 메모 전환 {m_cnt.get('매수후보→메모(옛 글)', 0)}" if m_cnt.get('매수후보→메모(옛 글)') else ""))
+    from db import RESTRUCTURE_EXIT_PREFIXES
+    rs_sells = [x for x in sells if (x.get("exit_reasoning") or "").startswith(RESTRUCTURE_EXIT_PREFIXES)]
+    op_sells = [x for x in sells if x not in rs_sells]
+    if op_sells:
+        for x in op_sells:
+            L.append(f"매도: {x['code']} {x.get('pnl_pct') or 0:+.1f}% — {(x.get('exit_reasoning') or '')[:40]}")
     else:
-        lines.append("  (채점 가능한 7일 경과 판단이 아직 없음 — 데이터 축적 중)")
-    appr = [p for p in get_pending_buys(None) if p["status"] in ("approved", "rejected")
-            and (p.get("decided_at") or "")[:10] <= cutoff]
-    if appr:
-        lines += ["", "■ 사장님 결재 부가가치 (판단가 대비 최신가)"]
-        pcodes = sorted({p["code"] for p in appr})
-        ppx = _fetch_closes_dated(pcodes)
-        for st in ("approved", "rejected"):
-            rets = []
-            for p in appr:
-                if p["status"] != st or p["code"] not in ppx or not p.get("decision_price"):
-                    continue
-                closes = ppx[p["code"]][1]
-                if closes:
-                    rets.append(closes[-1] / p["decision_price"] - 1)
-            if rets:
-                lbl = "승인(매수)" if st == "approved" else "거부(패스)"
-                lines.append(f"  {lbl}: {len(rets)}건 · 평균 {sum(rets)/len(rets)*100:+.1f}%")
-    # ── 성과 분포(멱법칙) 분석 + 주간 스냅샷 저장 — "무엇이 오르고 무엇이 허수인가" ──
-    lines += _distribution_section(today)
-    obs_c = len(get_observations("convinced")); obs_d = len(get_observations("dropped"))
-    lines += ["", f"■ 관찰 단계: 확신 전환 {obs_c} · 철회 {obs_d}"]
-    # 가설 검증: '빨리 확신한 종목이 더 좋은가?' — 관찰 일수 구간별 사후 성과(승인분 기준)
-    conv = get_observations("convinced")
-    if conv:
-        pb = {p["code"]: p for p in get_pending_buys(None) if p["status"] == "approved"}
-        cpx = _fetch_closes_dated([o["code"] for o in conv if o["code"] in pb])
-        fast, slow = [], []
-        for o in conv:
-            p = pb.get(o["code"])
-            if not p or o["code"] not in cpx or not p.get("decision_price"):
-                continue
-            closes = cpx[o["code"]][1]
-            if not closes:
-                continue
-            r = closes[-1] / p["decision_price"] - 1
-            (fast if (o.get("review_count") or 0) <= 2 else slow).append(r)
-        if fast or slow:
-            lines += ["", "■ 관찰 기간 가설 (빠른 확신 vs 오래 관찰, 승인분 사후 성과)"]
-            if fast:
-                lines.append(f"  빠른 확신(≤2일): {len(fast)}건 · 평균 {sum(fast)/len(fast)*100:+.1f}%")
-            if slow:
-                lines.append(f"  오래 관찰(3일+): {len(slow)}건 · 평균 {sum(slow)/len(slow)*100:+.1f}%")
-            if fast and slow:
-                d = (sum(fast)/len(fast) - sum(slow)/len(slow)) * 100
-                lines.append(f"  → 차이 {d:+.1f}%p " + ("(빠른 확신 우세)" if d > 0 else "(오래 관찰 우세)")
-                             + " ※ 표본 적으면 참고만")
-    fh = get_fetch_health(7)
-    if fh:
-        tot_ok = sum(r["ok"] for r in fh); tot_fail = sum(r["fail"] for r in fh)
-        rate = tot_fail / max(tot_ok + tot_fail, 1) * 100
-        lines += ["", f"■ 데이터 헬스(7일): 성공 {tot_ok} · 실패 {tot_fail} ({rate:.0f}%)"
-                  + (" ⚠️ 실패율 높음 — 소스 점검 필요" if rate > 30 else "")]
-    content = "\n".join(lines)
+        L.append("매도: 없음")
+    if rs_sells:
+        L.append(f"(그 외 재편·지시 청산 {len(rs_sells)}건 — 성적 별도 집계)")
+    L.append("")
+
+    L += ["■ 오닐 룰 레이더 (대형주 — −8% 손절 / +24% 절반 익절 / 절반 후 +8% 바닥)"]
+    radar = [p0 for p0 in acct["대형주"]["pos"] if p0.get("_pnl") is not None]
+    for p0 in sorted(radar, key=lambda z: -z["_pnl"]):
+        pnl = p0["_pnl"]
+        if p0.get("half_exited"):
+            note = f"절반 익절 완료 — 잔량 바닥(+8%)까지 여유 {pnl - 8:.1f}%p"
+        elif pnl >= 0:
+            note = f"익절선(+24%)까지 {24 - pnl:.1f}%p"
+        else:
+            note = f"손절선(−8%)까지 여유 {pnl + 8:.1f}%p"
+        L.append(f"{p0['code']}: {pnl:+.1f}% · {note}")
+    L.append("")
+
+    pend = get_pending_buys()
+    L += ["■ 사장님 할 일"]
+    if pend:
+        for p0 in pend:
+            L.append(f"결재 대기: {p0['ticker']} ({p0['code']}) @ {p0.get('decision_price')} — /admin")
+    else:
+        L.append("결재 대기 없음")
+
+    content = "\n".join(L)
     save_weekly_report(today, content)
     try:
         from notifier import notify
         site = os.getenv("SITE_URL", "").rstrip("/")
-        notify("📊 주간 성과 리포트", f"봇 판단 채점 도착 — {(site or '') + '/admin'}", cooldown=0)
+        notify("📊 상황판 도착", f"운용 {op_total:+,.0f}원 · 매매 {len(buys) + len(sells)}건 — {(site or '') + '/admin'}", cooldown=0)
     except Exception:
         pass
-    return {"date": today, "graded": sum(len(v) for v in stats.values()), "chars": len(content)}
+    return {"date": today, "chars": len(content), "buys": len(buys), "sells": len(sells)}
 
 
 _risk_done_date = None                                           # 하루 1회 가드(재출근 중복 방지)
