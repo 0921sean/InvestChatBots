@@ -260,6 +260,21 @@ def get_restructure_realized(account: str) -> dict:
     return {"pnl": row[0] or 0, "count": row[1] or 0, "wins": row[2] or 0}
 
 
+def count_daily_counter(name: str, kst_today: str) -> int:
+    """ops_state 일일 카운터 범용 조회(#226) — 재시작·재실행 무관 캡용."""
+    v = get_ops_state(f"{name}:{kst_today}")
+    try:
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def incr_daily_counter(name: str, kst_today: str) -> int:
+    n = count_daily_counter(name, kst_today) + 1
+    set_ops_state(f"{name}:{kst_today}", str(n))
+    return n
+
+
 def count_m_signal_buys_today(kst_today: str) -> int:
     """오늘(KST) M 시그널 매수 '결정' 수(#213) — ops_state 카운터(재시작 무관).
     opened_at은 글 날짜로 소급(#215)될 수 있어 포지션 집계로는 캡을 못 센다 — 결정 시점 기준."""

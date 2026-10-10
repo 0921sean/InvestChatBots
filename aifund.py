@@ -2434,7 +2434,9 @@ def run_largecap_execute(market="US"):
     # ①-b Q 자율 돌파 매수(#221) — 유니버스 전체에서 트렌드템플릿+신고가 돌파 발화 시 진입(하루 2건 캡).
     # 기존 P/W/H→veto 경로와 별개의 추가 레이어. 청산은 ② 오닐 룰이 동일하게 담당.
     import backtest as _bt
-    breakout_buys = 0
+    from db import count_daily_counter, incr_daily_counter
+    _bk_today = _today_kst()
+    breakout_buys = count_daily_counter("q_breakout", _bk_today)   # 영속 캡(#226) — 재실행·재시작 무관
     for bcode in sorted(universe - held_codes):
         if breakout_buys >= 2 or not _desk_can_open("대형주", n):
             break
@@ -2452,7 +2454,7 @@ def run_largecap_execute(market="US"):
                                   stock_desc="Q 돌파 룰 자율 진입(#221)", reason=rz_txt, speaker="Q",
                                   asof=bar_date)
         if ok:
-            breakout_buys += 1
+            breakout_buys = incr_daily_counter("q_breakout", _bk_today)
             n += 1
             bought.append(bcode)
             log_decision("Q돌파", "Q", bcode, bname, "진입", rz_txt, model="rule")
