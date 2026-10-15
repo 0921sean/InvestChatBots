@@ -1789,8 +1789,9 @@ function showPositionReason(idx) {
   }
   document.getElementById('r-meta').innerHTML = metaLines.join('<br>');
 
-  // 본문 — A 종목소개 + 친절한 매수 이유 + (있으면) 매도 이유
+  // 본문 — 주가 차트(#230) + A 종목소개 + 친절한 매수 이유 + (있으면) 매도 이유
   let bodyHtml = '';
+  if (p.code) bodyHtml += `<div id="r-chart" style="margin:0 0 14px"><div style="color:#6e7681;font-size:10.5px;padding:6px 0">📈 차트 불러오는 중…</div></div>`;
   const rep = (window._fundReportByCode || {})[p.code];
   const introHtml = (sum) => `<div id="r-intro" style="white-space:normal"><div style="font-size:11px;font-weight:700;color:#8b949e;margin-bottom:6px;letter-spacing:.04em">🏢 이런 회사예요</div><div style="white-space:pre-wrap;line-height:1.7;color:#c9d1d9;margin-bottom:14px">${esc(sum)}</div></div>`;
   if (rep && (rep.summary || '').trim()) {
@@ -1799,8 +1800,11 @@ function showPositionReason(idx) {
     fetch('/api/fund-report?code=' + encodeURIComponent(p.code)).then(r => r.json()).then(rows => {
       const sum = rows && rows[0] && (rows[0].summary || '').trim();
       const body = document.getElementById('r-body');
-      if (sum && body && !document.getElementById('r-intro'))
-        body.insertAdjacentHTML('afterbegin', introHtml(sum));
+      if (sum && body && !document.getElementById('r-intro')) {
+        const chart = document.getElementById('r-chart');   // 차트가 있으면 그 아래에
+        if (chart) chart.insertAdjacentHTML('afterend', introHtml(sum));
+        else body.insertAdjacentHTML('afterbegin', introHtml(sum));
+      }
     }).catch(() => {});
   }
   const structured = parseStructuredReason(p.reasoning);
@@ -1821,8 +1825,84 @@ function showPositionReason(idx) {
     bodyHtml += `<div style="margin-top:14px"><button onclick="loadBuyDebate(${p.id})" style="width:100%;padding:9px;background:rgba(88,166,255,.14);border:1px solid rgba(88,166,255,.4);border-radius:8px;color:#79c0ff;font-size:11.5px;font-weight:700;cursor:pointer">🔥 봇 전체 토론 다시보기</button></div>`;
   }
   document.getElementById('r-body').innerHTML = bodyHtml;
+  if (p.code) loadPriceChart(p);
 
   document.getElementById('reason-modal').classList.add('open');
+}
+// ── 주가 차트 (#230) — 토스식: 진입가 기준 위 빨강/아래 파랑 · ▲진입 · 청산 종목은 ▼ ──
+async function loadPriceChart(p) {
+  const box = document.getElementById('r-chart');
+  if (!box) return;
+  try {
+    const d = await (await fetch('/api/price-history?code=' + encodeURIComponent(p.code))).json();
+    if (!d.found || !d.closes || d.closes.length < 2) { box.remove(); return; }
+    box.innerHTML = renderPriceChart(d.dates, d.closes, p);
+  } catch (e) { box.remove(); }
+}
+function renderPriceChart(dates, closes, p) {
+  const W = 560, H = 190, L = 8, R = 60, T = 14, B = 20;
+  const isUS = p.market === 'US';
+  const fmt = v => isUS ? '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 2})
+                        : '₩' + Math.round(v).toLocaleString();
+  const entry = Number(p.entry_price) || null;
+  const n = closes.length;
+  const vals = entry ? closes.concat([entry]) : closes;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.07; lo -= pad; hi += pad;
+  const x = i => L + (W - L - R) * i / (n - 1);
+  const y = v => T + (H - T - B) * (hi - v) / (hi - lo);
+  const idxOf = ts => {                                  // 날짜 → 가장 가까운 거래일 인덱스
+    const day = (ts || '').slice(0, 10);
+    if (!day) return null;
+    for (let i = 0; i < n; i++) if (dates[i] >= day) return i;
+    return n - 1;
+  };
+  // 선 — 진입가 기준으로 빨강/파랑 분할 (교차 구간은 교점에서 쪼갬)
+  let redD = '', blueD = '', prev = null;
+  const base = entry ?? closes[0];
+  for (let i = 0; i < n; i++) {
+    const pt = {x: x(i).toFixed(1), xr: x(i), y: y(closes[i]).toFixed(1), v: closes[i]};
+    if (prev) {
+      if ((prev.v - base) * (pt.v - base) < 0) {
+        const t = (base - prev.v) / (pt.v - prev.v);
+        const mx = (prev.xr + (pt.xr - prev.xr) * t).toFixed(1), my = y(base).toFixed(1);
+        const a = ` M${prev.x} ${prev.y} L${mx} ${my}`, b = ` M${mx} ${my} L${pt.x} ${pt.y}`;
+        if (prev.v >= base) { redD += a; blueD += b; } else { blueD += a; redD += b; }
+      } else {
+        const seg = ` M${prev.x} ${prev.y} L${pt.x} ${pt.y}`;
+        if ((prev.v + pt.v) / 2 >= base) redD += seg; else blueD += seg;
+      }
+    }
+    prev = pt;
+  }
+  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
+  if (entry) {
+    s += `<line x1="${L}" y1="${y(entry).toFixed(1)}" x2="${W - R + 4}" y2="${y(entry).toFixed(1)}" stroke="#8b949e" stroke-width="1" stroke-dasharray="4 3" opacity="0.55"/>`;
+    s += `<text x="${W - R + 7}" y="${(y(entry) + 3.5).toFixed(1)}" font-size="9.5" fill="#8b949e">진입 ${fmt(entry)}</text>`;
+  }
+  if (blueD) s += `<path d="${blueD.trim()}" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round"/>`;
+  if (redD) s += `<path d="${redD.trim()}" fill="none" stroke="#f85149" stroke-width="1.8" stroke-linecap="round"/>`;
+  const ei = idxOf(p.opened_at);
+  if (ei !== null && entry) {
+    const ex = x(ei).toFixed(1), ey = y(entry);
+    s += `<path d="M${ex} ${(ey - 6).toFixed(1)} l5 8 h-10 z" fill="#f85149" stroke="#0d1117" stroke-width="1"/>`;
+  }
+  if (p.status === 'closed' && p.exit_price) {
+    const ci = idxOf(p.closed_at);
+    if (ci !== null) {
+      const cx = x(ci).toFixed(1), cy = y(Number(p.exit_price));
+      s += `<path d="M${cx} ${(cy + 6).toFixed(1)} l5 -8 h-10 z" fill="#58a6ff" stroke="#0d1117" stroke-width="1"/>`;
+    }
+  }
+  const last = closes[n - 1], lastWin = last >= base;
+  s += `<text x="${W - R + 7}" y="${(y(last) + 3.5).toFixed(1)}" font-size="10" font-weight="700" fill="${lastWin ? '#f85149' : '#58a6ff'}">${fmt(last)}</text>`;
+  [0, Math.floor((n - 1) / 2), n - 1].forEach((i, k) => {
+    const anchor = k === 0 ? 'start' : (k === 2 ? 'end' : 'middle');
+    s += `<text x="${x(i).toFixed(1)}" y="${H - 5}" font-size="9" fill="#6e7681" text-anchor="${anchor}">${dates[i].slice(5).replace('-', '/')}</text>`;
+  });
+  s += `</svg><div style="font-size:9.5px;color:#6e7681;margin-top:2px">최근 6개월 일봉 종가 · ▲ 매수${p.status === 'closed' ? ' · ▼ 매도' : ''} (가상 포트폴리오 기준)</div>`;
+  return s;
 }
 async function loadBuyDebate(posId) {
   const body = document.getElementById('r-body');
