@@ -202,7 +202,7 @@ async function loadWeekly() {
     const w = await r.json();
     if (!w || !w.content) return;
     document.getElementById('weekly').innerHTML =
-      `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#56d364">📊 주간 성과 리포트 (${esc(w.date||'')}) — 펼쳐보기</summary>` +
+      `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#56d364">📊 상황판 (${esc(w.date||'')}) — 펼쳐보기</summary>` +
       `<div class="body" style="margin-top:8px">${esc(w.content)}</div></details>`;
   } catch (e) { /* 없어도 무시 */ }
 }

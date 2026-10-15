@@ -910,24 +910,28 @@ def test_ret_after_computes_forward_return():
     assert aifund._ret_after(dates, closes, "2026-09-01", ndays=5) is None   # 판단일 이후 데이터 없음
 
 
-def test_run_weekly_report_grades_and_saves(tmp_path, monkeypatch):
-    import db, notifier
+def test_run_weekly_report_status_board(tmp_path, monkeypatch):
+    # #228 상황판: 계좌·봇 활동·오닐 레이더·할 일 섹션 + 재편 분리 표기
+    import db, notifier, fetchers
     monkeypatch.setenv("DB_PATH", str(tmp_path / "wr.db"))
-    db.init_db()
-    # 8일 전 판단 2건(매수 적중 P · 관망 기회비용 W)
-    from datetime import datetime, timezone, timedelta
-    old = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=8)).strftime("%Y-%m-%d")
-    db.add_decision_log(old, "분석", "P", "AAA", "A사", "매수", "r", "pkt", "h", "sonnet")
-    db.add_decision_log(old, "분석", "W", "AAA", "A사", "관망", "r", "pkt", "h", "sonnet")
-    dates = [(datetime.now(timezone(timedelta(hours=9))) - timedelta(days=10 - i)).strftime("%Y-%m-%d") for i in range(10)]
-    monkeypatch.setattr(aifund, "_fetch_closes_dated",
-                        lambda codes, period="3mo": {"AAA": (dates, [100, 101, 102, 103, 104, 105, 106, 107, 108, 110])})
+    db.init_db(); db.ensure_desk_accounts()
+    pid, _ = db.buy_shared_position("테스트", "TST", 100.0, 5_000_000, "봇 자율 매수 (Q) · 돌파", "US", account="대형주")
+    pid2, _ = db.buy_shared_position("테스트2", "TS2", 100.0, 2_500_000, "발굴주 매수 (S)", "US", account="발굴주")
+    db.sell_shared_position(pid2, 90.0, exit_reasoning="룰 손절 (−8%)")
+    monkeypatch.setattr(fetchers, "fetch_stock_price", lambda c: 110.0)
     monkeypatch.setattr(notifier, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(aifund, "_today_kst", lambda: "2026-10-10")
     r = aifund.run_weekly_report()
-    assert r["graded"] == 2
     rep = db.get_latest_weekly_report()
-    assert "봇별 판단 채점" in rep["content"] and "성장주(P) 매수" in rep["content"]
-    assert "적중↑" in rep["content"]                             # 매수 후 상승 = 적중
+    c = rep["content"]
+    assert "상황판" in c and "한 줄 요약" in c
+    assert "Q 돌파 매수 1건: TST" in c                      # 이번 주 활동 분류
+    assert "오닐 룰 레이더" in c and "TST: +10.0%" in c      # 레이더 — 익절선까지 거리
+    assert "익절선(+24%)까지 14.0%p" in c
+    assert "매도: TS2 -10.0%" in c
+    assert "결재 대기 없음" in c
+    assert r["buys"] == 2 and r["sells"] == 1
+
 
 
 def test_record_fetch_counts_and_returns_today(tmp_path, monkeypatch):
