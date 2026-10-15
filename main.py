@@ -803,6 +803,43 @@ def api_fund_report(limit: int = 60, code: str = None):
     return rows
 
 
+_hist_cache: dict = {}            # code -> (epoch, payload) — 이유 모달 차트용(#230)
+_HIST_TTL = 600
+
+
+@app.get("/api/price-history")
+def api_price_history(code: str):
+    """이유 모달 차트용 일봉 종가 6개월 (#230). 거래·결재 이력이 있는 종목만 — 공개 엔드포인트라
+    임의 티커로 야후를 때리는 프록시가 되지 않게 화이트리스트."""
+    code = (code or "").strip().upper()[:12]
+    if not code or not code.replace(".", "").isalnum():
+        return {"found": False}
+    hit = _hist_cache.get(code)
+    if hit and time.time() - hit[0] < _HIST_TTL:
+        return hit[1]
+    from db import _conn
+    with _conn() as con:
+        row = con.execute(
+            "SELECT market FROM virtual_positions WHERE UPPER(code)=? "
+            "UNION SELECT market FROM pending_buy WHERE UPPER(code)=? LIMIT 1",
+            (code, code)).fetchone()
+    if not row:
+        return {"found": False}
+    symbol = code if (row[0] or "US") == "US" else f"{code}.KS"
+    try:
+        import yfinance as yf
+        h = yf.Ticker(symbol).history(period="6mo", interval="1d")["Close"].dropna()
+        if not len(h):
+            return {"found": False}
+        payload = {"found": True,
+                   "dates": [d.strftime("%Y-%m-%d") for d in h.index],
+                   "closes": [round(float(x), 4) for x in h]}
+    except Exception:
+        return {"found": False}
+    _hist_cache[code] = (time.time(), payload)
+    return payload
+
+
 @app.get("/api/fund")
 def api_fund():
     """AI펀드 4봇 경쟁 계좌(P/W/S/Q) — 각 잔액·수익률·보유. (NEW_DESK 개발 중, 읽기전용 관전)"""
