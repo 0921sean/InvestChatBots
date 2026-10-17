@@ -181,6 +181,20 @@ app = FastAPI(title="InvestChatBots", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ── 전송 효율화 (#233) ─────────────────────────────────────
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1024)   # 원점→CF 터널 구간 압축
+
+
+@app.middleware("http")
+async def _static_cache_headers(request: Request, call_next):
+    """이미지류만 브라우저·엣지 캐시 허용. HTML은 손대지 않는다(콘솔·관전 셸은 no-store 유지)."""
+    resp = await call_next(request)
+    p = request.url.path
+    if p.startswith("/static/") and p.endswith((".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".css", ".js")):
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
 
 # ── owner-only 미들웨어 ────────────────────────────────────
 # deny-by-default: 상태를 바꾸거나 토큰을 쓰는 메서드는 기본 차단이고,
@@ -353,6 +367,15 @@ def admin_login(body: AdminLoginBody, request: Request):
 
 
 @app.get("/fund")
+def _asset_v() -> bytes:
+    """app.css/app.js mtime → ?v 캐시버스터(#233). 파일을 고치면 자동으로 새 URL이 된다."""
+    try:
+        return str(int(max(os.path.getmtime("static/app.css"),
+                           os.path.getmtime("static/app.js")))).encode()
+    except OSError:
+        return b"0"
+
+
 def read_fund():
     """AI펀드 4봇 경쟁 — 기존 메인 UI 셸을 그대로 재사용하되 fund 모드로 서빙.
     committee의 '/'는 무영향(별도 라우트). 컷오버 시 '/'도 fund 모드로 전환."""
@@ -361,6 +384,7 @@ def read_fund():
         html = f.read()
     inject = f"<script>window.__FUND_MODE__=true;</script><!-- build {int(_t.time()*1000)} -->".encode()
     html = html.replace(b"</head>", inject + b"</head>", 1)
+    html = html.replace(b"__ASSET_V__", _asset_v())
     return HTMLResponse(
         content=html,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0"},
@@ -381,6 +405,7 @@ def root(request: Request, s: str = ""):
         html = html.replace(b"</head>", inject + b"</head>", 1)
     marker = f"<!-- build {int(_t.time()*1000)} -->".encode()
     html = html.replace(b"</head>", marker + b"</head>", 1)
+    html = html.replace(b"__ASSET_V__", _asset_v())
     headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
         "Pragma": "no-cache",
@@ -444,16 +469,21 @@ def _cipher_agent_names(rows):
 _MAX_MESSAGE_PAGE = 500
 
 
+_PUB_CACHE = "public, max-age=2, s-maxage=5"   # 관전 공용 GET — CF Cache Rule이 엣지에서 흡수(#233)
+
+
 @app.get("/api/messages")
-def api_messages(since: int = 0, limit: int = 100, desk: str = None):
+def api_messages(response: Response, since: int = 0, limit: int = 100, desk: str = None):
     # desk 없음 → committee(라이브) / 'fund' → AI펀드 관전 내레이션. 이니셜은 출력에서 ROT13 치환.
+    response.headers["Cache-Control"] = _PUB_CACHE
     return _cipher_agent_names(get_messages_since(since, limit=min(limit, _MAX_MESSAGE_PAGE), desk=desk))
 
 
 @app.get("/api/messages/latest")
-def api_messages_latest(n: int = 200, desk: str = None):
+def api_messages_latest(response: Response, n: int = 200, desk: str = None):
     """페이지 초기 로드용 — 최근 N개 메시지 한 번에 반환."""
     from db import get_recent_messages
+    response.headers["Cache-Control"] = _PUB_CACHE
     return _cipher_agent_names(get_recent_messages(min(n, _MAX_MESSAGE_PAGE), desk=desk))
 
 
@@ -952,6 +982,38 @@ def api_benchmark():
     """봇 합산 누적수익 vs 지수(QQQ·SCHD·코스피·코스닥) — 같은 baseline 정규화. 실데이터만."""
     import benchmark
     return benchmark.compute_benchmark()
+
+
+_snap_cache: dict = {}            # desk키 -> (epoch, payload) — N탭 동시 폴링 흡수(#233)
+_SNAP_TTL = 3
+
+
+@app.get("/api/snapshot")
+def api_snapshot(response: Response, desk: str = None):
+    """관전 폴링 통합(#233) — 프런트 9개 인터벌이 치던 공용 GET을 한 응답으로.
+    전부 익명 공용 데이터만 담는다(per-user인 /api/whoami는 제외 — 여기 넣으면 엣지 캐시로 섞인다)."""
+    key = desk or ""
+    hit = _snap_cache.get(key)
+    if hit and time.time() - hit[0] < _SNAP_TTL:
+        response.headers["Cache-Control"] = _PUB_CACHE
+        return hit[1]
+    out = {
+        "state": api_state(),                 # running 포함 (conversation/status 겸용)
+        "market": api_market(),
+        "benchmark": api_benchmark(),
+        "queue": api_chat_queue(),
+        "token": api_token_usage(),
+        "donations": api_donations(),
+    }
+    if desk == "fund":
+        out["fund"] = api_fund()
+        out["fund_report"] = api_fund_report()
+    else:
+        out["portfolio"] = api_portfolio()
+        out["consensus"] = api_consensus()
+    _snap_cache[key] = (time.time(), out)
+    response.headers["Cache-Control"] = _PUB_CACHE
+    return out
 
 
 @app.get("/api/buy-debate")
