@@ -92,5 +92,19 @@ def start_scheduler():
                       id="db_backup", misfire_grace_time=3600)
     scheduler.add_job(lambda: (ops.beat(), ops.watchdog()), CronTrigger(minute="*/15"),
                       id="watchdog", misfire_grace_time=600)
+    # 반전봇(#236) — 과매도 반전 T+1 규칙 계좌. REVERSAL_BOT_ENABLED=false(기본)면 모든
+    # 잡이 즉시 return(LLM·API 0콜). 진입/청산은 미장 시각이라 ET 타임존 트리거.
+    from reversal_bot import nightly_screen, morning_entry, afternoon_exit, REVERSAL_BOT_ENABLED
+    if REVERSAL_BOT_ENABLED:
+        from zoneinfo import ZoneInfo
+        _et = ZoneInfo("America/New_York")
+        scheduler.add_job(nightly_screen, CronTrigger(hour=7, minute=10, day_of_week='mon-fri'),
+                          id="reversal_screen", misfire_grace_time=3600)
+        scheduler.add_job(morning_entry,
+                          CronTrigger(hour=9, minute=46, day_of_week='mon-fri', timezone=_et),
+                          id="reversal_entry", misfire_grace_time=300)
+        scheduler.add_job(afternoon_exit,
+                          CronTrigger(hour=16, minute=5, day_of_week='mon-fri', timezone=_et),
+                          id="reversal_exit", misfire_grace_time=3600)
     scheduler.start()
     return scheduler
