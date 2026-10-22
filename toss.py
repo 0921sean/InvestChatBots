@@ -165,3 +165,42 @@ def get_closes(symbol: str, count: int = 260) -> list:
         if not before:
             break
     return list(reversed(out))                                # 과거→현재
+
+
+def get_daily_candles(symbol: str, count: int = 30) -> list[dict]:
+    """일봉 리스트(과거→현재). 반전봇(#236)용 — 종가뿐 아니라 거래량도 필요해 분리.
+    각 원소: {date, open, close, volume}. 실패 시 빈 리스트."""
+    js = _api_get("/api/v1/candles", {"symbol": symbol, "interval": "1d",
+                                      "count": min(200, count),
+                                      "adjusted": "true", "before": _et_anchor_tomorrow()})
+    out = []
+    try:
+        for c in ((js or {}).get("result") or {}).get("candles") or []:
+            out.append({"date": (c.get("timestamp") or "")[:10],
+                        "open": float(c.get("openPrice") or 0),
+                        "close": float(c.get("closePrice") or 0),
+                        "volume": float(c.get("volume") or 0)})
+    except Exception as e:
+        logger.debug(f"일봉 파싱 실패 {symbol}: {e}")
+        return []
+    out.reverse()                      # API 는 최신→과거, 호출부는 과거→현재가 편하다
+    return out
+
+
+def get_minute_bars(symbol: str, before_iso: str, count: int = 16) -> list[dict]:
+    """1분봉 리스트(과거→현재). 반전봇(#236)용 — 개장 15분 거래량·종가 계산.
+    before_iso: ET ISO8601 앵커(예: 그날 09:46). timestamp 는 봉 '종료' 시각(크롤러 실측)."""
+    js = _api_get("/api/v1/candles", {"symbol": symbol, "interval": "1m", "count": count,
+                                      "adjusted": "true", "before": before_iso})
+    out = []
+    try:
+        for c in ((js or {}).get("result") or {}).get("candles") or []:
+            out.append({"ts": c.get("timestamp") or "",
+                        "open": float(c.get("openPrice") or 0),
+                        "close": float(c.get("closePrice") or 0),
+                        "volume": float(c.get("volume") or 0)})
+    except Exception as e:
+        logger.debug(f"분봉 파싱 실패 {symbol}: {e}")
+        return []
+    out.reverse()
+    return out

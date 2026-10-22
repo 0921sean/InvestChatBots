@@ -9,7 +9,8 @@ TRADING_BALANCE = 30_000_000   # 트레이딩(서브) 시드 = 3,000만 (2026-08
 # 계좌 구분: main=장기(메인 사이클) / sub=트레이딩(서브 사이클)
 # AI펀드 4봇 경쟁 계좌(P/W/S/Q=id 3~6) — committee(1/2)와 분리. 각 가상 1억.
 _ACCT_ID = {"main": 1, "sub": 2, "P": 3, "W": 4, "S": 5, "Q": 6,
-            "대형주": 7, "발굴주": 8, "Q지수": 9}   # 7/8 = 통일 데스크, 9 = Q 지수 스윙(자기 전략 포워드 테스트)
+            "대형주": 7, "발굴주": 8, "Q지수": 9,
+            "반전봇": 10}   # 7/8 = 통일 데스크, 9 = Q 지수 스윙, 10 = 반전 T+1 규칙봇(#236)
 FUND_ACCOUNTS = ("P", "W", "S", "Q")   # (레거시) 4봇 경쟁 계좌 — 통일 데스크로 대체 중
 FUND_SEED = 100_000_000                # 봇당 가상 1억
 # 통일 데스크(대형주/발굴주/Q지수) — v1 대체. 설계 docs/AIFUND_PIVOT.md
@@ -17,11 +18,13 @@ FUND_SEED = 100_000_000                # 봇당 가상 1억
 #   되살리려면 DESK_ACCOUNTS에 "Q지수" 추가 + .env Q_INDEX_ENABLED=true.
 DESK_ACCOUNTS = ("대형주", "발굴주")
 CORE_ACCOUNTS = ("대형주", "발굴주")     # 성적표(벤치마크·알파) 산정 대상
-EXPERIMENTAL_ACCOUNTS = ()               # 현재 운용 중인 실험 계좌 없음
+EXPERIMENTAL_ACCOUNTS = ("반전봇",)       # 반전 T+1 규칙봇(#236) — 비용가정 전방 검증
 RETIRED_ACCOUNTS = ("Q지수",)            # 은퇴(기록 보존)
 DESK_SEED = 50_000_000                 # 데스크당 가상 5,000만
 Q_INDEX_SEED = 10_000_000              # Q 지수 스윙 소액 계좌(1,000만) — 봇 개성 실험
-ACCT_SEED = {"대형주": DESK_SEED, "발굴주": DESK_SEED, "Q지수": Q_INDEX_SEED}
+REVERSAL_SEED = 10_000_000             # 반전봇 소액 계좌(1,000만) — 규칙 포워드 테스트(#236)
+ACCT_SEED = {"대형주": DESK_SEED, "발굴주": DESK_SEED, "Q지수": Q_INDEX_SEED,
+             "반전봇": REVERSAL_SEED}
 
 
 def _acct_id(account: str) -> int:
@@ -36,6 +39,13 @@ def ensure_fund_accounts():
         for acct in FUND_ACCOUNTS:
             con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
                         (_ACCT_ID[acct], FUND_SEED))
+
+
+def ensure_reversal_account():
+    """반전봇 계좌(1,000만)를 시드(INSERT OR IGNORE). 멱등·기존 계좌 무영향. (#236)"""
+    with _conn() as con:
+        con.execute("INSERT OR IGNORE INTO shared_portfolio (id, balance) VALUES (?, ?)",
+                    (_ACCT_ID["반전봇"], ACCT_SEED["반전봇"]))
 
 
 def ensure_desk_accounts():
