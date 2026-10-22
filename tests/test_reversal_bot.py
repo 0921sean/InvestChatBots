@@ -32,6 +32,18 @@ def _bars(date, vols, base_px=10.0):
     return out
 
 
+def test_get_minute_bars_converts_kst_to_et(monkeypatch):
+    """회귀(2026-10-23): 토스는 분봉 ts를 KST로 준다(09:31 ET=22:31 KST).
+    get_minute_bars 가 ET로 변환해야 호출부의 09:31~09:45 필터가 동작한다."""
+    raw = {"result": {"candles": [
+        {"timestamp": "2026-09-24T22:31:00.000+09:00", "openPrice": 10,
+         "closePrice": 10, "volume": 500},
+    ]}}
+    monkeypatch.setattr(rb.toss, "_api_get", lambda *a, **k: raw)
+    bars = rb.toss.get_minute_bars("X", "2026-09-24T09:46:00-04:00")
+    assert bars[0]["ts"][11:16] == "09:31", f"KST→ET 변환 실패: {bars[0]['ts']}"
+
+
 def test_or15_volume(monkeypatch):
     monkeypatch.setattr(rb.toss, "get_minute_bars",
                         lambda s, b, count=16: _bars("2026-10-21", [100] * 15))

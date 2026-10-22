@@ -189,13 +189,26 @@ def get_daily_candles(symbol: str, count: int = 30) -> list[dict]:
 
 def get_minute_bars(symbol: str, before_iso: str, count: int = 16) -> list[dict]:
     """1분봉 리스트(과거→현재). 반전봇(#236)용 — 개장 15분 거래량·종가 계산.
-    before_iso: ET ISO8601 앵커(예: 그날 09:46). timestamp 는 봉 '종료' 시각(크롤러 실측)."""
+    before_iso: ET ISO8601 앵커(예: 그날 09:46). timestamp 는 봉 '종료' 시각(크롤러 실측).
+
+    ⚠️ 토스는 분봉 timestamp 를 KST(+09:00)로 돌려준다(09:31 ET = 22:31 KST). 호출부가
+    ET 벽시계로 09:31~09:45 를 거르므로, 여기서 ts 를 ET ISO8601 로 변환해 돌려준다.
+    (2026-10-23 버그 수정: 미변환 KST 가 시간대 필터를 전부 탈락시켜 반전봇이 '후보 0' 로 공회전.)"""
     js = _api_get("/api/v1/candles", {"symbol": symbol, "interval": "1m", "count": count,
                                       "adjusted": "true", "before": before_iso})
     out = []
     try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
         for c in ((js or {}).get("result") or {}).get("candles") or []:
-            out.append({"ts": c.get("timestamp") or "",
+            raw = c.get("timestamp") or ""
+            ts = raw
+            try:                           # KST(또는 임의 오프셋) → ET 벽시계
+                ts = datetime.fromisoformat(raw).astimezone(et).isoformat()
+            except Exception:
+                pass
+            out.append({"ts": ts,
                         "open": float(c.get("openPrice") or 0),
                         "close": float(c.get("closePrice") or 0),
                         "volume": float(c.get("volume") or 0)})
