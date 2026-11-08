@@ -150,6 +150,13 @@ def nightly_screen():
         json.dump({"made_at": datetime.now(ET).isoformat(), "candidates": shortlist}, fp,
                   ensure_ascii=False)
     logger.info(f"반전봇: shortlist {len(shortlist)}개 저장")
+    if shortlist:                                       # 오너 동반매매 예고 (#241)
+        import notifier
+        syms = ", ".join(c["symbol"] for c in shortlist[:8])
+        notifier.notify(
+            f"[반전] 오늘 밤 매수 신호 가능성 — 후보 {len(shortlist)}개",
+            f"급락 후보: {syms}\n확정은 밤 23:46(한국) 개장 15분 거래량 확인 후. "
+            f"조건 충족 시 확정 알림이 다시 갑니다.", cooldown=0)
 
 
 def morning_entry():
@@ -227,6 +234,18 @@ def morning_entry():
         pf = db.get_shared_portfolio(ACCOUNT)
         n_bought += 1
     logger.info(f"반전봇: {n_bought}건 가상 매수 (후보 {len(live)})")
+    if n_bought:                                        # 오너 동반매매 확정 알림 (#241)
+        import notifier
+        lines = []
+        for c in live[:MAX_POS]:
+            lines.append(f"{c['symbol']} ${c['or_close']:.2f} (5일 {c['ret5']*100:+.0f}%, "
+                         f"거래량 {c['rvol']:.0f}배)")
+        notifier.notify(
+            f"[반전 매수 확정] {n_bought}종목 — 지금이 진입 시점",
+            "\n".join(lines) + "\n\n규칙: 시장가 매수, 각 자본 20% 이내. "
+            "매도는 내일 미장 마감(한국 새벽 5~6시) 종가 — 예외 없음, 손절 없음.\n"
+            "⚠️ 가상 검증 중인 전략입니다. 12/16·2/16 채점 전까지 소액 권장.", 
+            priority="high", cooldown=0)
 
 
 def afternoon_exit():
