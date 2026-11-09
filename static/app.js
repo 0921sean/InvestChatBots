@@ -2094,7 +2094,7 @@ if (window.__FUND_MODE__) {
   const hashEl = document.getElementById('chat-hash');
   const subEl = document.getElementById('round-label');
   if (hashEl) hashEl.textContent = '# AI펀드';
-  if (subEl) subEl.textContent = '인생 졸업을 향해';
+  if (subEl) subEl.textContent = '무적 전략 찾으면 서비스 즉시 종료';
   // 현재 섹터 box = 대형주 데스크 진행형 — loadFund가 renderFundSector로 채운다(loadState는 fund 미동작)
   loadFund();
   loadFundReport();   // 이후 갱신은 loadSnapshot(desk=fund)이 담당(#233)
