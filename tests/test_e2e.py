@@ -77,12 +77,13 @@ def test_retired_owner_pages_redirect_to_admin():
         assert m.COOKIE_NAME not in r.headers.get("set-cookie", ""), url
 
 
-def test_owner_token_login_still_sets_cookie():
+def test_owner_token_url_login_removed_e2e():
+    # #248 URL 토큰 로그인 폐지 — 맞는 토큰이라도 쿠키 없이 /admin으로만
     import main as m
     c = TestClient(m.app)
     r = c.get(f"/owner/{m.OWNER_TOKEN}", follow_redirects=False)
-    assert r.status_code == 307 and r.headers["location"] == "/"
-    assert m.COOKIE_NAME in r.headers.get("set-cookie", "")
+    assert r.status_code == 307 and r.headers["location"] == "/admin"
+    assert m.COOKIE_NAME not in r.headers.get("set-cookie", "")
 
 
 def test_ntfy_approval_links_point_to_admin():
