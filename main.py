@@ -814,7 +814,9 @@ def api_portfolio():
 
 @app.get("/api/positions")
 def api_positions():
-    return _strip_private_fields(get_all_positions(50))
+    from db import EXPERIMENTAL_ACCOUNTS
+    rows = [p for p in get_all_positions(60) if p.get("account") not in EXPERIMENTAL_ACCOUNTS]
+    return _strip_private_fields(rows[:50])
 
 
 @app.get("/api/fund-report")

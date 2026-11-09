@@ -141,5 +141,8 @@ def experimental_summary() -> dict:
             "wins": sum(1 for x in closed if (x.get("pnl") or 0) > 0),
             "losses": sum(1 for x in closed if (x.get("pnl") or 0) <= 0),
             "realized": pf.get("total_pnl", 0) or 0,
+            "avg_trade_pct": round(sum(x.get("pnl_pct") or 0 for x in closed) / len(closed), 2) if closed else None,
+            "recent": [{"date": (x.get("closed_at") or "")[:10], "code": x.get("code"),
+                        "pnl_pct": x.get("pnl_pct")} for x in closed[:10]],
         }
     return out
