@@ -86,6 +86,7 @@
   <div id="risk"></div>
   <div id="briefing"></div>
   <div id="weekly"></div>
+  <div id="experimental"></div>
 
   <div class="sec-title">🟡 결재 대기</div>
   <div id="pending"></div>
@@ -241,8 +242,28 @@ async function askBot(id) {
   load();
 }
 
+async function loadExperimental() {
+  try {
+    const r = await fetch('/api/experimental', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const a = d['반전봇']; if (!a) return;
+    const col = v => v >= 0 ? '#f85149' : '#58a6ff';
+    const pos = (a.positions||[]).map(p =>
+      `<div style="font-size:11px;color:#c9d1d9">보유 ${esc(p.code)} ${p.opened_at} 진입 ${p.entry} → ${p.current} <span style="color:${col(p.ret_pct)}">${p.ret_pct>=0?'+':''}${p.ret_pct}%</span></div>`).join('');
+    const rec = (a.recent||[]).map(t =>
+      `<span style="font-size:10.5px;color:${col(t.pnl_pct||0)};margin-right:8px">${esc(t.code)} ${(t.pnl_pct||0)>=0?'+':''}${(t.pnl_pct||0).toFixed(1)}%</span>`).join('');
+    document.getElementById('experimental').innerHTML =
+      `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#d2a8ff">🔬 반전봇 (비공개 실험 — T+1 규칙) — 펼쳐보기</summary>
+       <div class="body" style="margin-top:8px">
+       <div style="font-size:12px;font-weight:700;color:${col(a.return_pct||0)}">수익률 ${(a.return_pct||0)>=0?'+':''}${a.return_pct}% (시드 ${(a.seed/10000).toLocaleString()}만 → 평가 ${(a.nav/10000).toFixed(0)}만)</div>
+       <div style="font-size:11px;color:#8b949e;margin:4px 0">${a.wins}승 ${a.losses}패 · 트레이드 평균 ${a.avg_trade_pct>=0?'+':''}${a.avg_trade_pct}% · 실현 ${Math.round(a.realized).toLocaleString()}원</div>
+       ${pos}<div style="margin-top:6px">${rec}</div></div></details>`;
+  } catch (e) {}
+}
 async function load() {
   loadRisk();
+  loadExperimental();
   loadBriefing();
   loadWeekly();
   const [p, d] = await Promise.all([
