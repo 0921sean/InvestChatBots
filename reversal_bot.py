@@ -107,6 +107,21 @@ def _or15_volume(sym: str, date_str: str) -> float | None:
     return vol if seen >= 5 else None     # 봉 5개 미만이면 판정 불가
 
 
+def _is_common_stock(sym: str) -> bool:
+    """후보 종목유형 검사(#247) — 프리즈 전략 '보통주만'. universe CSV에 ETF가 섞여 들어온
+    사고(NVDU·NVDL, 2026-11-09)의 재발 방지. 판정 불가 시 보수적으로 제외(fail-closed)."""
+    try:
+        import yfinance as yf
+        qt = (yf.Ticker(sym).info or {}).get("quoteType", "")
+        if qt != "EQUITY":
+            logger.info(f"반전봇: {sym} 제외 — quoteType={qt or '판정불가'}")
+            return False
+        return True
+    except Exception as e:
+        logger.info(f"반전봇: {sym} 제외 — 유형 조회 실패 {e}")
+        return False
+
+
 def nightly_screen():
     """07:10 KST (미장 마감 후): 5일 낙폭 후보 선별 + 분봉 기준선 수집 → shortlist 저장."""
     if not REVERSAL_BOT_ENABLED:
@@ -134,6 +149,7 @@ def nightly_screen():
             continue
         cands.append({"symbol": sym, "ret5": ret5, "prev_close": px,
                       "rsi14": _rsi14(closes[-20:]) or 50.0, "dv20": dv20})
+    cands = [c for c in cands if _is_common_stock(c["symbol"])]   # 보통주만(#247)
     logger.info(f"반전봇: 낙폭 후보 {len(cands)}개 — 분봉 기준선 수집")
 
     trade_dates = [c["date"] for c in toss.get_daily_candles("AAPL", count=RVOL_BASE_DAYS + 2)]

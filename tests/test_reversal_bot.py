@@ -115,3 +115,21 @@ def test_afternoon_exit_only_yesterday(monkeypatch):
                         lambda pid, px, rsn: (sold.append(pid) or (0.0, None)))
     rb.afternoon_exit()
     assert sold == [1], f"어제 포지션만 매도해야 함: {sold}"
+
+
+def test_is_common_stock_filters_etf(monkeypatch):
+    # #247 보통주만 — ETF/판정불가는 fail-closed로 제외
+    import reversal_bot as rb
+
+    class _T:
+        def __init__(self, sym): self._q = {"NVDU": "ETF", "AAPL": "EQUITY"}.get(sym)
+        @property
+        def info(self):
+            if self._q is None: raise RuntimeError("lookup fail")
+            return {"quoteType": self._q}
+
+    import yfinance
+    monkeypatch.setattr(yfinance, "Ticker", _T)
+    assert rb._is_common_stock("AAPL") is True
+    assert rb._is_common_stock("NVDU") is False
+    assert rb._is_common_stock("ZZZZ") is False   # 조회 실패 → 제외
