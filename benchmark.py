@@ -118,6 +118,14 @@ def _alpha(base, latest, key):
     return None if (b_ is None or i_ is None) else round(b_ - i_, 2)
 
 
+# 반전봇 7/28 환산(#253): ICB 수익률 기준일에 맞춰 InvestData 전방 1차 창을 라이브 앞에 연결.
+# +7.3%는 InvestData/quant/STRATEGY.md "전방 1차 창(2026-08-06~10-15)" 확정 기록(페이퍼).
+# 공백(7/28~8/5 · 10/16~22)은 현금 가정. 라이브 반전봇 가동일 = 2026-10-23.
+REVERSAL_FWD_RET = 0.073
+REVERSAL_FWD_SPAN = "08/06~10/15"
+ICB_BASELINE = "2026-07-28"
+
+
 def experimental_summary() -> dict:
     """실험 계좌(Q지수) 성과 — 메인 성적과 분리 추적. 검증되면 코어 승격 판단."""
     out = {}
@@ -141,6 +149,9 @@ def experimental_summary() -> dict:
             "wins": sum(1 for x in closed if (x.get("pnl") or 0) > 0),
             "losses": sum(1 for x in closed if (x.get("pnl") or 0) <= 0),
             "realized": pf.get("total_pnl", 0) or 0,
+            "baseline_date": ICB_BASELINE,
+            "baseline_return_pct": round(((1 + REVERSAL_FWD_RET) * (nav / seed) - 1) * 100, 2) if seed else None,
+            "fwd_window": {"ret_pct": REVERSAL_FWD_RET * 100, "span": REVERSAL_FWD_SPAN},
             "avg_trade_pct": round(sum(x.get("pnl_pct") or 0 for x in closed) / len(closed), 2) if closed else None,
             "recent": [{"date": (x.get("closed_at") or "")[:10], "code": x.get("code"),
                         "pnl_pct": x.get("pnl_pct")} for x in closed[:10]],
