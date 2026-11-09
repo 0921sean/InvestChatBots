@@ -256,8 +256,8 @@ async function loadExperimental() {
     document.getElementById('experimental').innerHTML =
       `<details class="brief" style="margin-bottom:18px"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#d2a8ff">🔬 반전봇 (비공개 실험 — T+1 규칙) — 펼쳐보기</summary>
        <div class="body" style="margin-top:8px">
-       <div style="font-size:12px;font-weight:700;color:${col(a.return_pct||0)}">수익률 ${(a.return_pct||0)>=0?'+':''}${a.return_pct}% (시드 ${(a.seed/10000).toLocaleString()}만 → 평가 ${(a.nav/10000).toFixed(0)}만)</div>
-       <div style="font-size:11px;color:#8b949e;margin:4px 0">${a.wins}승 ${a.losses}패 · 트레이드 평균 ${a.avg_trade_pct>=0?'+':''}${a.avg_trade_pct}% · 실현 ${Math.round(a.realized).toLocaleString()}원</div>
+       <div style="font-size:12px;font-weight:700;color:${col(a.baseline_return_pct??a.return_pct??0)}">${esc(a.baseline_date||'')} 기준 ${(a.baseline_return_pct??0)>=0?'+':''}${a.baseline_return_pct??a.return_pct}% <span style="font-weight:400;color:#8b949e">(전방 창 ${a.fwd_window?a.fwd_window.span:''} +${a.fwd_window?a.fwd_window.ret_pct.toFixed(1):''}% 연결 · 공백은 현금 가정)</span></div>
+       <div style="font-size:11px;color:#8b949e;margin:4px 0">라이브(10/23~) ${(a.return_pct||0)>=0?'+':''}${a.return_pct}% · 시드 ${(a.seed/10000).toLocaleString()}만 → 평가 ${(a.nav/10000).toFixed(0)}만 · ${a.wins}승 ${a.losses}패 · 평균 ${a.avg_trade_pct>=0?'+':''}${a.avg_trade_pct}%/건 · 실현 ${Math.round(a.realized).toLocaleString()}원</div>
        ${pos}<div style="margin-top:6px">${rec}</div></div></details>`;
   } catch (e) {}
 }

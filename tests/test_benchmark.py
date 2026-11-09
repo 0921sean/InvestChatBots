@@ -85,3 +85,14 @@ def test_seed_at_is_core_seed():
     assert benchmark._seed_at("2026-08-06") == 100_000_000.0    # 코어 시드 고정(Q지수 은퇴)
     assert benchmark._seed_at("2026-08-19") == 100_000_000.0
     assert benchmark._seed_at(None) is None
+
+
+def test_experimental_summary_baseline_chaining(tmp_path, monkeypatch):
+    # #253 반전봇 7/28 환산 = (1+전방창) × (NAV/시드) − 1
+    import db, benchmark
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "b.db"))
+    db.init_db(); db.ensure_desk_accounts(); db.ensure_reversal_account()
+    out = benchmark.experimental_summary()["반전봇"]
+    assert out["baseline_date"] == "2026-07-28"
+    # 트레이드 0 상태: NAV=시드 → 환산 = 전방 창 그대로 +7.3%
+    assert out["baseline_return_pct"] == 7.3
