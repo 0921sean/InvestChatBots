@@ -85,3 +85,14 @@ def test_openapi_schema_not_exposed():
     """라우트 인벤토리 공개 = 가드 누락 라우트를 찾는 지도."""
     for path in ("/openapi.json", "/docs", "/redoc"):
         assert client.get(path).status_code == 404
+
+
+def test_owner_token_url_login_removed():
+    # #248 URL 토큰 인증 채널 폐지 — 옛 경로는 쿠키 없이 /admin 리다이렉트만
+    from fastapi.testclient import TestClient
+    import main
+    c = TestClient(main.app)
+    r = c.get(f"/owner/{main.OWNER_TOKEN}", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/admin"
+    assert "set-cookie" not in {k.lower() for k in r.headers.keys()}

@@ -39,7 +39,7 @@ OWNER_TOKEN = os.getenv("OWNER_TOKEN")
 if not OWNER_TOKEN:
     OWNER_TOKEN = secrets.token_urlsafe(24)
     logger.warning(f"OWNER_TOKEN env var not set — generated ephemeral token: {OWNER_TOKEN}")
-    logger.warning(f"Owner 모드 진입: http://localhost:8001/owner/{OWNER_TOKEN}")
+    logger.warning("Owner 모드 진입: /admin 로그인 폼에서 위 토큰을 비밀번호로 입력")
 # /admin 로그인 페이지용 비번 (선택) — .env에 ADMIN_PASSWORD 설정 시 OWNER_TOKEN 대신 이걸 사용
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 COOKIE_NAME = "investchat_owner"
@@ -249,24 +249,12 @@ async def owner_guard(request: Request, call_next):
 
 
 # ── owner 로그인 / 신원 확인 ────────────────────────────────
-# 옛 결재 페이지(/owner/approvals · /owner/seeds)는 운영 콘솔(/admin)로 통합돼 폐지(2026-08-23).
-# 폰에 남은 옛 알림을 눌러도 막다른 403이 되지 않게 아래 owner_login에서 /admin으로 흘린다.
+# 옛 URL 토큰 로그인(/owner/{token})은 폐지(#248) — 토큰이 URL에 남는 유출 벡터(히스토리·로그).
+# 옛 ntfy 링크(/owner/approvals 등)가 404로 죽지 않게 리다이렉트만 남긴다. 쿠키 발급 없음.
 
-@app.get("/owner/{token}")
-def owner_login(token: str, request: Request):
-    """OWNER_TOKEN과 일치하면 쿠키 세팅 후 홈으로 리다이렉트.
-    이 URL은 본인만 알아야 하므로 .env에 OWNER_TOKEN을 직접 두고 사용."""
-    if not secrets.compare_digest(token, OWNER_TOKEN):
-        # 옛 /owner/approvals·/owner/seeds 링크가 여기로 떨어진다 → 로그인 화면으로.
-        # (쿠키는 발급 안 되므로 인증 우회가 아니다.)
-        return RedirectResponse("/admin")
-    resp = RedirectResponse(url="/")
-    resp.set_cookie(
-        COOKIE_NAME, OWNER_TOKEN,
-        max_age=60 * 60 * 24 * 365,  # 1년
-        httponly=True, samesite="lax", secure=_is_https(request),
-    )
-    return resp
+@app.get("/owner/{rest:path}")
+def owner_legacy_redirect(rest: str):
+    return RedirectResponse("/admin")
 
 
 @app.post("/api/owner/logout")
