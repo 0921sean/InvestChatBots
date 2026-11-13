@@ -258,8 +258,10 @@ async function loadExperimental() {
        <div class="body" style="margin-top:8px">
        ${(() => { const base = a.baseline_return_pct ?? a.return_pct ?? 0;
           const note = a.fwd_window ? `(전방 창 ${a.fwd_window.span} +${a.fwd_window.ret_pct.toFixed(1)}% 연결 · 공백은 현금 가정)` : '(라이브 구간만 — 백엔드 구버전)';
-          return `<div style="font-size:12px;font-weight:700;color:${col(base)}">${esc(a.baseline_date||'시드')} 기준 ${base>=0?'+':''}${base}% <span style="font-weight:400;color:#8b949e">${note}</span></div>`; })()}
-       <div style="font-size:11px;color:#8b949e;margin:4px 0">라이브(10/23~) ${(a.return_pct||0)>=0?'+':''}${a.return_pct}% · 시드 ${(a.seed/10000).toLocaleString()}만 → 평가 ${(a.nav/10000).toFixed(0)}만 · ${a.wins}승 ${a.losses}패 · 평균 ${a.avg_trade_pct>=0?'+':''}${a.avg_trade_pct}%/건 · 실현 ${Math.round(a.realized).toLocaleString()}원</div>
+          const ic = a.index_cmp || {};
+          const vs = w => w ? ` · 같은 기간 SPY ${(w.spy??0)>=0?'+':''}${w.spy}% · QQQ ${(w.qqq??0)>=0?'+':''}${w.qqq}%` : '';
+          return `<div style="font-size:12px;font-weight:700;color:${col(base)}">${esc(a.baseline_date||'시드')} 기준 ${base>=0?'+':''}${base}% <span style="font-weight:400;color:#8b949e">${note}${vs(ic.baseline)}</span></div>`; })()}
+       <div style="font-size:11px;color:#8b949e;margin:4px 0">라이브(10/23~) ${(a.return_pct||0)>=0?'+':''}${a.return_pct}%${(a.index_cmp&&a.index_cmp.live)?` (SPY ${(a.index_cmp.live.spy??0)>=0?'+':''}${a.index_cmp.live.spy}% · QQQ ${(a.index_cmp.live.qqq??0)>=0?'+':''}${a.index_cmp.live.qqq}%)`:''} · 시드 ${(a.seed/10000).toLocaleString()}만 → 평가 ${(a.nav/10000).toFixed(0)}만 · ${a.wins}승 ${a.losses}패 · 평균 ${a.avg_trade_pct>=0?'+':''}${a.avg_trade_pct}%/건 · 실현 ${Math.round(a.realized).toLocaleString()}원</div>
        ${pos}<div style="margin-top:6px">${rec}</div></div></details>`;
   } catch (e) {}
 }

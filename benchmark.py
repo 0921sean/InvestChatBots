@@ -121,9 +121,32 @@ def _alpha(base, latest, key):
 # 반전봇 7/28 환산(#253): ICB 수익률 기준일에 맞춰 InvestData 전방 1차 창을 라이브 앞에 연결.
 # +7.3%는 InvestData/quant/STRATEGY.md "전방 1차 창(2026-08-06~10-15)" 확정 기록(페이퍼).
 # 공백(7/28~8/5 · 10/16~22)은 현금 가정. 라이브 반전봇 가동일 = 2026-10-23.
+REVERSAL_LIVE_START = "2026-10-23"
 REVERSAL_FWD_RET = 0.073
 REVERSAL_FWD_SPAN = "08/06~10/15"
 ICB_BASELINE = "2026-07-28"
+
+
+def _index_windows() -> dict:
+    """반전봇 비교용 지수 수익률(#255) — 스냅샷 기반(네트워크 0).
+    baseline: ICB 기준일(7/28)~최신 / live: 반전봇 가동일(10/23)~최신."""
+    snaps = db.get_benchmark_snapshots()
+    if not snaps:
+        return {}
+    def _at(date_str, forward=True):
+        seq = snaps if forward else reversed(snaps)
+        for s_ in seq:
+            if (s_["date"] >= date_str) if forward else (s_["date"] <= date_str):
+                return s_
+        return None
+    latest = snaps[-1]
+    out = {}
+    for name, anchor in (("baseline", _at(ICB_BASELINE)), ("live", _at(REVERSAL_LIVE_START))):
+        if not anchor:
+            continue
+        out[name] = {k: _cum(anchor, latest, k) for k in ("spy", "qqq")}
+        out[name]["since"] = anchor["date"]
+    return out
 
 
 def experimental_summary() -> dict:
@@ -150,6 +173,7 @@ def experimental_summary() -> dict:
             "losses": sum(1 for x in closed if (x.get("pnl") or 0) <= 0),
             "realized": pf.get("total_pnl", 0) or 0,
             "baseline_date": ICB_BASELINE,
+            "index_cmp": _index_windows(),
             "baseline_return_pct": round(((1 + REVERSAL_FWD_RET) * (nav / seed) - 1) * 100, 2) if seed else None,
             "fwd_window": {"ret_pct": REVERSAL_FWD_RET * 100, "span": REVERSAL_FWD_SPAN},
             "avg_trade_pct": round(sum(x.get("pnl_pct") or 0 for x in closed) / len(closed), 2) if closed else None,
