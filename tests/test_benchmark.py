@@ -96,3 +96,18 @@ def test_experimental_summary_baseline_chaining(tmp_path, monkeypatch):
     assert out["baseline_date"] == "2026-07-28"
     # 트레이드 0 상태: NAV=시드 → 환산 = 전방 창 그대로 +7.3%
     assert out["baseline_return_pct"] == 7.3
+
+
+def test_index_windows_anchors(tmp_path, monkeypatch):
+    # #255 지수 비교 창 — baseline=7/28 이후 첫 스냅샷, live=10/23 이후 첫 스냅샷
+    import db, benchmark
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "iw.db"))
+    db.init_db()
+    db.save_benchmark_snapshot("2026-07-28", 1e8, 680.0, 30.0, 3200.0, 800.0, 740.0)
+    db.save_benchmark_snapshot("2026-10-23", 1e8, 700.0, 30.0, 3200.0, 800.0, 763.0)
+    db.save_benchmark_snapshot("2026-11-13", 1e8, 690.0, 30.0, 3200.0, 800.0, 757.0)
+    w = benchmark._index_windows()
+    assert w["baseline"]["since"] == "2026-07-28"
+    assert w["live"]["since"] == "2026-10-23"
+    assert w["baseline"]["spy"] == round((757/740-1)*100, 2)
+    assert w["live"]["spy"] == round((757/763-1)*100, 2)
